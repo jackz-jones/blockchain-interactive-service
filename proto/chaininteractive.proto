@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./";
+
+service ChainInteractive {
+
+  // GetTxByTxId 查询交易详情
+  rpc GetTxByTxId(GetTxByTxIdRequest) returns(TxResponse) {};
+
+  // CallContract 请求本地链合约，给提单平台用的
+  rpc CallContract(CallContractRequest) returns(TxResponse) {};
+
+  // GetAvailableChainAndContractNames 获取本地可访问的所有链名称，以及旗下的合约名称
+  rpc GetAvailableChainAndContractNames(GetAvailableChainAndContractNamesRequest) returns(GetAvailableChainAndContractNamesResponse) {};
+}
+
+message GetTxByTxIdRequest {
+  string requestId = 1; // 请求id，日志追踪
+  string txId = 2; // 交易 id
+  string chainName = 3; // 哪条链
+}
+
+message TxResponse {
+  int32 code = 1; // 错误码
+  string msg = 2; // 错误信息
+  TxData data = 3; // 交易结果
+}
+
+message TxData {
+  string chainName = 1; // 哪条链
+  string content = 2; // 交易内容，json 字符串
+  bool pending = 3; // 是否打包块中，true 表示还没打包，false 表示已打包
+  string txId = 4; // 交易 id
+}
+
+// 合约调用参数 key-value
+message KeyValuePair {
+  string key = 1; // 参数名称
+  bytes value = 2; // 参数值
+}
+
+// 合约调用类型
+enum MethodType {
+  UNDEFINED = 0; // 未知类型
+  Invoke = 1; // 写链类型
+  Query = 2; // 读链类型
+}
+
+message CallContractRequest {
+  string requestId = 1;
+  string chainName = 2; // 哪条链
+  string contractName = 3; // 合约名称
+  string contractMethod = 4; // 合约方法
+  repeated KeyValuePair kvPairs = 5; // 合约参数
+  MethodType methodType = 6; // 合约调用类型
+  bool withSyncResult = 7; // 异步还是同步上链
+  int64 txTimeout = 8; // 交易超时时间，单位秒，默认会 30s
+}
+
+message GetAvailableChainAndContractNamesRequest {
+  string requestId = 1;
+}
+
+// 链类型
+enum ChainType {
+  Ethereum = 0; // 以太坊
+  Chainmaker = 1; // 长安链
+}
+
+// 合约类型
+enum ContractType {
+  Notification = 0; // 消息通知合约
+  Nft = 1; // nft 合约
+}
+
+message ContractDesc {
+  string contractName = 1; // 合约配置名称
+  ContractType contractType = 2; // 合约类型
+  string contractAddress = 3; // 合约地址，以太坊合约会返回
+  string abi = 4; // 合约 abi，以太坊合约会返回
+}
+
+message ChainAndContractName {
+  string chainName = 1; // 链配置名称
+  ChainType chainType = 2; // 链类型
+  repeated ContractDesc contractDescs = 3;  // 链下的合约配置列表
+}
+
+message GetAvailableChainAndContractNamesResponse {
+  int32 code = 1;
+  string msg = 2;
+  repeated ChainAndContractName data = 3;
+}

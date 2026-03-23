@@ -1,0 +1,9 @@
+.idea
+.DS_Store
+logs
+chain-interactive-service
+proto/common.proto
+sdk.log*
+cover.out
+vendor
+client

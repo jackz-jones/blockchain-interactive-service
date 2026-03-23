@@ -1,0 +1,158 @@
+Name: chaininteractive.rpc
+ListenOn: 0.0.0.0:8085
+
+# 当前服务请求超时时间是 30s
+Timeout: 30000
+
+# 环境：dev、test、pre、prod
+Mode: dev
+
+Log:
+  # 服务名称
+  ServiceName: chain-interactive-service
+  # 日志输出到文件
+  Mode: file
+  # 日志输出文件路径
+  Path: logs
+  # 日志级别
+  Level: info
+  # 是否压缩日志
+  Compress: true
+  # 日志保留天数，只有在文件模式才会生效
+  KeepDays: 7
+  # 按天切割日志
+  Rotation: daily
+
+# 基于 OpenTelemetry 的日志收集链路追踪
+Telemetry:
+  # 链路追踪开关，不配置默认是开启
+  Disabled: true
+  # 链路追踪服务名称，跟服务名称保持一致即可
+  Name: chain.rpc
+  # 链路追踪服务端地址
+  Endpoint: http://jaeger:14268/api/traces
+  # 采样率，不配置默认是 1.0
+  Sampler: 1.0
+  # 支持 jaeger|zipkin|otlpgrpc|otlphttp 这些链路追踪工具，不配置默认 jaeger
+  Batcher: jaeger
+
+# 监控，默认都是开启，主要调整端口和监控访问路由
+DevServer:
+  # 监控指标和健康检查的总开关，不配置是默认开启
+  Enable: true
+  # 监控指标和健康检查的端口
+  Port: 6061
+  # 健康检查路由，不配置是默认 /healthz
+  HealthPath: "/healthz"
+  # 健康检查返回，不配置默认是 OK
+  HealthResponse: "OK"
+  # 监控指标路由，不配置是默认 /metrics
+  MetricsPath: "/metrics"
+
+# grpc 通信服务端证书私钥
+GrpcConf:
+  #CaCertFile: ./cert/ca/ca.pem
+  #ServerCertFile: ./cert/chain-service/server.pem
+  #ServerKeyFile: ./cert/chain-service/server.key
+
+  CaCertFile: ""
+  ServerCertFile: ""
+  ServerKeyFile: ""
+  # 接收、发送消息大小设置为 20 mb，根据服务实际场景调整
+  MaxRecvMsgSize: 20971520
+  MaxSendMsgSize: 20971520
+
+SubscribeConf:
+  # redis 部署类型，单节点:node,集群:cluster,哨兵:sentinel
+  ConfType: node
+  # 集群方式下，多个 redis 地址用逗号分隔
+  RedisAddr: "192.168.1.135:6379"
+  RedisUserName: ""
+  RedisPassword: "123456"
+  # 哨兵模式的MasterName，其他模式可忽略
+  MasterName: ""
+
+# 链配置列表
+ChainConfs:
+  # 链配置名称，需要配置唯一，避免和其他链配置命名冲突
+  chainmaker01:
+    # 是否启用该链
+    Enable: false
+    # 链类型,枚举值：ethereum、chainmaker
+    ChainType: "chainmaker"
+    # 链访问连接信息配置
+    SdkConf:
+      # 长安链 sdk 配置文件路径
+      ConfFilePath: ./etc/chainmaker_sdk_config.yml
+    ContractConfs:
+      # 合约配置名称，需要配置唯一，避免和其他合约配置冲突
+      notification:
+        # 是否开启订阅
+        EnableSubscribe: true
+        # 合约类型,枚举值：notification、nft
+        ContractType: "notification"
+        # 消息通知合约名称
+        ContractName: "notificationv100"
+        # 合约部署高度
+        DeployBlockHeight: 5
+      nft:
+        # 是否开启订阅
+        EnableSubscribe: true
+        # 合约类型,枚举值：notification、nft
+        ContractType: "nft"
+        # nft合约名称
+        ContractName: "nftv100"
+        # 合约部署高度
+        DeployBlockHeight: 4
+
+  ethereum01:
+    # 是否启用该链
+    Enable: false
+    # 链类型,枚举值：ethereum、chainmaker
+    ChainType: "ethereum"
+    # 链访问连接信息配置
+    SdkConf:
+      # 以太坊节点访问配置
+      EthConf:
+        # 链 id
+        ChainId: 3151908
+        # 节点 http url，用于发送交易
+        HttpUrl: "http://192.168.1.172:8545"
+        # 节点 websocket url，用于订阅事件
+        WebsocketUrl: "ws://192.168.1.172:8546"
+        # 私钥 hex 字符串，用于交易签名，对应以太坊地址是 0x8943545177806ED17B9F23F0a21ee5948eCaa776
+        PrivateKey: "bcdf20249abf0ed6d944c0288fad489e33f66b3960d9e6229c1cd214ed3bbe31"
+        # 发交易的 gas limit
+        GasLimit: 1000000
+    ContractConfs:
+      # 合约配置名称，需要配置唯一，避免和其他合约配置冲突
+      notification:
+        # 是否开启订阅
+        EnableSubscribe: true
+        # 合约类型,枚举值：notification、nft
+        ContractType: "notification"
+        # 消息通知合约地址
+        ContractAddr: "0x314b0fD426A57bebaC8727C37bb56DD541D8A6B0"
+        # 消息通知合约 abi
+        Abi: ./etc/notification.json
+        # 合约部署高度
+        DeployBlockHeight: 30
+        # 轮训以太坊历史事件的间隔时间：ms
+        GetHistoryEventInterval: 500
+        # 轮训以太坊历史事件的区块高度窗口大小
+        GetHistoryEventHeightWindow: 100
+      nft:
+        # 是否开启订阅
+        EnableSubscribe: true
+        # 合约类型,枚举值：notification、nft
+        ContractType: "nft"
+        # 消息通知合约地址
+        ContractAddr: "0xA5D0D4A769740c803f20C5DFdB429Ebf135B21Cc"
+        # 消息通知合约 abi
+        Abi: ./etc/nft.json
+        # 合约部署高度
+        DeployBlockHeight: 27
+        # 轮训以太坊历史事件的间隔时间：ms
+        GetHistoryEventInterval: 500
+        # 轮训以太坊历史事件的区块高度窗口大小
+        GetHistoryEventHeightWindow: 100
