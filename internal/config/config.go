@@ -1,6 +1,10 @@
 package config
 
-import "github.com/zeromicro/go-zero/zrpc"
+import (
+	"errors"
+
+	"github.com/zeromicro/go-zero/zrpc"
+)
 
 type Config struct {
 	zrpc.RpcServerConf
@@ -127,4 +131,18 @@ type ContractConf struct {
 	// nolint:staticcheck
 	// GetHistoryEventHeightWindow 轮训以太坊历史事件的区块高度窗口大小
 	GetHistoryEventHeightWindow uint64 `json:",optional"`
+}
+
+// Validate validate config
+func (c *Config) Validate() error {
+	if c.ListenOn == "" {
+		return errors.New("listen address is required")
+	}
+
+	if len(c.ChainConfs) == 0 {
+		return errors.New("at least one chain configuration is required")
+	}
+
+	// todo: 添加更多验证逻辑
+	return nil
 }

@@ -33,6 +33,13 @@ func main() {
 
 	var c config.Config
 	conf.MustLoad(*configFile, &c)
+
+	// 验证配置是否合法
+	if err := c.Validate(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
 	ctx := svc.NewServiceContext(c)
 
 	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {
