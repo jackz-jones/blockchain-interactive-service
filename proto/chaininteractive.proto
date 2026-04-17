@@ -67,6 +67,7 @@ message GetAvailableChainAndContractNamesRequest {
 enum ChainType {
   Ethereum = 0; // 以太坊
   Chainmaker = 1; // 长安链
+  Solana = 2; // Solana链
 }
 
 // 合约类型

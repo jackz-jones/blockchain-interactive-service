@@ -59,7 +59,7 @@ type ChainConf struct {
 	// Enable 是否启用该链
 	Enable bool
 
-	// ChainType 链类型,枚举值：ethereum、chainmaker
+	// ChainType 链类型,枚举值：ethereum、chainmaker、solana
 	ChainType string
 
 	// 连接链需要的配置信息
@@ -79,6 +79,10 @@ type SdkConf struct {
 	// nolint:staticcheck
 	// EthConf 以太坊链需要的配置信息
 	EthConf EthConf `json:",optional"`
+
+	// nolint:staticcheck
+	// SolanaConf Solana链需要的配置信息
+	SolanaConf SolanaConf `json:",optional"`
 }
 
 // EthConf contain all config items for ethereum chain
@@ -98,6 +102,28 @@ type EthConf struct {
 
 	// gas limit
 	GasLimit uint64
+}
+
+// SolanaConf contain all config items for solana chain
+type SolanaConf struct {
+
+	// RpcUrl Solana 节点 RPC URL
+	RpcUrl string
+
+	// WsUrl Solana 节点 WebSocket URL，用于订阅事件
+	WsUrl string
+
+	// PrivateKey 私钥 base58 字符串，用于交易签名
+	PrivateKey string
+
+	// CommitmentLevel 确认级别：processed、confirmed、finalized
+	CommitmentLevel string
+
+	// SkipPreflight 是否跳过预检
+	SkipPreflight bool
+
+	// MaxRetries 最大重试次数
+	MaxRetries int
 }
 
 // ContractConf contain all config items for contract

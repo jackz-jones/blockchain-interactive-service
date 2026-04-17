@@ -73,6 +73,19 @@ func GetSDKClient(sdkClients *sync.Map, chainConfName string, logger logx.Logger
 		logger.Infof("success to create chainmaker sdk client for %s", chainConfName)
 		return chainMakerClient, nil
 
+	case strings.ToLower(pb.ChainType_Solana.String()):
+		solanaClient, err2 := NewSolanaClient(context.Background(), chainConf.SdkConf.SolanaConf,
+			chainConf.ContractConfs, redisClient)
+		if err2 != nil {
+			logger.Errorf("failed to NewSolanaClient: %v", err2)
+			return nil, fmt.Errorf("failed to NewSolanaClient for %s: %v", chainConfName, err2)
+		}
+
+		// 缓存 Solana sdk client
+		sdkClients.Store(chainConfName, solanaClient)
+		logger.Infof("success to create solana sdk client for %s", chainConfName)
+		return solanaClient, nil
+
 	default:
 		logger.Errorf("unknown chain type: %s", chainConf.ChainType)
 		return nil, fmt.Errorf("unknown chain type: %s, please check chain config for %s", chainConf.ChainType, chainConfName)

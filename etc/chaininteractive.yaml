@@ -105,6 +105,39 @@ ChainConfs:
         # 合约部署高度
         DeployBlockHeight: 4
 
+  solana01:
+    # 是否启用该链
+    Enable: false
+    # 链类型,枚举值：ethereum、chainmaker、solana
+    ChainType: "solana"
+    # 链访问连接信息配置
+    SdkConf:
+      # Solana 链配置信息
+      SolanaConf:
+        # Solana 节点 RPC URL（建议使用 QuickNode 公共 Devnet 节点，官方节点 api.devnet.solana.com 可能不可用）
+        RpcUrl: "https://docs-demo.solana-devnet.quiknode.pro/"
+        # Solana 节点 WebSocket URL
+        WsUrl: "wss://docs-demo.solana-devnet.quiknode.pro/"
+        # 私钥 base58 字符串，用于交易签名（Solana Devnet 测试私钥）
+        PrivateKey: "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG"
+        # 确认级别：processed、confirmed、finalized
+        CommitmentLevel: "confirmed"
+        # 是否跳过预检
+        SkipPreflight: false
+        # 最大重试次数
+        MaxRetries: 3
+    ContractConfs:
+      # 合约配置名称，需要配置唯一，避免和其他合约配置冲突
+      notification:
+        # 是否开启订阅
+        EnableSubscribe: true
+        # 合约类型,枚举值：notification、nft
+        ContractType: "notification"
+        # 合约地址（Solana 合约即程序ID，base58 格式）
+        ContractAddr: "11111111111111111111111111111111"
+        # 合约部署高度
+        DeployBlockHeight: 0
+
   ethereum01:
     # 是否启用该链
     Enable: false
