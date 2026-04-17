@@ -135,8 +135,8 @@ func (c *SolanaClient) GetTxByTxId(txId string) (string, bool, error) {
 	return string(txBytes), isPending, nil
 }
 
-// SendTransaction 发送交易
-func (c *SolanaClient) SendTransaction(methodType pb.MethodType, contractConfigName, method string,
+// CallContract 调用合约
+func (c *SolanaClient) CallContract(methodType pb.MethodType, contractConfigName, method string,
 	args []*pb.KeyValuePair, txTimeout int64, withSyncResult bool) (string, string, error) {
 
 	var (

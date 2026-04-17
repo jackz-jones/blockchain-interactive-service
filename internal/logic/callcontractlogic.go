@@ -75,7 +75,7 @@ func (l *CallContractLogic) CallContract(in *pb.CallContractRequest) (*pb.TxResp
 	if in.TxTimeout <= 0 {
 		txTimeout = 30
 	}
-	txId, txData, err := sdkClient.SendTransaction(in.MethodType, in.ContractName, in.ContractMethod,
+	txId, txData, err := sdkClient.CallContract(in.MethodType, in.ContractName, in.ContractMethod,
 		in.KvPairs, txTimeout, in.WithSyncResult)
 	fields["txId"] = txId
 	if err != nil {

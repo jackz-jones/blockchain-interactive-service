@@ -83,8 +83,8 @@ func (c *ChainMakerClient) GetTxByTxId(txId string) (string, bool, error) {
 
 }
 
-// SendTransaction 发送交易
-func (c *ChainMakerClient) SendTransaction(methodType pb.MethodType, contractConfigName, method string,
+// CallContract 调用合约
+func (c *ChainMakerClient) CallContract(methodType pb.MethodType, contractConfigName, method string,
 	args []*pb.KeyValuePair, txTimeout int64, withSyncResult bool) (string, string, error) {
 	var (
 		txResp *common.TxResponse

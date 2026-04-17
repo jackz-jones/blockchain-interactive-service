@@ -9,7 +9,7 @@ import (
 type ChainSdkInterface interface {
 
 	/**
-	 * @Description: SendTransaction 调用 eth_sendTransaction 方法，交易执行状态会上链，一般用于写数据类型调用
+	 * @Description: CallContract 调用合约
 
 	 * @param methodType 合约调用类型：1（Invoke），2（Query）
 	 * @param contractConfigName 合约配置名称
@@ -23,7 +23,7 @@ type ChainSdkInterface interface {
 	 * @return error 错误信息
 	 */
 
-	SendTransaction(methodType pb.MethodType, contractConfigName, method string, args []*pb.KeyValuePair,
+	CallContract(methodType pb.MethodType, contractConfigName, method string, args []*pb.KeyValuePair,
 		txTimeout int64, withSyncResult bool) (string, string, error)
 
 	/**

@@ -221,7 +221,7 @@ func TestSolanaClient_SendTransaction_UnknownContract(t *testing.T) {
 	}
 	defer client.Stop()
 
-	_, _, err = client.SendTransaction(pb.MethodType_Invoke, "unknown_contract", "method", nil, 30, true)
+	_, _, err = client.CallContract(pb.MethodType_Invoke, "unknown_contract", "method", nil, 30, true)
 	assert.Error(t, err, "使用未知合约配置名应该返回错误")
 	assert.Contains(t, err.Error(), "unknown contract config name", "错误信息应包含 'unknown contract config name'")
 }
@@ -468,9 +468,9 @@ func TestSolanaClient_SendTransaction_QueryMethod(t *testing.T) {
 	defer client.Stop()
 
 	// 查询类型的交易应该使用 SimulateTransaction 来查询状态
-	_, _, err = client.SendTransaction(pb.MethodType_Query, "test_contract", "method", nil, 30, false)
+	_, _, err = client.CallContract(pb.MethodType_Query, "test_contract", "method", nil, 30, false)
 	// 查询类型可能会因为模拟交易失败而返回错误，这是预期的
-	t.Logf("SendTransaction 查询类型返回: err=%v", err)
+	t.Logf("CallContract 查询类型返回: err=%v", err)
 }
 
 // TestSolanaClient_ContextCancellation 测试上下文取消

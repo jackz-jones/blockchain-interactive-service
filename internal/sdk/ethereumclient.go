@@ -161,8 +161,8 @@ func (c *EthereumClient) GetTxByTxId(txId string) (string, bool, error) {
 	return ethTx.String(), false, nil
 }
 
-// SendTransaction 调用 eth_sendTransaction 方法，交易执行状态会上链，一般用于写数据类型调用
-func (c *EthereumClient) SendTransaction(methodType pb.MethodType, contractConfigName, method string,
+// CallContract 调用合约
+func (c *EthereumClient) CallContract(methodType pb.MethodType, contractConfigName, method string,
 	kvs []*pb.KeyValuePair, txTimeout int64, withSyncResult bool) (string, string, error) {
 	var (
 
@@ -307,7 +307,7 @@ func (c *EthereumClient) InvokeContract(contractAddr, abiStr, method string, arg
 	// 发送交易
 	err = c.httpClient.SendTransaction(c.ctx, signedTx)
 	if err != nil {
-		return "", fmt.Errorf("failed to SendTransaction: %v", err)
+		return "", fmt.Errorf("failed to CallContract: %v", err)
 	}
 
 	return signedTx.Hash().Hex(), nil
