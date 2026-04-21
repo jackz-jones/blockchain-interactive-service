@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,9 +24,8 @@ type SolanaClient struct {
 	// 合约配置，配置名称--》合约信息
 	contractConfigs map[string]*config.ContractConf
 
-	// RPC 和 WebSocket 连接
+	// RPC 连接
 	rpcClient     *rpc.Client
-	wsClient      *rpc.Client
 	privateKey    solana.PrivateKey
 	fromAddress   solana.PublicKey
 	commitment    rpc.CommitmentType
@@ -46,16 +46,8 @@ func NewSolanaClient(ctx context.Context, solanaConf config.SolanaConf, contract
 		return nil, errors.New("rpc url is empty")
 	}
 
-	// 验证 WebSocket URL 不为空
-	if solanaConf.WsUrl == "" {
-		return nil, errors.New("ws url is empty")
-	}
-
 	// 建立 RPC 连接
 	rpcClient := rpc.New(solanaConf.RpcUrl)
-
-	// 建立 WebSocket 连接
-	wsClient := rpc.New(solanaConf.WsUrl)
 
 	// 解析私钥
 	privateKey, err := solana.PrivateKeyFromBase58(solanaConf.PrivateKey)
@@ -83,7 +75,6 @@ func NewSolanaClient(ctx context.Context, solanaConf config.SolanaConf, contract
 		ctx:             ctx,
 		contractConfigs: contractConfs,
 		rpcClient:       rpcClient,
-		wsClient:        wsClient,
 		privateKey:      privateKey,
 		fromAddress:     fromAddress,
 		commitment:      commitment,
@@ -192,7 +183,7 @@ func (c *SolanaClient) CallContract(methodType pb.MethodType, contractConfigName
 							continue
 						}
 						txResp = txDetails
-						break
+						goto confirmed
 					}
 
 				case <-time.After(time.Duration(txTimeout) * time.Second):
@@ -203,6 +194,7 @@ func (c *SolanaClient) CallContract(methodType pb.MethodType, contractConfigName
 					return txId, string(txBytes), fmt.Errorf("sync to get transaction confirmation timeout")
 				}
 			}
+		confirmed:
 		}
 
 	case pb.MethodType_Query:
@@ -348,7 +340,11 @@ func (c *SolanaClient) createInstructionData(method string, args []*pb.KeyValueP
 
 // Stop 停止客户端
 func (c *SolanaClient) Stop() error {
-	// Solana RPC 客户端没有明确的关闭方法
+	if c.rpcClient != nil {
+		if err := c.rpcClient.Close(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -402,17 +398,247 @@ func (c *SolanaClient) SubscribeContractEvent(contractConf config.ContractConf, 
 	c.Logger.WithFields(logFields...).Infof("success to GetLatestBlockHeight %d for solana chain %s contract %s", height,
 		chainConfName, contractConfName)
 
-	// 订阅日志事件（Solana 使用日志订阅来监听合约事件）
-	// TODO: 实现 Solana 事件订阅功能
-	// 目前先返回成功，后续需要根据 solana-go 库的API实现具体订阅逻辑
-	c.Logger.WithFields(logFields...).Info("Solana event subscription not implemented yet")
+	// 使用轮询方式获取合约事件（不采用 WebSocket 实时订阅，因为实时方式无法控制连续同步，可能出现事件遗漏）
+	go c.getHistoryEvents(chainConfName, contractConfName, chainType, contractType, height, logFields)
+
+	c.Logger.WithFields(logFields...).Info("Solana event subscription started successfully")
 
 	return nil
 }
 
-// handleLogEvents 处理日志事件
-func (c *SolanaClient) handleLogEvents(chainConfName, contractConfName,
+// getHistoryEvents 轮询获取历史事件
+// 使用 GetSignaturesForAddressWithOpts 轮询合约相关的已确认交易签名，
+// 然后获取每笔交易的详情来解析事件数据。
+// 注意：GetSignaturesForAddress API 是按签名从新到旧遍历的，不支持按 slot 范围过滤，
+// MinContextSlot 只是保证查询在某个最低 slot 高度上执行，不是过滤条件。
+// 因此正确的做法是：每次轮询获取最近的签名，过滤出 slot >= currentSlot 的新签名，
+// 按 slot 从小到大排序处理，确保事件不遗漏且有序。
+func (c *SolanaClient) getHistoryEvents(chainConfName, contractConfName,
 	chainType, contractType string, startSlot uint64, logFields []logx.LogField) {
-	// TODO: 实现 Solana 事件处理逻辑
-	c.Logger.WithFields(logFields...).Info("Solana event handling not implemented yet")
+
+	contractConf, ok := c.contractConfigs[contractConfName]
+	if !ok {
+		c.Logger.WithFields(logFields...).Errorf("contract config not found: %s", contractConfName)
+		return
+	}
+
+	// 解析合约地址（Program ID）
+	programID, err := solana.PublicKeyFromBase58(contractConf.ContractAddr)
+	if err != nil {
+		c.Logger.WithFields(logFields...).Errorf("invalid contract address: %v", err)
+		return
+	}
+
+	// 轮询间隔：默认 5 秒
+	interval := time.Duration(contractConf.GetHistoryEventInterval) * time.Millisecond
+	if interval == 0 {
+		interval = 5000 * time.Millisecond
+	}
+
+	// 每次查询返回的最大签名数量：默认 1000（API 最大值）
+	queryLimit := contractConf.GetHistoryEventHeightWindow
+	if queryLimit == 0 {
+		queryLimit = 1000
+	}
+
+	key := strings.Join([]string{chainType, chainConfName, contractType, contractConfName}, "#")
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	currentSlot := startSlot
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			c.Logger.WithFields(logFields...).Info("getHistoryEvents context done, exiting")
+			return
+		case <-ticker.C:
+			// 获取当前链的最新 slot 高度
+			latestSlot, slotErr := c.rpcClient.GetSlot(c.ctx, c.commitment)
+			if slotErr != nil {
+				c.Logger.WithFields(logFields...).Errorf("failed to get latest slot: %v", slotErr)
+				continue
+			}
+
+			// 如果当前处理位置已追上最新高度，则跳过本次轮询
+			if currentSlot > latestSlot {
+				continue
+			}
+
+			// 收集所有 slot >= currentSlot 的新签名
+			newSigs := c.fetchNewSignatures(programID, currentSlot, queryLimit, logFields)
+
+			// 如果没有新签名，推进 currentSlot 到 latestSlot + 1，避免重复查询
+			if len(newSigs) == 0 {
+				if setErr := c.redisClient.SetLatestBlockHeight(c.ctx, key, latestSlot); setErr != nil {
+					c.Logger.WithFields(logFields...).Errorf("failed to set latest block height: %v", setErr)
+				} else {
+					c.Logger.WithFields(logFields...).Infof("no new events, updated slot to %d", latestSlot)
+				}
+				currentSlot = latestSlot + 1
+				continue
+			}
+
+			// 按 slot 从小到大排序，确保事件按顺序处理
+			sortTransactionSignatures(newSigs)
+
+			c.Logger.WithFields(logFields...).Infof("found %d new signatures since slot %d", len(newSigs), currentSlot)
+
+			// 处理每笔交易的事件
+			processedSlot := c.processTransactionSignatures(newSigs, currentSlot,
+				chainConfName, contractConfName, chainType, contractType, logFields)
+
+			// 更新 Redis 中已处理的 slot 高度
+			if processedSlot > currentSlot {
+				if setErr := c.redisClient.SetLatestBlockHeight(c.ctx, key, processedSlot); setErr != nil {
+					c.Logger.WithFields(logFields...).Errorf("failed to set latest block height: %v", setErr)
+				} else {
+					c.Logger.WithFields(logFields...).Infof("updated processed slot to %d", processedSlot)
+				}
+				currentSlot = processedSlot + 1
+			}
+		}
+	}
+}
+
+// fetchNewSignatures 获取所有 slot >= currentSlot 的新交易签名
+// 由于 GetSignaturesForAddress API 从新到旧返回，可能需要分页获取
+func (c *SolanaClient) fetchNewSignatures(programID solana.PublicKey, currentSlot uint64,
+	queryLimit uint64, logFields []logx.LogField) []*rpc.TransactionSignature {
+
+	var newSigs []*rpc.TransactionSignature
+	var beforeSig solana.Signature
+
+	for {
+		opts := &rpc.GetSignaturesForAddressOpts{
+			Commitment: c.commitment,
+			Limit:      ptrInt(int(queryLimit)),
+		}
+
+		// 如果有分页参数，设置 Before 从上一批最旧的签名继续往前查
+		if !beforeSig.IsZero() {
+			opts.Before = beforeSig
+		}
+
+		signatures, err := c.rpcClient.GetSignaturesForAddressWithOpts(
+			c.ctx,
+			programID,
+			opts,
+		)
+		if err != nil {
+			c.Logger.WithFields(logFields...).Errorf("failed to get signatures for address: %v", err)
+			break
+		}
+
+		if len(signatures) == 0 {
+			break
+		}
+
+		// 过滤出 slot >= currentSlot 的签名
+		hasOldSigs := false
+		for _, sig := range signatures {
+			if sig.Slot >= currentSlot {
+				newSigs = append(newSigs, sig)
+			} else {
+				hasOldSigs = true
+			}
+		}
+
+		// 如果已经遇到旧签名，说明已遍历到 currentSlot 之前，无需继续分页
+		if hasOldSigs {
+			break
+		}
+
+		// 如果返回数量小于查询限制，说明已获取所有签名，无需分页
+		if len(signatures) < int(queryLimit) {
+			break
+		}
+
+		// 需要继续分页，使用本批最旧的签名作为下次查询的 Before 参数
+		beforeSig = signatures[len(signatures)-1].Signature
+	}
+
+	return newSigs
+}
+
+// processTransactionSignatures 处理交易签名列表，返回已处理的最大 slot
+func (c *SolanaClient) processTransactionSignatures(sigs []*rpc.TransactionSignature, currentSlot uint64,
+	chainConfName, contractConfName, chainType, contractType string, logFields []logx.LogField) uint64 {
+
+	processedSlot := currentSlot
+	for _, txSig := range sigs {
+		// 获取交易详情
+		txResult, err := c.rpcClient.GetTransaction(c.ctx, txSig.Signature, &rpc.GetTransactionOpts{
+			Commitment: c.commitment,
+		})
+		if err != nil {
+			c.Logger.WithFields(logFields...).Errorf("failed to get transaction %s: %v", txSig.Signature.String(), err)
+			continue
+		}
+
+		if txResult == nil {
+			continue
+		}
+
+		// 解析交易日志并发布事件
+		c.processAndPublishEvent(txResult, txSig.Signature.String(), txSig.Slot,
+			chainConfName, contractConfName, chainType, contractType, logFields)
+
+		// 记录已处理的最大 slot
+		if txSig.Slot > processedSlot {
+			processedSlot = txSig.Slot
+		}
+	}
+	return processedSlot
+}
+
+// sortTransactionSignatures 按 slot 从小到大排序交易签名，确保事件按区块顺序处理
+func sortTransactionSignatures(sigs []*rpc.TransactionSignature) {
+	sort.Slice(sigs, func(i, j int) bool {
+		return sigs[i].Slot < sigs[j].Slot
+	})
+}
+
+// processAndPublishEvent 解析交易结果并发布事件到 Redis
+func (c *SolanaClient) processAndPublishEvent(txResult *rpc.GetTransactionResult, signature string, slot uint64,
+	chainConfName, contractConfName, chainType, contractType string, logFields []logx.LogField) {
+
+	if txResult == nil || txResult.Meta == nil {
+		return
+	}
+
+	// 构建事件数据
+	eventData := map[string]interface{}{
+		"signature": signature,
+		"slot":      slot,
+		"logs":      txResult.Meta.LogMessages,
+		"err":       txResult.Meta.Err,
+	}
+
+	// 如果有区块时间，也加入事件数据
+	if txResult.BlockTime != nil {
+		eventData["blockTime"] = txResult.BlockTime.Time().Unix()
+	}
+
+	eventBytes, err := json.Marshal(eventData)
+	if err != nil {
+		c.Logger.WithFields(logFields...).Errorf("failed to marshal event data: %v", err)
+		return
+	}
+
+	// 发布事件到 Redis
+	err = c.redisClient.PublishTradeGuardEventToStream(c.ctx, string(eventBytes), chainType,
+		chainConfName, contractConfName, contractType,
+		c.contractConfigs[contractConfName].ContractType)
+	if err != nil {
+		c.Logger.WithFields(logFields...).Errorf("failed to publish event to redis: %v", err)
+		return
+	}
+
+	c.Logger.WithFields(logFields...).Infof("published history event: signature=%s, slot=%d", signature, slot)
+}
+
+// ptrInt 返回 int 的指针，用于 rpc.GetSignaturesForAddressOpts 的 Limit 字段
+func ptrInt(v int) *int {
+	return &v
 }
