@@ -59,7 +59,7 @@ func (l *CallContractLogic) CallContract(in *pb.CallContractRequest) (*pb.TxResp
 	}
 
 	// 获取sdk客户端
-	sdkClient, err := sdk.GetSDKClient(&l.svcCtx.SDKClients, in.ChainName, l.Logger, chainConf,
+	sdkClient, err := sdk.GetSDKClient(l.svcCtx.RootCtx, &l.svcCtx.SDKClients, in.ChainName, l.Logger, chainConf,
 		l.svcCtx.Config.Log, l.svcCtx.RedisClient)
 	if err != nil {
 		fields["err"] = err

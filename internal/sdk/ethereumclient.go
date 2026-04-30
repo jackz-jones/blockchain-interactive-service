@@ -44,7 +44,11 @@ type EthereumClient struct {
 
 	// 合约事件处理器集合
 	ethEventHandlers map[string]*commonEvent.EthEventHandler
-	redisClient      *commonEvent.RedisClient
+
+	// abiJsonCache 合约 ABI JSON 字符串缓存（contractConfigName -> abiJson），
+	// 避免 CallContract 每次调用都重复读取磁盘 ABI 文件。
+	abiJsonCache map[string]string
+	redisClient  *commonEvent.RedisClient
 }
 
 // NewEthereumClient 创建一个 EthereumClient 对象
@@ -78,6 +82,7 @@ func NewEthereumClient(ctx context.Context, ethConf config.EthConf, contractConf
 
 	// 初始化合约事件处理器
 	ethEventHandlers := make(map[string]*commonEvent.EthEventHandler)
+	abiJsonCache := make(map[string]string)
 	for contractConfName, c := range contractConfs {
 
 		// 读取 abi 文件
@@ -93,6 +98,7 @@ func NewEthereumClient(ctx context.Context, ethConf config.EthConf, contractConf
 		}
 
 		ethEventHandlers[contractConfName] = eventHandler
+		abiJsonCache[contractConfName] = abiJson
 	}
 
 	return &EthereumClient{
@@ -106,6 +112,7 @@ func NewEthereumClient(ctx context.Context, ethConf config.EthConf, contractConf
 		wsClient:         *wsClient,
 		Logger:           logx.WithContext(ctx),
 		ethEventHandlers: ethEventHandlers,
+		abiJsonCache:     abiJsonCache,
 		redisClient:      redisClient,
 	}, nil
 }
@@ -180,10 +187,16 @@ func (c *EthereumClient) CallContract(methodType pb.MethodType, contractConfigNa
 
 	contractAddr := contractConf.ContractAddr
 
-	// 读取 abi 字符串
-	abiStr, err := util.ReadAbiJsonFile(contractConf.Abi)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to ReadAbiJsonFile: %v", err)
+	// 优先使用启动时缓存的 ABI，避免每次调用都重复读取磁盘
+	abiStr, ok := c.abiJsonCache[contractConfigName]
+	if !ok || abiStr == "" {
+		// 极少数回退场景：contractConfigName 在启动后才动态增加，此时回退到文件读取
+		var readErr error
+		abiStr, readErr = util.ReadAbiJsonFile(contractConf.Abi)
+		if readErr != nil {
+			return "", "", fmt.Errorf("failed to ReadAbiJsonFile: %v", readErr)
+		}
+		c.Logger.Errorf("abi cache miss for [%s], fallback to file read", contractConfigName)
 	}
 
 	// solidity 合约也支持方法传参结构体类型，这里需要将统一请求的 kvs 翻译成以太坊的 abi 参数结构
@@ -395,18 +408,14 @@ func (c *EthereumClient) SubscribeContractEvent(contractConf config.ContractConf
 	contractConfName, chainType, contractType string) error {
 
 	// 日志通用信息
-	fields := map[string]interface{}{
+	logFields := BuildSubscribeLogFields(map[string]interface{}{
 		"chainConfName":    chainConfName,
 		"contractConfName": contractConfName,
 		"contractAddr":     contractConf.ContractAddr,
 		"contractAbi":      contractConf.Abi,
 		"contractType":     contractConf.ContractType,
 		"module":           "subscribeEth",
-	}
-	logFields := make([]logx.LogField, 0)
-	for k, v := range fields {
-		logFields = append(logFields, logx.Field(k, v))
-	}
+	})
 
 	// 检查合约地址不为空
 	if contractConf.ContractAddr == "" {

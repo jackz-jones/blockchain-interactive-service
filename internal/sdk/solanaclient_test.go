@@ -31,7 +31,6 @@ func TestBase58(t *testing.T) {
 func getTestSolanaConf() config.SolanaConf {
 	return config.SolanaConf{
 		RpcUrl: "https://docs-demo.solana-devnet.quiknode.pro/",
-		WsUrl:  "wss://docs-demo.solana-devnet.quiknode.pro/",
 
 		// 对应 Solana 地址：5pVyoAeURQHNMVU7DmfMHvCDNmTEYXWfEwc136GYhTKG，开发网公开的一个地址，账户余额管够
 		PrivateKey: "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG",
@@ -60,7 +59,6 @@ func TestNewSolanaClient(t *testing.T) {
 			name: "invalid private key",
 			solanaConf: config.SolanaConf{
 				RpcUrl:          "https://docs-demo.solana-devnet.quiknode.pro/",
-				WsUrl:           "wss://docs-demo.solana-devnet.quiknode.pro/",
 				PrivateKey:      "invalid_private_key",
 				CommitmentLevel: "confirmed",
 				SkipPreflight:   false,
@@ -72,7 +70,6 @@ func TestNewSolanaClient(t *testing.T) {
 			name: "empty rpc url",
 			solanaConf: config.SolanaConf{
 				RpcUrl:          "",
-				WsUrl:           "wss://docs-demo.solana-devnet.quiknode.pro/",
 				PrivateKey:      "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG",
 				CommitmentLevel: "confirmed",
 				SkipPreflight:   false,
@@ -84,7 +81,6 @@ func TestNewSolanaClient(t *testing.T) {
 			name: "invalid commitment level defaults to confirmed",
 			solanaConf: config.SolanaConf{
 				RpcUrl:          "https://docs-demo.solana-devnet.quiknode.pro/",
-				WsUrl:           "wss://docs-demo.solana-devnet.quiknode.pro/",
 				PrivateKey:      "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG",
 				CommitmentLevel: "invalid_level",
 				SkipPreflight:   false,
@@ -105,7 +101,7 @@ func TestNewSolanaClient(t *testing.T) {
 				assert.NoError(t, err, "不应该返回错误")
 				assert.NotNil(t, client, "client 不应为 nil")
 				assert.Equal(t, tt.solanaConf.SkipPreflight, client.skipPreflight, "skipPreflight 应该正确设置")
-				assert.Equal(t, tt.solanaConf.MaxRetries, client.maxRetries, "maxRetries 应该正确设置")
+				assert.Equal(t, uint(tt.solanaConf.MaxRetries), client.maxRetries, "maxRetries 应该正确设置")
 
 				// 清理
 				_ = client.Stop()
@@ -280,7 +276,6 @@ func TestSolanaClient_CommitmentLevels(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			solanaConf := config.SolanaConf{
 				RpcUrl:          "https://docs-demo.solana-devnet.quiknode.pro/",
-				WsUrl:           "wss://docs-demo.solana-devnet.quiknode.pro/",
 				PrivateKey:      "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG",
 				CommitmentLevel: tt.commitmentLevel,
 				SkipPreflight:   false,

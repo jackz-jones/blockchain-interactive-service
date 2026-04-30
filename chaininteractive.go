@@ -51,11 +51,13 @@ func main() {
 	})
 	defer s.Stop()
 
-	// 启动订阅
-	sdk.StartSubscribe(c, &ctx.SDKClients, ctx.Logger, ctx.RedisClient)
+	// 启动订阅（传入服务级根 ctx，便于统一优雅退出）
+	sdk.StartSubscribe(ctx.RootCtx, c, &ctx.SDKClients, ctx.Logger, ctx.RedisClient)
 
 	// 服务退出前释放所有的 sdk client
 	defer func() {
+		// 先取消根 ctx，通知订阅 goroutine 等退出；然后并发调用各 SDK 的 Stop
+		ctx.Cancel()
 		sdk.StopAllSdkClients(&ctx.SDKClients, ctx.Logger)
 	}()
 

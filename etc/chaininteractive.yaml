@@ -116,15 +116,13 @@ ChainConfs:
       SolanaConf:
         # Solana 节点 RPC URL（建议使用 QuickNode 公共 Devnet 节点，官方节点 api.devnet.solana.com 可能不可用）
         RpcUrl: "https://docs-demo.solana-devnet.quiknode.pro/"
-        # Solana 节点 WebSocket URL
-        WsUrl: "wss://docs-demo.solana-devnet.quiknode.pro/"
         # 私钥 base58 字符串，用于交易签名（Solana Devnet 测试私钥）
         PrivateKey: "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG"
         # 确认级别：processed、confirmed、finalized
         CommitmentLevel: "confirmed"
         # 是否跳过预检
         SkipPreflight: false
-        # 最大重试次数
+        # 最大重试次数（0 将使用默认值 3）
         MaxRetries: 3
     ContractConfs:
       # 合约配置名称，需要配置唯一，避免和其他合约配置冲突
@@ -137,6 +135,30 @@ ChainConfs:
         ContractAddr: "11111111111111111111111111111111"
         # 合约部署高度
         DeployBlockHeight: 0
+        # Solana 合约方法调用规范；key 是方法名，value 是该方法的 Discriminator/参数 Schema/账户列表
+        # 若不配置，则 CallContract 的 Invoke/Query 将返回"未找到方法规范"错误
+        SolanaMethods:
+          # 方法名（与 CallContract 请求 method 一致）
+          notify:
+            # 8 字节 Anchor discriminator 的 hex 字符串（16 个 hex 字符）
+            Discriminator: "e445a52e51cb9a1d"
+            # 方法参数 Schema，按顺序；Type 枚举：u8/u16/u32/u64/i64/bool/string/pubkey/bytes
+            ArgSchema:
+              - Name: "msg"
+                Type: "string"
+              - Name: "amount"
+                Type: "u64"
+            # Invoke 调用需要的账户列表；Pubkey 可以是 base58 字符串或占位符 "$fromAddress"
+            Accounts:
+              - Pubkey: "$fromAddress"
+                IsSigner: true
+                IsWritable: true
+          # Query 类方法，使用 GetMultipleAccounts 读取账户数据
+          getState:
+            Discriminator: "0000000000000000"
+            # Query 需要读取的账户地址列表（base58），支持 "$fromAddress" 占位符
+            QueryAccounts:
+              - "$fromAddress"
 
   ethereum01:
     # 是否启用该链

@@ -2,7 +2,11 @@ package config
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/gagliardetto/solana-go"
 	"github.com/zeromicro/go-zero/zrpc"
 )
 
@@ -110,9 +114,6 @@ type SolanaConf struct {
 	// RpcUrl Solana 节点 RPC URL
 	RpcUrl string
 
-	// WsUrl Solana 节点 WebSocket URL，用于订阅事件
-	WsUrl string
-
 	// PrivateKey 私钥 base58 字符串，用于交易签名
 	PrivateKey string
 
@@ -124,6 +125,45 @@ type SolanaConf struct {
 
 	// MaxRetries 最大重试次数
 	MaxRetries int
+}
+
+// SolanaAccountMeta Solana 指令中需要的账户元数据
+type SolanaAccountMeta struct {
+	// Pubkey 账户公钥 base58 字符串；支持特殊占位符 "$fromAddress" 表示发送方地址
+	Pubkey string
+
+	// IsSigner 该账户是否需要签名
+	IsSigner bool
+
+	// IsWritable 该账户是否可写
+	IsWritable bool
+}
+
+// SolanaArgSpec Borsh 序列化的参数类型描述
+type SolanaArgSpec struct {
+	// Name 参数名称（与调用时 KeyValuePair.Key 对应）
+	Name string
+
+	// Type 参数类型，枚举：u8、u16、u32、u64、i64、bool、string、pubkey、bytes
+	Type string
+}
+
+// SolanaMethodSpec Solana 合约某个方法的调用规范
+type SolanaMethodSpec struct {
+	// Discriminator 8 字节方法判别符的 hex 字符串（如 Anchor 生成的 discriminator），必填
+	Discriminator string
+
+	// ArgSchema 参数顺序及类型，构建 Borsh 序列化 instruction data 时按此顺序
+	// nolint:staticcheck
+	ArgSchema []SolanaArgSpec `json:",optional"`
+
+	// Accounts Invoke 调用时的账户列表
+	// nolint:staticcheck
+	Accounts []SolanaAccountMeta `json:",optional"`
+
+	// QueryAccounts Query 调用时要读取的账户公钥列表（base58，支持 "$fromAddress" 占位符）
+	// nolint:staticcheck
+	QueryAccounts []string `json:",optional"`
 }
 
 // ContractConf contain all config items for contract
@@ -157,6 +197,17 @@ type ContractConf struct {
 	// nolint:staticcheck
 	// GetHistoryEventHeightWindow 轮训以太坊历史事件的区块高度窗口大小
 	GetHistoryEventHeightWindow uint64 `json:",optional"`
+
+	// nolint:staticcheck
+	// SolanaMethods Solana 方法调用规范：methodName -> MethodSpec
+	SolanaMethods map[string]SolanaMethodSpec `json:",optional"`
+}
+
+// supportedChainTypes 支持的链类型枚举集合
+var supportedChainTypes = map[string]struct{}{
+	"ethereum":   {},
+	"chainmaker": {},
+	"solana":     {},
 }
 
 // Validate validate config
@@ -169,6 +220,85 @@ func (c *Config) Validate() error {
 		return errors.New("at least one chain configuration is required")
 	}
 
-	// todo: 添加更多验证逻辑
+	for chainName, chainConf := range c.ChainConfs {
+		if chainConf == nil {
+			return fmt.Errorf("chain[%s] config is nil", chainName)
+		}
+
+		if !chainConf.Enable {
+			continue
+		}
+
+		// 1) 校验链类型
+		ct := strings.ToLower(chainConf.ChainType)
+		if _, ok := supportedChainTypes[ct]; !ok {
+			return fmt.Errorf("chain[%s] has unsupported chainType: %s", chainName, chainConf.ChainType)
+		}
+
+		// 2) 校验链级 SDK 配置
+		switch ct {
+		case "ethereum":
+			if chainConf.SdkConf.EthConf.HttpUrl == "" {
+				return fmt.Errorf("chain[%s] ethereum HttpUrl is required", chainName)
+			}
+			if chainConf.SdkConf.EthConf.PrivateKey != "" {
+				if _, err := crypto.HexToECDSA(chainConf.SdkConf.EthConf.PrivateKey); err != nil {
+					return fmt.Errorf("chain[%s] ethereum PrivateKey invalid: %v", chainName, err)
+				}
+			}
+		case "chainmaker":
+			if chainConf.SdkConf.ConfFilePath == "" {
+				return fmt.Errorf("chain[%s] chainmaker ConfFilePath is required", chainName)
+			}
+		case "solana":
+			if chainConf.SdkConf.SolanaConf.RpcUrl == "" {
+				return fmt.Errorf("chain[%s] solana RpcUrl is required", chainName)
+			}
+			if chainConf.SdkConf.SolanaConf.PrivateKey != "" {
+				if _, err := solana.PrivateKeyFromBase58(chainConf.SdkConf.SolanaConf.PrivateKey); err != nil {
+					return fmt.Errorf("chain[%s] solana PrivateKey invalid: %v", chainName, err)
+				}
+			}
+		}
+
+		// 3) 校验合约配置
+		for contractName, contractConf := range chainConf.ContractConfs {
+			if contractConf == nil {
+				return fmt.Errorf("chain[%s] contract[%s] config is nil", chainName, contractName)
+			}
+
+			if !contractConf.EnableSubscribe {
+				continue
+			}
+
+			// 订阅场景下必填字段校验
+			switch ct {
+			case "ethereum":
+				if contractConf.ContractAddr == "" {
+					return fmt.Errorf("chain[%s] contract[%s] ContractAddr required for ethereum subscribe",
+						chainName, contractName)
+				}
+				if contractConf.GetHistoryEventInterval == 0 {
+					return fmt.Errorf("chain[%s] contract[%s] GetHistoryEventInterval must be > 0",
+						chainName, contractName)
+				}
+				if contractConf.GetHistoryEventHeightWindow == 0 {
+					return fmt.Errorf("chain[%s] contract[%s] GetHistoryEventHeightWindow must be > 0",
+						chainName, contractName)
+				}
+			case "chainmaker":
+				if contractConf.ContractName == "" {
+					return fmt.Errorf("chain[%s] contract[%s] ContractName required for chainmaker subscribe",
+						chainName, contractName)
+				}
+			case "solana":
+				if contractConf.ContractAddr == "" {
+					return fmt.Errorf("chain[%s] contract[%s] ContractAddr required for solana subscribe",
+						chainName, contractName)
+				}
+			}
+		}
+	}
+
 	return nil
 }

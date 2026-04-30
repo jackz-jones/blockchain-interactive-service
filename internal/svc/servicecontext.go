@@ -19,15 +19,24 @@ type ServiceContext struct {
 	SDKClients sync.Map
 	logx.Logger
 
+	// RootCtx 服务级根 ctx，所有 SDK 客户端共享该 ctx 作为父 ctx；
+	// 进程退出前调用 Cancel() 以通知订阅 goroutine 等退出。
+	RootCtx context.Context
+	Cancel  context.CancelFunc
+
 	// redis client
 	RedisClient *commonEvent.RedisClient
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	logx.MustSetup(c.Log)
+
+	rootCtx, cancel := context.WithCancel(context.Background())
 	svc := &ServiceContext{
-		Config: c,
-		Logger: logx.WithContext(context.Background()),
+		Config:  c,
+		Logger:  logx.WithContext(rootCtx),
+		RootCtx: rootCtx,
+		Cancel:  cancel,
 	}
 
 	// 初始化 redis client
@@ -49,7 +58,8 @@ func (svc *ServiceContext) initSdkClients() {
 		}
 
 		// 检查缓存中是否存在 sdk client，不存在会自动创建，并存入缓存
-		_, err := sdk.GetSDKClient(&svc.SDKClients, chainConfName, svc.Logger, chainConf, svc.Config.Log, svc.RedisClient)
+		_, err := sdk.GetSDKClient(svc.RootCtx, &svc.SDKClients, chainConfName, svc.Logger, chainConf,
+			svc.Config.Log, svc.RedisClient)
 		if err != nil {
 
 			// 目前配置是确定的，如果出现错误，直接 panic

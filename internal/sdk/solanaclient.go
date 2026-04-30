@@ -2,24 +2,38 @@ package sdk
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/code"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 	commonEvent "github.com/jackz-jones/common/event"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// solanaMaxFetchSignaturesPages 每轮拉取事件签名的最大翻页次数，防止无限翻页
+const solanaMaxFetchSignaturesPages = 50
+
+// solanaDefaultMaxRetries SendTransactionOpts.MaxRetries 的默认值
+const solanaDefaultMaxRetries uint = 3
+
 // SolanaClient 定义了 Solana 客户端对象
 type SolanaClient struct {
-	ctx context.Context
+	// ctx 由外部传入，用作客户端根上下文（Stop 后会被 cancel）
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// wg 用于等待订阅 goroutine 退出
+	wg sync.WaitGroup
 
 	// 合约配置，配置名称--》合约信息
 	contractConfigs map[string]*config.ContractConf
@@ -30,8 +44,12 @@ type SolanaClient struct {
 	fromAddress   solana.PublicKey
 	commitment    rpc.CommitmentType
 	skipPreflight bool
-	maxRetries    int
+	maxRetries    uint
 	logx.Logger
+
+	// txFetcher 允许测试注入自定义交易读取器以避免真实链依赖；
+	// 生产时指向 rpcClient.GetTransaction。
+	txFetcher func(ctx context.Context, sig solana.Signature, opts *rpc.GetTransactionOpts) (*rpc.GetTransactionResult, error)
 
 	// redis 客户端
 	redisClient *commonEvent.RedisClient
@@ -71,18 +89,33 @@ func NewSolanaClient(ctx context.Context, solanaConf config.SolanaConf, contract
 		commitment = rpc.CommitmentConfirmed
 	}
 
-	return &SolanaClient{
-		ctx:             ctx,
+	// 基于父 ctx 派生可取消子 ctx，用于订阅 goroutine 的生命周期控制
+	childCtx, cancel := context.WithCancel(ctx)
+
+	// MaxRetries 默认值处理
+	maxRetries := uint(solanaConf.MaxRetries)
+	logger := logx.WithContext(childCtx)
+	if maxRetries == 0 {
+		maxRetries = solanaDefaultMaxRetries
+		logger.Infof("solana MaxRetries not configured, use default: %d", maxRetries)
+	}
+
+	client := &SolanaClient{
+		ctx:             childCtx,
+		cancel:          cancel,
 		contractConfigs: contractConfs,
 		rpcClient:       rpcClient,
 		privateKey:      privateKey,
 		fromAddress:     fromAddress,
 		commitment:      commitment,
 		skipPreflight:   solanaConf.SkipPreflight,
-		maxRetries:      solanaConf.MaxRetries,
-		Logger:          logx.WithContext(ctx),
+		maxRetries:      maxRetries,
+		Logger:          logger,
 		redisClient:     redisClient,
-	}, nil
+	}
+	// 默认交易读取器指向真实的 rpcClient.GetTransaction
+	client.txFetcher = rpcClient.GetTransaction
+	return client, nil
 }
 
 // GetTxByTxId 根据交易ID查询交易
@@ -148,58 +181,40 @@ func (c *SolanaClient) CallContract(methodType pb.MethodType, contractConfigName
 		return "", "", fmt.Errorf("invalid contract address: %v", err)
 	}
 
+	// 查找方法规范（Invoke/Query 均必须声明）
+	methodSpec, specOK := contractConf.SolanaMethods[method]
+	if !specOK {
+		return "", "", fmt.Errorf("solana method spec for [%s.%s] not configured", contractConfigName, method)
+	}
+
 	switch methodType {
 	case pb.MethodType_Invoke:
 		// 调用合约方法
-		txId, err = c.invokeContract(contractAddress, method, args)
+		txId, err = c.invokeContract(contractAddress, methodSpec, args)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to invoke contract: %v", err)
 		}
 
 		// Solana 的交易 ID（Transaction Signature）就是交易签名的 base58 编码字符串
-		// 构建响应
+		// 构建默认响应
 		txResp = map[string]string{"signature": txId}
 
 		if withSyncResult {
-			// 同步等待交易确认
-			ticker := time.NewTicker(time.Second)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ticker.C:
-					// 检查交易状态
-					_, isPending, err2 := c.GetTxByTxId(txId)
-					if err2 != nil {
-						c.Logger.Errorf("failed to get transaction status: %v", err2)
-						continue
-					}
-
-					if !isPending {
-						// 交易已确认，获取详细交易信息
-						txDetails, err3 := c.rpcClient.GetTransaction(c.ctx, solana.MustSignatureFromBase58(txId), nil)
-						if err3 != nil {
-							c.Logger.Errorf("failed to get transaction details: %v", err3)
-							continue
-						}
-						txResp = txDetails
-						goto confirmed
-					}
-
-				case <-time.After(time.Duration(txTimeout) * time.Second):
-					txBytes, err2 := json.Marshal(txResp)
-					if err2 != nil {
-						return "", "", fmt.Errorf("failed to marshal transaction response: %v", err2)
-					}
-					return txId, string(txBytes), fmt.Errorf("sync to get transaction confirmation timeout")
-				}
+			// 同步等待交易确认：使用 context.WithTimeout + ticker 轮询，
+			// 不再使用 goto；超时返回 code.ErrGetTxReceiptTimeoutMsg 以保持与 Ethereum 语义一致。
+			confirmed, confirmResp, confirmErr := c.waitForTransactionConfirmation(txId, txTimeout)
+			if confirmErr != nil {
+				txBytes, _ := json.Marshal(txResp)
+				return txId, string(txBytes), confirmErr
 			}
-		confirmed:
+			if confirmed {
+				txResp = confirmResp
+			}
 		}
 
 	case pb.MethodType_Query:
 		// 查询合约状态
-		txResp, err = c.queryContract(contractAddress, method, args)
+		txResp, err = c.queryContract(methodSpec)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to query contract: %v", err)
 		}
@@ -216,25 +231,70 @@ func (c *SolanaClient) CallContract(methodType pb.MethodType, contractConfigName
 	return txId, string(txBytes), nil
 }
 
-// invokeContract 调用合约方法
-func (c *SolanaClient) invokeContract(contractAddress solana.PublicKey, method string,
+// waitForTransactionConfirmation 轮询等待交易确认，返回 (是否已确认, 交易详情, 错误)。
+// 超时错误信息包含 code.ErrGetTxReceiptTimeoutMsg，上层可以识别以做重试/降级处理。
+func (c *SolanaClient) waitForTransactionConfirmation(txId string, txTimeout int64) (bool, interface{}, error) {
+	waitCtx, cancel := context.WithTimeout(c.ctx, time.Duration(txTimeout)*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	signature := solana.MustSignatureFromBase58(txId)
+	for {
+		select {
+		case <-waitCtx.Done():
+			// 区分：父 ctx 取消 vs 超时
+			if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
+				return false, nil, fmt.Errorf("%s, txId: %s", code.ErrGetTxReceiptTimeoutMsg, txId)
+			}
+			return false, nil, fmt.Errorf("wait transaction canceled: %v", waitCtx.Err())
+
+		case <-ticker.C:
+			_, isPending, err := c.GetTxByTxId(txId)
+			if err != nil {
+				c.Logger.Errorf("failed to get transaction status: %v", err)
+				continue
+			}
+			if isPending {
+				continue
+			}
+
+			// 交易已确认，获取详细交易信息
+			txDetails, detailErr := c.rpcClient.GetTransaction(c.ctx, signature, nil)
+			if detailErr != nil {
+				c.Logger.Errorf("failed to get transaction details: %v", detailErr)
+				continue
+			}
+			return true, txDetails, nil
+		}
+	}
+}
+
+// invokeContract 调用合约方法（写链）
+func (c *SolanaClient) invokeContract(contractAddress solana.PublicKey, methodSpec config.SolanaMethodSpec,
 	args []*pb.KeyValuePair) (string, error) {
+
 	// 获取最新区块哈希
 	latestBlockhash, err := c.rpcClient.GetLatestBlockhash(c.ctx, c.commitment)
 	if err != nil {
 		return "", fmt.Errorf("failed to get latest blockhash: %v", err)
 	}
 
-	// 构建指令数据（这里需要根据具体合约ABI实现）
-	data, err := c.createInstructionData(method, args)
+	// 按方法规范构建 Borsh + discriminator 指令数据
+	data, err := EncodeInstructionData(methodSpec, args)
 	if err != nil {
-		return "", fmt.Errorf("failed to create instruction data: %v", err)
+		return "", fmt.Errorf("failed to encode instruction data: %v", err)
 	}
 
-	// 创建账户元数据
-	accounts := solana.AccountMetaSlice{
-		{PublicKey: contractAddress, IsWritable: true, IsSigner: false},
-		{PublicKey: c.fromAddress, IsWritable: true, IsSigner: true},
+	// 按方法规范构建账户列表；若未配置则 WARN 并使用默认
+	accounts, usedDefault, err := BuildAccountMetaSlice(methodSpec.Accounts, c.fromAddress)
+	if err != nil {
+		return "", fmt.Errorf("failed to build account meta slice: %v", err)
+	}
+	if usedDefault {
+		c.Logger.Errorf("solana method accounts not configured, use default [fromAddress(signer,writable)]; "+
+			"this may fail if contract requires specific accounts, programID=%s", contractAddress.String())
 	}
 
 	// 创建指令
@@ -265,8 +325,14 @@ func (c *SolanaClient) invokeContract(contractAddress solana.PublicKey, method s
 		return "", fmt.Errorf("failed to sign transaction: %v", err)
 	}
 
-	// 发送交易
-	signature, err := c.rpcClient.SendTransaction(c.ctx, tx)
+	// 发送交易：应用 SkipPreflight / MaxRetries / PreflightCommitment 配置
+	maxRetries := c.maxRetries
+	sendOpts := rpc.TransactionOpts{
+		SkipPreflight:       c.skipPreflight,
+		PreflightCommitment: c.commitment,
+		MaxRetries:          &maxRetries,
+	}
+	signature, err := c.rpcClient.SendTransactionWithOpts(c.ctx, tx, sendOpts)
 	if err != nil {
 		return "", fmt.Errorf("failed to send transaction: %v", err)
 	}
@@ -274,96 +340,97 @@ func (c *SolanaClient) invokeContract(contractAddress solana.PublicKey, method s
 	return signature.String(), nil
 }
 
-// queryContract 查询合约状态
-func (c *SolanaClient) queryContract(contractAddress solana.PublicKey, method string,
-	args []*pb.KeyValuePair) (interface{}, error) {
-	// 构建指令数据
-	data, err := c.createInstructionData(method, args)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create instruction data: %v", err)
+// queryContract 查询合约状态（读链）
+// Solana 合约的状态存在 "账户数据" 里，正确的读取方式是 GetMultipleAccounts 而非 SimulateTransaction。
+func (c *SolanaClient) queryContract(methodSpec config.SolanaMethodSpec) (interface{}, error) {
+	if len(methodSpec.QueryAccounts) == 0 {
+		return nil, errors.New("solana query method requires non-empty QueryAccounts in method spec")
 	}
 
-	// 创建账户元数据
-	accounts := solana.AccountMetaSlice{
-		{PublicKey: contractAddress, IsWritable: false, IsSigner: false},
-		{PublicKey: c.fromAddress, IsWritable: false, IsSigner: false},
+	pubkeys := make([]solana.PublicKey, 0, len(methodSpec.QueryAccounts))
+	for i, raw := range methodSpec.QueryAccounts {
+		pk, err := resolvePubkey(raw, c.fromAddress)
+		if err != nil {
+			return nil, fmt.Errorf("queryAccount[%d] invalid pubkey: %v", i, err)
+		}
+		pubkeys = append(pubkeys, pk)
 	}
 
-	// 创建指令
-	instruction := solana.NewInstruction(
-		contractAddress,
-		accounts,
-		data,
-	)
-
-	// 获取最新区块哈希
-	latestBlockhash, err := c.rpcClient.GetLatestBlockhash(c.ctx, c.commitment)
+	// 使用 GetMultipleAccounts 一次性拉取账户数据
+	resp, err := c.rpcClient.GetMultipleAccounts(c.ctx, pubkeys...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get latest blockhash: %v", err)
+		return nil, fmt.Errorf("failed to get multiple accounts: %v", err)
+	}
+	if resp == nil || resp.Value == nil {
+		return nil, errors.New("get multiple accounts returned empty value")
 	}
 
-	// 构建模拟交易
-	tx, err := solana.NewTransaction(
-		[]solana.Instruction{instruction},
-		latestBlockhash.Value.Blockhash,
-		solana.TransactionPayer(c.fromAddress),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create transaction: %v", err)
+	// 构建响应结构
+	type accountInfo struct {
+		Pubkey     string `json:"pubkey"`
+		Exists     bool   `json:"exists"`
+		Owner      string `json:"owner,omitempty"`
+		Lamports   uint64 `json:"lamports,omitempty"`
+		Executable bool   `json:"executable,omitempty"`
+		DataBase64 string `json:"dataBase64,omitempty"`
 	}
 
-	// 模拟交易来查询状态
-	result, err := c.rpcClient.SimulateTransaction(c.ctx, tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to simulate transaction: %v", err)
+	result := make([]accountInfo, 0, len(pubkeys))
+	var notFound []string
+	for i, pk := range pubkeys {
+		item := accountInfo{Pubkey: pk.String()}
+		if i >= len(resp.Value) || resp.Value[i] == nil {
+			item.Exists = false
+			notFound = append(notFound, pk.String())
+			result = append(result, item)
+			continue
+		}
+		acc := resp.Value[i]
+		item.Exists = true
+		item.Owner = acc.Owner.String()
+		item.Lamports = acc.Lamports
+		item.Executable = acc.Executable
+		if acc.Data != nil {
+			item.DataBase64 = base64.StdEncoding.EncodeToString(acc.Data.GetBinary())
+		}
+		result = append(result, item)
+	}
+
+	// 若存在账户不存在，返回明确错误（但响应结构仍可序列化为 JSON 供上层参考）
+	if len(notFound) > 0 {
+		return result, fmt.Errorf("account(s) not found: %s", strings.Join(notFound, ","))
 	}
 
 	return result, nil
 }
 
-// createInstructionData 创建指令数据
-func (c *SolanaClient) createInstructionData(method string, args []*pb.KeyValuePair) ([]byte, error) {
-	// 这里需要根据具体合约的指令格式来构建数据
-	// 简单实现：将方法和参数编码为JSON
-	instruction := map[string]interface{}{
-		"method": method,
-		"args":   args,
-	}
-
-	data, err := json.Marshal(instruction)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal instruction: %v", err)
-	}
-
-	return data, nil
-}
-
-// Stop 停止客户端
+// Stop 停止客户端：取消内部 ctx，等待订阅 goroutine 退出，然后关闭 RPC 连接。
 func (c *SolanaClient) Stop() error {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	c.wg.Wait()
 	if c.rpcClient != nil {
-		if err := c.rpcClient.Close(); err != nil {
-			return err
-		}
+		// rpc.Client.Close 释放底层 http transport
+		return c.rpcClient.Close()
 	}
 	return nil
 }
 
-// SubscribeContractEvent 订阅合约事件
+// SubscribeContractEvent 订阅合约事件（阻塞直到 ctx Done 或致命错误返回）。
+// 语义与 Ethereum/ChainMaker 保持一致：调用方（StartSubscribe 的 goroutine）会阻塞，
+// 若返回非 nil 错误，则 StartSubscribe 会清理 SubscribeFlag，在下一个 3 秒轮询触发重订阅。
 func (c *SolanaClient) SubscribeContractEvent(contractConf config.ContractConf, chainConfName,
 	contractConfName, chainType, contractType string) error {
 
 	// 日志通用信息
-	fields := map[string]interface{}{
+	logFields := BuildSubscribeLogFields(map[string]interface{}{
 		"chainConfName":    chainConfName,
 		"contractConfName": contractConfName,
 		"contractAddr":     contractConf.ContractAddr,
 		"contractType":     contractConf.ContractType,
 		"module":           "subscribeSolana",
-	}
-	logFields := make([]logx.LogField, 0)
-	for k, v := range fields {
-		logFields = append(logFields, logx.Field(k, v))
-	}
+	})
 
 	// 检查合约地址不为空
 	if contractConf.ContractAddr == "" {
@@ -372,7 +439,7 @@ func (c *SolanaClient) SubscribeContractEvent(contractConf config.ContractConf, 
 	}
 
 	// 解析合约地址
-	_, err := solana.PublicKeyFromBase58(contractConf.ContractAddr)
+	programID, err := solana.PublicKeyFromBase58(contractConf.ContractAddr)
 	if err != nil {
 		c.Logger.WithFields(logFields...).Errorf("invalid contract address: %v", err)
 		return fmt.Errorf("invalid contract address: %v", err)
@@ -398,36 +465,19 @@ func (c *SolanaClient) SubscribeContractEvent(contractConf config.ContractConf, 
 	c.Logger.WithFields(logFields...).Infof("success to GetLatestBlockHeight %d for solana chain %s contract %s", height,
 		chainConfName, contractConfName)
 
-	// 使用轮询方式获取合约事件（不采用 WebSocket 实时订阅，因为实时方式无法控制连续同步，可能出现事件遗漏）
-	go c.getHistoryEvents(chainConfName, contractConfName, chainType, contractType, height, logFields)
-
-	c.Logger.WithFields(logFields...).Info("Solana event subscription started successfully")
-
-	return nil
+	// 使用轮询方式获取合约事件（不采用 WebSocket 实时订阅，因为实时方式无法控制连续同步，可能出现事件遗漏）。
+	// 此处改为同步阻塞调用，与 Ethereum/ChainMaker 实现保持一致。
+	c.wg.Add(1)
+	defer c.wg.Done()
+	return c.getHistoryEvents(contractConf, chainConfName, contractConfName, chainType, contractType, height, logFields, programID)
 }
 
-// getHistoryEvents 轮询获取历史事件
+// getHistoryEvents 轮询获取历史事件（同步阻塞）
 // 使用 GetSignaturesForAddressWithOpts 轮询合约相关的已确认交易签名，
 // 然后获取每笔交易的详情来解析事件数据。
-// 注意：GetSignaturesForAddress API 是按签名从新到旧遍历的，不支持按 slot 范围过滤，
-// MinContextSlot 只是保证查询在某个最低 slot 高度上执行，不是过滤条件。
-// 因此正确的做法是：每次轮询获取最近的签名，过滤出 slot >= currentSlot 的新签名，
-// 按 slot 从小到大排序处理，确保事件不遗漏且有序。
-func (c *SolanaClient) getHistoryEvents(chainConfName, contractConfName,
-	chainType, contractType string, startSlot uint64, logFields []logx.LogField) {
-
-	contractConf, ok := c.contractConfigs[contractConfName]
-	if !ok {
-		c.Logger.WithFields(logFields...).Errorf("contract config not found: %s", contractConfName)
-		return
-	}
-
-	// 解析合约地址（Program ID）
-	programID, err := solana.PublicKeyFromBase58(contractConf.ContractAddr)
-	if err != nil {
-		c.Logger.WithFields(logFields...).Errorf("invalid contract address: %v", err)
-		return
-	}
+func (c *SolanaClient) getHistoryEvents(contractConf config.ContractConf, chainConfName, contractConfName,
+	chainType, contractType string, startSlot uint64, logFields []logx.LogField,
+	programID solana.PublicKey) error {
 
 	// 轮询间隔：默认 5 秒
 	interval := time.Duration(contractConf.GetHistoryEventInterval) * time.Millisecond
@@ -451,7 +501,7 @@ func (c *SolanaClient) getHistoryEvents(chainConfName, contractConfName,
 		select {
 		case <-c.ctx.Done():
 			c.Logger.WithFields(logFields...).Info("getHistoryEvents context done, exiting")
-			return
+			return nil
 		case <-ticker.C:
 			// 获取当前链的最新 slot 高度
 			latestSlot, slotErr := c.rpcClient.GetSlot(c.ctx, c.commitment)
@@ -484,32 +534,36 @@ func (c *SolanaClient) getHistoryEvents(chainConfName, contractConfName,
 
 			c.Logger.WithFields(logFields...).Infof("found %d new signatures since slot %d", len(newSigs), currentSlot)
 
-			// 处理每笔交易的事件
-			processedSlot := c.processTransactionSignatures(newSigs, currentSlot,
+			// 处理每笔交易的事件；返回 (已处理的最大 slot, 是否所有签名都成功处理)
+			processedSlot, allOK := c.processTransactionSignatures(newSigs, currentSlot,
 				chainConfName, contractConfName, chainType, contractType, logFields)
 
-			// 更新 Redis 中已处理的 slot 高度
+			// 仅在 "本轮所有签名都成功处理" 时推进 currentSlot；
+			// 只要有一笔失败，就停在失败 slot 之前，等待下一轮重试。
 			if processedSlot > currentSlot {
 				if setErr := c.redisClient.SetLatestBlockHeight(c.ctx, key, processedSlot); setErr != nil {
 					c.Logger.WithFields(logFields...).Errorf("failed to set latest block height: %v", setErr)
-				} else {
-					c.Logger.WithFields(logFields...).Infof("updated processed slot to %d", processedSlot)
+					continue
 				}
+				c.Logger.WithFields(logFields...).Infof("updated processed slot to %d (allOK=%v)", processedSlot, allOK)
 				currentSlot = processedSlot + 1
+			} else if !allOK {
+				c.Logger.WithFields(logFields...).Infof("some signatures failed, keep currentSlot=%d for retry", currentSlot)
 			}
 		}
 	}
 }
 
-// fetchNewSignatures 获取所有 slot >= currentSlot 的新交易签名
-// 由于 GetSignaturesForAddress API 从新到旧返回，可能需要分页获取
+// fetchNewSignatures 获取所有 slot >= currentSlot 的新交易签名。
+// 由于 GetSignaturesForAddress API 从新到旧返回，可能需要分页获取；
+// 为避免极端情况下无限翻页，设置 solanaMaxFetchSignaturesPages 作为硬性上限。
 func (c *SolanaClient) fetchNewSignatures(programID solana.PublicKey, currentSlot uint64,
 	queryLimit uint64, logFields []logx.LogField) []*rpc.TransactionSignature {
 
 	var newSigs []*rpc.TransactionSignature
 	var beforeSig solana.Signature
 
-	for {
+	for page := 0; page < solanaMaxFetchSignaturesPages; page++ {
 		opts := &rpc.GetSignaturesForAddressOpts{
 			Commitment: c.commitment,
 			Limit:      ptrInt(int(queryLimit)),
@@ -546,50 +600,64 @@ func (c *SolanaClient) fetchNewSignatures(programID solana.PublicKey, currentSlo
 
 		// 如果已经遇到旧签名，说明已遍历到 currentSlot 之前，无需继续分页
 		if hasOldSigs {
-			break
+			return newSigs
 		}
 
 		// 如果返回数量小于查询限制，说明已获取所有签名，无需分页
 		if len(signatures) < int(queryLimit) {
-			break
+			return newSigs
 		}
 
 		// 需要继续分页，使用本批最旧的签名作为下次查询的 Before 参数
 		beforeSig = signatures[len(signatures)-1].Signature
 	}
 
+	c.Logger.WithFields(logFields...).Infof("fetchNewSignatures reached max pages[%d], return %d sigs collected so far",
+		solanaMaxFetchSignaturesPages, len(newSigs))
 	return newSigs
 }
 
-// processTransactionSignatures 处理交易签名列表，返回已处理的最大 slot
+// processTransactionSignatures 处理交易签名列表。
+// 返回值：
+//   - processedSlot: 已成功处理的最大 slot（仅在当前签名 **及之前所有签名** 都成功时才会推进）
+//   - allOK: 本批签名是否全部成功处理
+//
+// 任一签名失败则立刻停止推进 processedSlot，避免跳过失败 slot 导致事件永久丢失。
 func (c *SolanaClient) processTransactionSignatures(sigs []*rpc.TransactionSignature, currentSlot uint64,
-	chainConfName, contractConfName, chainType, contractType string, logFields []logx.LogField) uint64 {
+	chainConfName, contractConfName, chainType, contractType string, logFields []logx.LogField) (uint64, bool) {
 
 	processedSlot := currentSlot
 	for _, txSig := range sigs {
-		// 获取交易详情
-		txResult, err := c.rpcClient.GetTransaction(c.ctx, txSig.Signature, &rpc.GetTransactionOpts{
+		// 获取交易详情（通过可注入的 txFetcher，便于单测 mock）
+		txResult, err := c.txFetcher(c.ctx, txSig.Signature, &rpc.GetTransactionOpts{
 			Commitment: c.commitment,
 		})
 		if err != nil {
-			c.Logger.WithFields(logFields...).Errorf("failed to get transaction %s: %v", txSig.Signature.String(), err)
-			continue
+			c.Logger.WithFields(logFields...).Errorf("failed to get transaction %s: %v, stop advancing slot at %d",
+				txSig.Signature.String(), err, processedSlot)
+			return processedSlot, false
 		}
 
 		if txResult == nil {
-			continue
+			c.Logger.WithFields(logFields...).Errorf("got nil transaction %s, stop advancing slot at %d",
+				txSig.Signature.String(), processedSlot)
+			return processedSlot, false
 		}
 
 		// 解析交易日志并发布事件
-		c.processAndPublishEvent(txResult, txSig.Signature.String(), txSig.Slot,
-			chainConfName, contractConfName, chainType, contractType, logFields)
+		if pubErr := c.processAndPublishEvent(txResult, txSig.Signature.String(), txSig.Slot,
+			chainConfName, contractConfName, chainType, contractType, logFields); pubErr != nil {
+			c.Logger.WithFields(logFields...).Errorf("failed to publish event for %s: %v, stop advancing slot at %d",
+				txSig.Signature.String(), pubErr, processedSlot)
+			return processedSlot, false
+		}
 
 		// 记录已处理的最大 slot
 		if txSig.Slot > processedSlot {
 			processedSlot = txSig.Slot
 		}
 	}
-	return processedSlot
+	return processedSlot, true
 }
 
 // sortTransactionSignatures 按 slot 从小到大排序交易签名，确保事件按区块顺序处理
@@ -599,12 +667,13 @@ func sortTransactionSignatures(sigs []*rpc.TransactionSignature) {
 	})
 }
 
-// processAndPublishEvent 解析交易结果并发布事件到 Redis
+// processAndPublishEvent 解析交易结果并发布事件到 Redis。返回非 nil 错误表示发布失败。
 func (c *SolanaClient) processAndPublishEvent(txResult *rpc.GetTransactionResult, signature string, slot uint64,
-	chainConfName, contractConfName, chainType, contractType string, logFields []logx.LogField) {
+	chainConfName, contractConfName, chainType, contractType string, logFields []logx.LogField) error {
 
 	if txResult == nil || txResult.Meta == nil {
-		return
+		// 交易无 meta 视作无事件可发布，直接返回 nil（不阻塞 slot 推进）
+		return nil
 	}
 
 	// 构建事件数据
@@ -623,7 +692,7 @@ func (c *SolanaClient) processAndPublishEvent(txResult *rpc.GetTransactionResult
 	eventBytes, err := json.Marshal(eventData)
 	if err != nil {
 		c.Logger.WithFields(logFields...).Errorf("failed to marshal event data: %v", err)
-		return
+		return err
 	}
 
 	// 发布事件到 Redis
@@ -632,10 +701,11 @@ func (c *SolanaClient) processAndPublishEvent(txResult *rpc.GetTransactionResult
 		c.contractConfigs[contractConfName].ContractType)
 	if err != nil {
 		c.Logger.WithFields(logFields...).Errorf("failed to publish event to redis: %v", err)
-		return
+		return err
 	}
 
 	c.Logger.WithFields(logFields...).Infof("published history event: signature=%s, slot=%d", signature, slot)
+	return nil
 }
 
 // ptrInt 返回 int 的指针，用于 rpc.GetSignaturesForAddressOpts 的 Limit 字段

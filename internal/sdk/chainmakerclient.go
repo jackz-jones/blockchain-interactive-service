@@ -147,18 +147,14 @@ func (c *ChainMakerClient) SubscribeContractEvent(contractConf config.ContractCo
 	chainType, contractType string) error {
 
 	// 日志通用信息
-	fields := map[string]interface{}{
+	logFields := BuildSubscribeLogFields(map[string]interface{}{
 		"chainConfName":     chainConfName,
 		"contractConfName":  contractConfName,
 		"contractName":      contractConf.ContractName,
 		"contractType":      contractConf.ContractType,
 		"deployBlockHeight": contractConf.DeployBlockHeight,
 		"module":            "subscribeChainmaker",
-	}
-	logFields := make([]logx.LogField, 0)
-	for k, v := range fields {
-		logFields = append(logFields, logx.Field(k, v))
-	}
+	})
 
 	// 检查合约名称不为空
 	if contractConf.ContractName == "" {
