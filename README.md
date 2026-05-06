@@ -1,18 +1,20 @@
-**English** | **[中文](README_CN.md)**
+**English** | **[中文](README_CN.md)** | **[📖 Usage Guide](USAGE.md)**
 
 # Chain Interactive Service
 
-A universal blockchain interaction service that provides a unified gRPC interface to interact with multiple blockchains, abstracting away the underlying chain differences so that upper-layer services don't need to care about chain-specific implementation details.
+A universal blockchain interaction service that provides a unified gRPC interface to interact with multiple blockchains (ChainMaker, Ethereum, Solana), abstracting away the underlying chain differences so that upper-layer services don't need to care about chain-specific implementation details.
 
 ## Features
 
 - 🔗 **Multi-Chain Support**: Unified interface for ChainMaker, Ethereum, and Solana, with ongoing expansion
 - 📝 **Contract Invocation**: Supports both Invoke (write) and Query (read) call modes
 - 🔍 **Transaction Query**: Query transaction details and on-chain status by transaction ID
-- 📡 **Event Subscription**: Subscribe to contract events and receive real-time notifications for on-chain contract changes
+- 📡 **Event Subscription**: Subscribe to contract events and receive real-time notifications for on-chain contract changes, with automatic resubscription on failure
 - ⚡ **Sync/Async**: Contract calls support both synchronous waiting and asynchronous return
 - 🔒 **gRPC Security**: Supports TLS mutual authentication for gRPC communication
 - 📊 **Monitoring & Tracing**: Built-in health checks, Prometheus metrics, and OpenTelemetry distributed tracing
+- 🔧 **Config Validation**: Startup-time configuration validation for chain types, SDK configs, and contract configs
+- 🔄 **Graceful Shutdown**: Ordered graceful shutdown with context cancellation and concurrent SDK client cleanup
 
 ## Supported Chains
 
@@ -24,29 +26,79 @@ A universal blockchain interaction service that provides a unified gRPC interfac
 
 > 🚧 More mainstream blockchains will be added gradually.
 
+> 📖 **For detailed usage instructions, see [USAGE.md](USAGE.md)** — covers gRPC client integration, per-chain guides, event subscription, TLS configuration, monitoring, and best practices.
+
+## Architecture
+
+```mermaid
+graph TB
+    Client[gRPC Client] -->|gRPC| Server[ChainInteractiveServer]
+    Server --> Logic[Business Logic Layer]
+    Logic --> SDKClient[SDK Client Manager]
+    
+    subgraph "Chain SDK Layer"
+        SDKClient --> ChainMaker[ChainMaker Client]
+        SDKClient --> Ethereum[Ethereum Client]
+        SDKClient --> Solana[Solana Client]
+    end
+    
+    ChainMaker -->|Subscribe| Redis[(Redis)]
+    Ethereum -->|Subscribe| Redis
+    Solana -->|Subscribe| Redis
+    
+    subgraph "Monitoring"
+        Health[Health Check]
+        Metrics[Prometheus Metrics]
+        Tracing[OpenTelemetry Tracing]
+    end
+```
+
 ## Project Structure
 
 ```
 .
-├── chaininteractive.go         # Service entry point
-├── chaininteractive/           # Business logic layer
+├── chaininteractive.go           # Service entry point (main)
+├── chaininteractive/             # Business logic layer (goctl generated)
 ├── internal/
-│   ├── config/                 # Configuration definitions
-│   ├── logic/                  # Request handling logic
-│   ├── sdk/                    # Chain SDK wrappers
-│   │   ├── interface.go        # Unified chain interface definition
-│   │   ├── chainmakerclient.go # ChainMaker implementation
-│   │   ├── ethereumclient.go   # Ethereum implementation
-│   │   └── solanaclient.go     # Solana implementation
-│   ├── server/                 # gRPC server
-│   ├── svc/                    # Service context
-│   └── util/                   # Utility functions
-├── proto/                      # Protobuf definitions
-├── pb/                         # Generated Protobuf Go code
-├── etc/                        # Configuration files
-├── docker/                     # Docker build files
-├── scripts/                    # Scripts and tools
-└── Makefile                    # Build commands
+│   ├── config/
+│   │   └── config.go            # Configuration definitions & validation
+│   ├── logic/
+│   │   ├── callcontractlogic.go
+│   │   ├── gettxbytxidlogic.go
+│   │   └── getavailablechainandcontractnameslogic.go
+│   ├── sdk/
+│   │   ├── interface.go         # Unified ChainSdkInterface definition
+│   │   ├── helper.go            # SDK client management, subscription scheduling
+│   │   ├── chainmakerclient.go  # ChainMaker implementation
+│   │   ├── ethereumclient.go    # Ethereum implementation
+│   │   ├── solanaclient.go      # Solana implementation
+│   │   ├── solana_codec.go      # Solana Borsh serialization & instruction encoding
+│   │   └── ethtx.go             # Ethereum transaction helper
+│   ├── server/
+│   │   └── chaininteractiveserver.go  # gRPC server handler
+│   ├── svc/
+│   │   └── servicecontext.go    # Service context (SDK clients, Redis, root ctx)
+│   ├── code/
+│   │   └── respCode.go          # Response code definitions
+│   ├── util/
+│   │   └── util.go              # Utility functions
+│   └── version.go               # Version info (build-time injected)
+├── proto/
+│   └── chaininteractive.proto   # Protobuf service & message definitions
+├── pb/                          # Generated Protobuf Go code
+├── etc/
+│   ├── chaininteractive.yaml    # Main service configuration
+│   ├── chainmaker_sdk_config.yml # ChainMaker SDK config
+│   ├── notification.json        # Notification contract ABI
+│   └── nft.json                 # NFT contract ABI
+├── docker/
+│   ├── Dockerfile               # Multi-stage Docker build
+│   └── update_docker.sh
+├── scripts/
+│   ├── generate_code.sh         # Protobuf code generation
+│   ├── generate_cert.sh         # TLS certificate generation
+│   └── ut_cover.sh              # UT coverage script
+└── Makefile                     # Build & development commands
 ```
 
 ## Quick Start
@@ -67,6 +119,9 @@ make start-service
 
 # Or use the compiled binary
 ./chain-interactive-service -f etc/chaininteractive.yaml
+
+# Check version
+./chain-interactive-service version
 ```
 
 ### Configuration
@@ -80,6 +135,17 @@ Name: chaininteractive.rpc
 ListenOn: 0.0.0.0:8085
 Timeout: 30000
 Mode: dev   # dev / test / pre / prod
+```
+
+#### gRPC Configuration
+
+```yaml
+GrpcConf:
+  CaCertFile: ""           # CA root cert path (empty = no TLS)
+  ServerCertFile: ""       # Server cert path
+  ServerKeyFile: ""        # Server private key path
+  MaxRecvMsgSize: 20971520 # 20 MB
+  MaxSendMsgSize: 20971520 # 20 MB
 ```
 
 #### Chain Configuration
@@ -107,6 +173,8 @@ ChainConfs:
         ContractAddr: "0x..."
         Abi: ./etc/notification.json
         DeployBlockHeight: 0
+        GetHistoryEventInterval: 500       # History event polling interval (ms)
+        GetHistoryEventHeightWindow: 100   # History event block height window
 ```
 
 **ChainMaker Example:**
@@ -136,7 +204,6 @@ ChainConfs:
     SdkConf:
       SolanaConf:
         RpcUrl: "https://api.mainnet-beta.solana.com"
-        WsUrl: "wss://api.mainnet-beta.solana.com/"
         PrivateKey: "your-private-key-base58"
         CommitmentLevel: "confirmed"
         SkipPreflight: false
@@ -147,6 +214,21 @@ ChainConfs:
         ContractType: "notification"
         ContractAddr: "program-id-base58"
         DeployBlockHeight: 0
+        # Solana method specs (required for CallContract)
+        SolanaMethods:
+          notify:
+            Discriminator: "e445a52e51cb9a1d"   # 8-byte Anchor discriminator (hex)
+            ArgSchema:
+              - Name: "msg"
+                Type: "string"                    # u8/u16/u32/u64/i64/bool/string/pubkey/bytes
+            Accounts:
+              - Pubkey: "$fromAddress"            # Supports "$fromAddress" placeholder
+                IsSigner: true
+                IsWritable: true
+          getState:
+            Discriminator: "0000000000000000"
+            QueryAccounts:
+              - "$fromAddress"
 ```
 
 #### Event Subscription Configuration
@@ -166,7 +248,7 @@ SubscribeConf:
 
 The service provides the following gRPC interfaces:
 
-### CallContract - Contract Invocation
+### CallContract — Contract Invocation
 
 ```protobuf
 rpc CallContract(CallContractRequest) returns (TxResponse);
@@ -174,15 +256,16 @@ rpc CallContract(CallContractRequest) returns (TxResponse);
 
 | Parameter | Type | Description |
 |---|---|---|
+| requestId | string | Request ID for log tracing |
 | chainName | string | Chain configuration name |
 | contractName | string | Contract configuration name |
 | contractMethod | string | Contract method name |
 | kvPairs | KeyValuePair[] | Contract parameter key-value pairs |
 | methodType | MethodType | 1=Invoke (write), 2=Query (read) |
 | withSyncResult | bool | Whether to wait for transaction result synchronously |
-| txTimeout | int64 | Transaction timeout in seconds |
+| txTimeout | int64 | Transaction timeout in seconds (default: 30) |
 
-### GetTxByTxId - Query Transaction
+### GetTxByTxId — Query Transaction
 
 ```protobuf
 rpc GetTxByTxId(GetTxByTxIdRequest) returns (TxResponse);
@@ -190,16 +273,35 @@ rpc GetTxByTxId(GetTxByTxIdRequest) returns (TxResponse);
 
 | Parameter | Type | Description |
 |---|---|---|
+| requestId | string | Request ID for log tracing |
 | txId | string | Transaction ID |
 | chainName | string | Chain configuration name |
 
-### GetAvailableChainAndContractNames - Query Available Chains & Contracts
+### GetAvailableChainAndContractNames — Query Available Chains & Contracts
 
 ```protobuf
 rpc GetAvailableChainAndContractNames(GetAvailableChainAndContractNamesRequest) returns (GetAvailableChainAndContractNamesResponse);
 ```
 
 Returns all enabled chains and their associated contract configurations in the current service.
+
+### Response Codes
+
+| Code | Name | Description |
+|---|---|---|
+| 200000 | Success | Success |
+| 600000 | ErrUnknownContractType | Unknown contract type |
+| 600001 | ErrUnknownChainType | Unknown chain type |
+| 600002 | ErrGetSDKClient | Failed to get SDK client |
+| 600003 | ErrGetTxByTxId | Failed to get transaction by ID |
+| 600004 | ErrSendTransaction | Failed to send transaction |
+| 600005 | ErrReadAbiJsonFile | Failed to read ABI JSON file |
+| 600006 | ErrChainNotExist | Chain does not exist |
+| 600007 | ErrChainNotEnable | Chain is not enabled |
+
+## Usage Guide
+
+For detailed usage instructions, see **[USAGE.md](USAGE.md)**.
 
 ## Development Guide
 
@@ -221,6 +323,12 @@ make ut
 make lint
 ```
 
+### Generate TLS Certificates
+
+```bash
+make gen-cert
+```
+
 ### Adding a New Chain
 
 1. Create a new chain client file under `internal/sdk/` that implements the `ChainSdkInterface` interface:
@@ -236,8 +344,8 @@ type ChainSdkInterface interface {
 }
 ```
 
-2. Add the new chain's configuration structure in `internal/config/config.go`
-3. Register the new chain's initialization logic in `internal/svc/servicecontext.go`
+2. Add the new chain's configuration structure in `internal/config/config.go` and update `supportedChainTypes`
+3. Register the new chain's initialization logic in `internal/sdk/helper.go` (`GetSDKClient` function)
 4. Add a configuration template in `etc/chaininteractive.yaml`
 5. Add the new chain type to the `ChainType` enum in `proto/chaininteractive.proto`
 
@@ -249,15 +357,16 @@ make build-docker
 
 ## Tech Stack
 
-- **Framework**: go-zero
+- **Framework**: [go-zero](https://github.com/zeromicro/go-zero) v1.6.2
 - **Communication**: gRPC + Protobuf
 - **Chain SDKs**:
-  - ChainMaker: `chainmaker.org/chainmaker/sdk-go/v2`
-  - Ethereum: `github.com/ethereum/go-ethereum`
-  - Solana: `github.com/gagliardetto/solana-go`
+  - ChainMaker: `chainmaker.org/chainmaker/sdk-go/v2` v2.3.8
+  - Ethereum: `github.com/ethereum/go-ethereum` v1.14.11
+  - Solana: `github.com/gagliardetto/solana-go` v1.8.3
+- **Serialization**: Borsh (Solana), ABI (Ethereum)
 - **Cache**: Redis (event subscription)
 - **Monitoring**: OpenTelemetry + Prometheus
-- **Logging**: go-zero built-in log package
+- **Logging**: go-zero built-in log package (file mode with daily rotation)
 
 ## License
 
