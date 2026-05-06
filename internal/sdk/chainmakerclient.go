@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
@@ -18,11 +19,16 @@ import (
 
 // ChainMakerClient 定义了长安链客户端对象
 type ChainMakerClient struct {
-	ctx context.Context
+	// ctx 由外部传入，用作客户端根上下文（Stop 后会被 cancel）
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// wg 用于等待订阅 goroutine 退出
+	wg sync.WaitGroup
 
 	// 合约配置，配置名称--》合约名称
 	contractConfigs map[string]string
-	chainClient     chainmakersdk.ChainClient
+	chainClient     *chainmakersdk.ChainClient
 	logx.Logger
 
 	// redis 客户端
@@ -48,11 +54,15 @@ func NewChainMakerClient(ctx context.Context, chainConfName, sdkConfigPath strin
 		contracts[configName] = c.ContractName
 	}
 
+	// 基于父 ctx 派生可取消子 ctx，用于订阅 goroutine 的生命周期控制
+	childCtx, cancel := context.WithCancel(ctx)
+
 	return &ChainMakerClient{
-		ctx:             ctx,
-		chainClient:     *client,
+		ctx:             childCtx,
+		cancel:          cancel,
+		chainClient:     client,
 		contractConfigs: contracts,
-		Logger:          logx.WithContext(ctx),
+		Logger:          logx.WithContext(childCtx),
 		redisClient:     redisClient,
 	}, nil
 }
@@ -139,7 +149,16 @@ func (c *ChainMakerClient) CallContract(methodType pb.MethodType, contractConfig
 
 // Stop 停止客户端
 func (c *ChainMakerClient) Stop() error {
-	return c.chainClient.Stop()
+	if c.cancel != nil {
+		c.cancel()
+	}
+
+	c.wg.Wait()
+	if c.chainClient != nil {
+		return c.chainClient.Stop()
+	}
+
+	return nil
 }
 
 // SubscribeContractEvent 订阅合约事件
@@ -186,6 +205,10 @@ func (c *ChainMakerClient) SubscribeContractEvent(contractConf config.ContractCo
 		c.Logger.WithFields(logFields...).Errorf("failed to SubscribeContractEvent: %v", err)
 		return fmt.Errorf("failed to SubscribeContractEvent: %v", err)
 	}
+
+	// 等待订阅协程
+	c.wg.Add(1)
+	defer c.wg.Done()
 
 	c.Logger.WithFields(logFields...).Infof("success to SubscribeContractEvent")
 	for {

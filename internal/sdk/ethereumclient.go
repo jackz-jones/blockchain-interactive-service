@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -28,7 +29,12 @@ import (
 
 // EthereumClient 定义了以太坊客户端对象
 type EthereumClient struct {
-	ctx         context.Context
+	// ctx 由外部传入，用作客户端根上下文（Stop 后会被 cancel）
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// wg 用于等待订阅 goroutine 退出
+	wg          sync.WaitGroup
 	chainId     *big.Int
 	gasLimit    uint64
 	privateKey  *ecdsa.PrivateKey
@@ -38,8 +44,8 @@ type EthereumClient struct {
 	contractConfigs map[string]*config.ContractConf
 
 	// http 和 websocket 连接，前者用于发交易和查询，后者用于订阅事件
-	httpClient ethclient.Client
-	wsClient   ethclient.Client
+	httpClient *ethclient.Client
+	wsClient   *ethclient.Client
 	logx.Logger
 
 	// 合约事件处理器集合
@@ -101,16 +107,20 @@ func NewEthereumClient(ctx context.Context, ethConf config.EthConf, contractConf
 		abiJsonCache[contractConfName] = abiJson
 	}
 
+	// 基于父 ctx 派生可取消子 ctx，用于订阅 goroutine 的生命周期控制
+	childCtx, cancel := context.WithCancel(ctx)
+
 	return &EthereumClient{
 		chainId:          big.NewInt(ethConf.ChainId),
 		gasLimit:         ethConf.GasLimit,
 		privateKey:       privateKey,
 		fromAddress:      crypto.PubkeyToAddress(*publicKeyECDSA),
 		contractConfigs:  contractConfs,
-		ctx:              ctx,
-		httpClient:       *httpClient,
-		wsClient:         *wsClient,
-		Logger:           logx.WithContext(ctx),
+		ctx:              childCtx,
+		cancel:           cancel,
+		httpClient:       httpClient,
+		wsClient:         wsClient,
+		Logger:           logx.WithContext(childCtx),
 		ethEventHandlers: ethEventHandlers,
 		abiJsonCache:     abiJsonCache,
 		redisClient:      redisClient,
@@ -398,8 +408,17 @@ func (c *EthereumClient) CreateInputData(abiStr, method string, args ...interfac
 
 // Stop 停止客户端
 func (c *EthereumClient) Stop() error {
-	c.httpClient.Close()
-	c.wsClient.Close()
+	if c.cancel != nil {
+		c.cancel()
+	}
+
+	c.wg.Wait()
+	if c.httpClient != nil {
+		c.httpClient.Close()
+	}
+	if c.wsClient != nil {
+		c.wsClient.Close()
+	}
 	return nil
 }
 
@@ -443,6 +462,10 @@ func (c *EthereumClient) SubscribeContractEvent(contractConf config.ContractConf
 	logFields = append(logFields, logx.Field("startHeight", height))
 	c.Logger.WithFields(logFields...).Infof("success to GetLatestBlockHeight %d for eth chain %s contract %s ", height,
 		chainConfName, contractConfName)
+
+	// 等待订阅协程
+	c.wg.Add(1)
+	defer c.wg.Done()
 
 	// 实时订阅合约事件
 	err = c.GetHistoryEvent(contractConf.ContractAddr, chainConfName, contractConfName, chainType, contractType, height,

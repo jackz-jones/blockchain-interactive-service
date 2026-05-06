@@ -49,7 +49,8 @@ type SolanaClient struct {
 
 	// txFetcher 允许测试注入自定义交易读取器以避免真实链依赖；
 	// 生产时指向 rpcClient.GetTransaction。
-	txFetcher func(ctx context.Context, sig solana.Signature, opts *rpc.GetTransactionOpts) (*rpc.GetTransactionResult, error)
+	txFetcher func(ctx context.Context, sig solana.Signature,
+		opts *rpc.GetTransactionOpts) (*rpc.GetTransactionResult, error)
 
 	// redis 客户端
 	redisClient *commonEvent.RedisClient
@@ -469,7 +470,8 @@ func (c *SolanaClient) SubscribeContractEvent(contractConf config.ContractConf, 
 	// 此处改为同步阻塞调用，与 Ethereum/ChainMaker 实现保持一致。
 	c.wg.Add(1)
 	defer c.wg.Done()
-	return c.getHistoryEvents(contractConf, chainConfName, contractConfName, chainType, contractType, height, logFields, programID)
+	return c.getHistoryEvents(contractConf, chainConfName, contractConfName, chainType,
+		contractType, height, logFields, programID)
 }
 
 // getHistoryEvents 轮询获取历史事件（同步阻塞）

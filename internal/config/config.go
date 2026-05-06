@@ -203,11 +203,18 @@ type ContractConf struct {
 	SolanaMethods map[string]SolanaMethodSpec `json:",optional"`
 }
 
+// 链类型常量
+const (
+	ChainTypeEthereum   = "ethereum"
+	ChainTypeChainMaker = "chainmaker"
+	ChainTypeSolana     = "solana"
+)
+
 // supportedChainTypes 支持的链类型枚举集合
 var supportedChainTypes = map[string]struct{}{
-	"ethereum":   {},
-	"chainmaker": {},
-	"solana":     {},
+	ChainTypeEthereum:   {},
+	ChainTypeChainMaker: {},
+	ChainTypeSolana:     {},
 }
 
 // Validate validate config
@@ -221,84 +228,109 @@ func (c *Config) Validate() error {
 	}
 
 	for chainName, chainConf := range c.ChainConfs {
-		if chainConf == nil {
-			return fmt.Errorf("chain[%s] config is nil", chainName)
-		}
-
-		if !chainConf.Enable {
-			continue
-		}
-
-		// 1) 校验链类型
-		ct := strings.ToLower(chainConf.ChainType)
-		if _, ok := supportedChainTypes[ct]; !ok {
-			return fmt.Errorf("chain[%s] has unsupported chainType: %s", chainName, chainConf.ChainType)
-		}
-
-		// 2) 校验链级 SDK 配置
-		switch ct {
-		case "ethereum":
-			if chainConf.SdkConf.EthConf.HttpUrl == "" {
-				return fmt.Errorf("chain[%s] ethereum HttpUrl is required", chainName)
-			}
-			if chainConf.SdkConf.EthConf.PrivateKey != "" {
-				if _, err := crypto.HexToECDSA(chainConf.SdkConf.EthConf.PrivateKey); err != nil {
-					return fmt.Errorf("chain[%s] ethereum PrivateKey invalid: %v", chainName, err)
-				}
-			}
-		case "chainmaker":
-			if chainConf.SdkConf.ConfFilePath == "" {
-				return fmt.Errorf("chain[%s] chainmaker ConfFilePath is required", chainName)
-			}
-		case "solana":
-			if chainConf.SdkConf.SolanaConf.RpcUrl == "" {
-				return fmt.Errorf("chain[%s] solana RpcUrl is required", chainName)
-			}
-			if chainConf.SdkConf.SolanaConf.PrivateKey != "" {
-				if _, err := solana.PrivateKeyFromBase58(chainConf.SdkConf.SolanaConf.PrivateKey); err != nil {
-					return fmt.Errorf("chain[%s] solana PrivateKey invalid: %v", chainName, err)
-				}
-			}
-		}
-
-		// 3) 校验合约配置
-		for contractName, contractConf := range chainConf.ContractConfs {
-			if contractConf == nil {
-				return fmt.Errorf("chain[%s] contract[%s] config is nil", chainName, contractName)
-			}
-
-			if !contractConf.EnableSubscribe {
-				continue
-			}
-
-			// 订阅场景下必填字段校验
-			switch ct {
-			case "ethereum":
-				if contractConf.ContractAddr == "" {
-					return fmt.Errorf("chain[%s] contract[%s] ContractAddr required for ethereum subscribe",
-						chainName, contractName)
-				}
-				if contractConf.GetHistoryEventInterval == 0 {
-					return fmt.Errorf("chain[%s] contract[%s] GetHistoryEventInterval must be > 0",
-						chainName, contractName)
-				}
-				if contractConf.GetHistoryEventHeightWindow == 0 {
-					return fmt.Errorf("chain[%s] contract[%s] GetHistoryEventHeightWindow must be > 0",
-						chainName, contractName)
-				}
-			case "chainmaker":
-				if contractConf.ContractName == "" {
-					return fmt.Errorf("chain[%s] contract[%s] ContractName required for chainmaker subscribe",
-						chainName, contractName)
-				}
-			case "solana":
-				if contractConf.ContractAddr == "" {
-					return fmt.Errorf("chain[%s] contract[%s] ContractAddr required for solana subscribe",
-						chainName, contractName)
-				}
-			}
+		if err := c.validateChainConf(chainName, chainConf); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+// validateChainConf 校验单条链的配置
+func (c *Config) validateChainConf(chainName string, chainConf *ChainConf) error {
+	if chainConf == nil {
+		return fmt.Errorf("chain[%s] config is nil", chainName)
+	}
+
+	if !chainConf.Enable {
+		return nil
+	}
+
+	// 1) 校验链类型
+	ct := strings.ToLower(chainConf.ChainType)
+	if _, ok := supportedChainTypes[ct]; !ok {
+		return fmt.Errorf("chain[%s] has unsupported chainType: %s", chainName, chainConf.ChainType)
+	}
+
+	// 2) 校验链级 SDK 配置
+	if err := validateSDKConf(chainName, ct, &chainConf.SdkConf); err != nil {
+		return err
+	}
+
+	// 3) 校验合约配置
+	for contractName, contractConf := range chainConf.ContractConfs {
+		if err := validateContractConf(chainName, contractName, ct, contractConf); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateSDKConf 校验链级 SDK 配置
+func validateSDKConf(chainName, chainType string, sdkConf *SdkConf) error {
+	switch chainType {
+	case ChainTypeEthereum:
+		if sdkConf.EthConf.HttpUrl == "" {
+			return fmt.Errorf("chain[%s] ethereum HttpUrl is required", chainName)
+		}
+		if sdkConf.EthConf.PrivateKey != "" {
+			if _, err := crypto.HexToECDSA(sdkConf.EthConf.PrivateKey); err != nil {
+				return fmt.Errorf("chain[%s] ethereum PrivateKey invalid: %v", chainName, err)
+			}
+		}
+	case ChainTypeChainMaker:
+		if sdkConf.ConfFilePath == "" {
+			return fmt.Errorf("chain[%s] chainmaker ConfFilePath is required", chainName)
+		}
+	case ChainTypeSolana:
+		if sdkConf.SolanaConf.RpcUrl == "" {
+			return fmt.Errorf("chain[%s] solana RpcUrl is required", chainName)
+		}
+		if sdkConf.SolanaConf.PrivateKey != "" {
+			if _, err := solana.PrivateKeyFromBase58(sdkConf.SolanaConf.PrivateKey); err != nil {
+				return fmt.Errorf("chain[%s] solana PrivateKey invalid: %v", chainName, err)
+			}
+		}
+	}
+	return nil
+}
+
+// validateContractConf 校验合约配置
+func validateContractConf(chainName, contractName, chainType string, contractConf *ContractConf) error {
+	if contractConf == nil {
+		return fmt.Errorf("chain[%s] contract[%s] config is nil", chainName, contractName)
+	}
+
+	if !contractConf.EnableSubscribe {
+		return nil
+	}
+
+	// 订阅场景下必填字段校验
+	switch chainType {
+	case ChainTypeEthereum:
+		if contractConf.ContractAddr == "" {
+			return fmt.Errorf("chain[%s] contract[%s] ContractAddr required for ethereum subscribe",
+				chainName, contractName)
+		}
+		if contractConf.GetHistoryEventInterval == 0 {
+			return fmt.Errorf("chain[%s] contract[%s] GetHistoryEventInterval must be > 0",
+				chainName, contractName)
+		}
+		if contractConf.GetHistoryEventHeightWindow == 0 {
+			return fmt.Errorf("chain[%s] contract[%s] GetHistoryEventHeightWindow must be > 0",
+				chainName, contractName)
+		}
+	case ChainTypeChainMaker:
+		if contractConf.ContractName == "" {
+			return fmt.Errorf("chain[%s] contract[%s] ContractName required for chainmaker subscribe",
+				chainName, contractName)
+		}
+	case ChainTypeSolana:
+		if contractConf.ContractAddr == "" {
+			return fmt.Errorf("chain[%s] contract[%s] ContractAddr required for solana subscribe",
+				chainName, contractName)
+		}
+	}
 	return nil
 }
