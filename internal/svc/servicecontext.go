@@ -38,6 +38,9 @@ type ServiceContext struct {
 
 	// 租户管理服务
 	TenantService *tenant.Service
+
+	// 租户级 SDK 客户端管理器（支持按租户隔离的链配置动态加载）
+	TenantSDKManager *sdk.TenantSDKManager
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -90,6 +93,9 @@ func (svc *ServiceContext) initDatabase() {
 	// 初始化 Repository 和 TenantService
 	svc.Repo = store.NewGormRepository(db)
 	svc.TenantService = tenant.NewService(svc.Repo)
+
+	// 初始化租户级 SDK 管理器
+	svc.TenantSDKManager = sdk.NewTenantSDKManager(svc.Repo, svc.RedisClient, svc.Config.Log, svc.Logger)
 }
 
 // 初始化已配置链的 sdk 客户端
