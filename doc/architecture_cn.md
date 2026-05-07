@@ -414,26 +414,26 @@ sequenceDiagram
 
 ```mermaid
 graph TB
-    subgraph "Kubernetes Cluster"
-        subgraph "Ingress"
-            Ingress[Nginx Ingress]
+    subgraph K8sCluster["Kubernetes Cluster"]
+        subgraph IngressLayer["Ingress"]
+            IngressNode[Nginx Ingress]
         end
 
-        subgraph "Service"
+        subgraph ServiceLayer["Service"]
             SVC[ClusterIP Service<br/>gRPC:9000 / HTTP:8080]
         end
 
-        subgraph "Deployment (HPA: 2~10)"
+        subgraph DeploymentLayer["Deployment (HPA: 2~10)"]
             Pod1[Pod 1<br/>chain-interactive]
             Pod2[Pod 2<br/>chain-interactive]
             PodN[Pod N<br/>chain-interactive]
         end
 
-        subgraph "ConfigMap"
+        subgraph ConfigMapLayer["ConfigMap"]
             CM[chaininteractive.yaml]
         end
 
-        subgraph "Dependencies"
+        subgraph DepsLayer["Dependencies"]
             PG[(PostgreSQL)]
             RD[(Redis)]
         end
@@ -442,7 +442,7 @@ graph TB
         PDB[PDB<br/>minAvailable: 1]
     end
 
-    Ingress --> SVC
+    IngressNode --> SVC
     SVC --> Pod1
     SVC --> Pod2
     SVC --> PodN
