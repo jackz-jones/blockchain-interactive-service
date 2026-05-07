@@ -49,6 +49,24 @@ func RegisterRoutes(server *rest.Server, svcCtx *svc.ServiceContext) {
 				Path:    "/api/v1/tenants/:id",
 				Handler: GetTenantHandler(svcCtx),
 			},
+			// 租户列表
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/v1/tenants",
+				Handler: ListTenantsHandler(svcCtx),
+			},
+			// 禁用租户
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/v1/tenants/:id/disable",
+				Handler: DisableTenantHandler(svcCtx),
+			},
+			// 启用租户
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/v1/tenants/:id/enable",
+				Handler: EnableTenantHandler(svcCtx),
+			},
 			// API Key 管理
 			{
 				Method:  http.MethodPost,
@@ -80,6 +98,49 @@ func RegisterRoutes(server *rest.Server, svcCtx *svc.ServiceContext) {
 				Method:  http.MethodDelete,
 				Path:    "/api/v1/chain-configs/:id",
 				Handler: DeleteChainConfigHandler(svcCtx),
+			},
+			// 用户管理
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/v1/users",
+				Handler: ListUsersHandler(svcCtx),
+			},
+		},
+		rest.WithPrefix(""),
+	)
+
+	// 管理后台 Dashboard API
+	server.AddRoutes(
+		[]rest.Route{
+			// 仪表盘概览
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/v1/dashboard/overview",
+				Handler: DashboardOverviewHandler(svcCtx),
+			},
+			// 调用日志
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/v1/dashboard/call-logs",
+				Handler: ListCallLogsHandler(svcCtx),
+			},
+			// 用量统计
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/v1/dashboard/usage-stats",
+				Handler: GetUsageStatsHandler(svcCtx),
+			},
+			// 账单列表
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/v1/dashboard/bills",
+				Handler: ListBillsHandler(svcCtx),
+			},
+			// 审计日志
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/v1/dashboard/audit-logs",
+				Handler: ListAuditLogsHandler(svcCtx),
 			},
 		},
 		rest.WithPrefix(""),
