@@ -15,8 +15,38 @@ type Config struct {
 	GrpcConf      GrpcConf
 	SubscribeConf SubscribeConf
 
+	// 数据库配置（多租户持久化存储）
+	DatabaseConf DatabaseConf
+
 	// 本地需要交互的链配置列表
 	ChainConfs map[string]*ChainConf
+}
+
+// DatabaseConf 数据库配置
+type DatabaseConf struct {
+	// Driver 数据库驱动：postgres、mysql
+	Driver string `json:",default=postgres"`
+
+	// Host 数据库主机地址
+	Host string `json:",default=localhost"`
+
+	// Port 数据库端口
+	Port int `json:",default=5432"`
+
+	// User 数据库用户名
+	User string `json:",default=postgres"`
+
+	// Password 数据库密码
+	Password string `json:",optional"`
+
+	// DBName 数据库名
+	DBName string `json:",default=chain_interactive"`
+
+	// SSLMode SSL 模式（postgres 专用）
+	SSLMode string `json:",default=disable"`
+
+	// AutoMigrate 是否自动迁移表结构
+	AutoMigrate bool `json:",default=true"`
 }
 
 // GrpcConf contain all config items for grpc server initiation
