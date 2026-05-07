@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/middleware"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/sdk"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/server"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/svc"
@@ -42,6 +43,10 @@ func main() {
 
 	ctx := svc.NewServiceContext(c)
 
+	// 创建认证和权限拦截器
+	authInterceptor := middleware.NewAuthInterceptor(ctx.Repo)
+	rbacInterceptor := middleware.NewRBACInterceptor()
+
 	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {
 		pb.RegisterChainInteractiveServer(grpcServer, server.NewChainInteractiveServer(ctx))
 
@@ -50,6 +55,10 @@ func main() {
 		}
 	})
 	defer s.Stop()
+
+	// 注册 gRPC 拦截器
+	s.AddUnaryInterceptors(authInterceptor.Unary())
+	s.AddUnaryInterceptors(rbacInterceptor.Unary())
 
 	// 启动订阅（传入服务级根 ctx，便于统一优雅退出）
 	sdk.StartSubscribe(ctx.RootCtx, c, &ctx.SDKClients, ctx.Logger, ctx.RedisClient)

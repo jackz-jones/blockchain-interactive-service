@@ -7,9 +7,12 @@ import (
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/sdk"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/tenant"
 
 	commonEvent "github.com/jackz-jones/common/event"
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/gorm"
 )
 
 type ServiceContext struct {
@@ -26,6 +29,15 @@ type ServiceContext struct {
 
 	// redis client
 	RedisClient *commonEvent.RedisClient
+
+	// 数据库连接
+	DB *gorm.DB
+
+	// 数据访问层
+	Repo store.Repository
+
+	// 租户管理服务
+	TenantService *tenant.Service
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -39,12 +51,45 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Cancel:  cancel,
 	}
 
+	// 初始化数据库
+	svc.initDatabase()
+
 	// 初始化 redis client
 	svc.initRedisClient()
 
 	// 初始化已配置链的 sdk 客户端
 	svc.initSdkClients()
 	return svc
+}
+
+// 初始化数据库连接
+func (svc *ServiceContext) initDatabase() {
+	dbConf := &store.DBConfig{
+		Driver:   svc.Config.DatabaseConf.Driver,
+		Host:     svc.Config.DatabaseConf.Host,
+		Port:     svc.Config.DatabaseConf.Port,
+		User:     svc.Config.DatabaseConf.User,
+		Password: svc.Config.DatabaseConf.Password,
+		DBName:   svc.Config.DatabaseConf.DBName,
+		SSLMode:  svc.Config.DatabaseConf.SSLMode,
+	}
+
+	db, err := store.NewDB(dbConf)
+	if err != nil {
+		panic(fmt.Errorf("failed to connect database: %v", err))
+	}
+	svc.DB = db
+
+	// 自动迁移表结构
+	if svc.Config.DatabaseConf.AutoMigrate {
+		if err := store.AutoMigrate(db); err != nil {
+			panic(fmt.Errorf("failed to auto migrate database: %v", err))
+		}
+	}
+
+	// 初始化 Repository 和 TenantService
+	svc.Repo = store.NewGormRepository(db)
+	svc.TenantService = tenant.NewService(svc.Repo)
 }
 
 // 初始化已配置链的 sdk 客户端
