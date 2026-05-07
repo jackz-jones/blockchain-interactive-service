@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/jackz-jones/blockchain-interactive-service/internal/billing"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/sdk"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
@@ -41,6 +42,9 @@ type ServiceContext struct {
 
 	// 租户级 SDK 客户端管理器（支持按租户隔离的链配置动态加载）
 	TenantSDKManager *sdk.TenantSDKManager
+
+	// 计费服务
+	BillingService *billing.Service
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -96,6 +100,9 @@ func (svc *ServiceContext) initDatabase() {
 
 	// 初始化租户级 SDK 管理器
 	svc.TenantSDKManager = sdk.NewTenantSDKManager(svc.Repo, svc.RedisClient, svc.Config.Log, svc.Logger)
+
+	// 初始化计费服务
+	svc.BillingService = billing.NewService(svc.Repo, svc.Logger)
 }
 
 // 初始化已配置链的 sdk 客户端

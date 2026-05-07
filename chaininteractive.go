@@ -47,6 +47,7 @@ func main() {
 	// 创建认证和权限拦截器
 	authInterceptor := middleware.NewAuthInterceptor(ctx.Repo)
 	rbacInterceptor := middleware.NewRBACInterceptor()
+	quotaInterceptor := middleware.NewQuotaInterceptor(ctx.BillingService)
 
 	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {
 		pb.RegisterChainInteractiveServer(grpcServer, server.NewChainInteractiveServer(ctx))
@@ -60,6 +61,7 @@ func main() {
 	// 注册 gRPC 拦截器
 	s.AddUnaryInterceptors(authInterceptor.Unary())
 	s.AddUnaryInterceptors(rbacInterceptor.Unary())
+	s.AddUnaryInterceptors(quotaInterceptor.Unary())
 
 	// 启动 HTTP API Gateway
 	gateway.StartHTTPServer(c, ctx)

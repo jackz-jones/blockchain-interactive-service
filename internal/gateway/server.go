@@ -29,7 +29,9 @@ func StartHTTPServer(c config.Config, svcCtx *svc.ServiceContext) {
 	// 2. 限流中间件
 	rateLimiter := middleware.NewRateLimiter(c.GatewayConf.RateLimit)
 	server.Use(rest.ToMiddleware(middleware.HTTPRateLimitMiddleware(rateLimiter)))
-	// 3. 请求日志中间件
+	// 3. 配额检查中间件
+	server.Use(rest.ToMiddleware(middleware.HTTPQuotaMiddleware(svcCtx.BillingService)))
+	// 4. 请求日志中间件
 	server.Use(rest.ToMiddleware(httpLoggingMiddleware()))
 
 	// 注册路由
