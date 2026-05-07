@@ -1,0 +1,105 @@
+# 默认值
+replicaCount: 2
+
+image:
+  repository: chain-interactive-service
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# gRPC 服务配置
+grpc:
+  port: 9000
+
+# HTTP Gateway 配置
+gateway:
+  enabled: true
+  port: 8080
+
+# 数据库配置
+database:
+  driver: postgres
+  host: postgresql
+  port: 5432
+  user: postgres
+  password: ""
+  dbName: chain_interactive
+  sslMode: disable
+  autoMigrate: true
+
+# Redis 配置
+redis:
+  addr: redis:6379
+  password: ""
+
+# 资源限制
+resources:
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# HPA 自动伸缩配置
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# PDB 配置
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# 健康检查
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Service 配置
+service:
+  type: ClusterIP
+  grpcPort: 9000
+  httpPort: 8080
+
+# Ingress 配置
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  hosts:
+    - host: chain-interactive.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# 节点选择器
+nodeSelector: {}
+
+# 容忍度
+tolerations: []
+
+# 亲和性
+affinity: {}
