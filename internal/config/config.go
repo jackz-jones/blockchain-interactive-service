@@ -18,8 +18,26 @@ type Config struct {
 	// 数据库配置（多租户持久化存储）
 	DatabaseConf DatabaseConf
 
+	// HTTP Gateway 配置
+	GatewayConf GatewayConf
+
 	// 本地需要交互的链配置列表
 	ChainConfs map[string]*ChainConf
+}
+
+// GatewayConf HTTP API Gateway 配置
+type GatewayConf struct {
+	// Enable 是否启用 HTTP Gateway
+	Enable bool `json:",default=true"`
+
+	// Host HTTP 监听地址
+	Host string `json:",default=0.0.0.0"`
+
+	// Port HTTP 监听端口
+	Port int `json:",default=8080"`
+
+	// RateLimit 默认 QPS 限制（每租户）
+	RateLimit int `json:",default=10"`
 }
 
 // DatabaseConf 数据库配置

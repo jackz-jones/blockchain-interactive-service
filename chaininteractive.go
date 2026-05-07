@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/gateway"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/middleware"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/sdk"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/server"
@@ -59,6 +60,9 @@ func main() {
 	// 注册 gRPC 拦截器
 	s.AddUnaryInterceptors(authInterceptor.Unary())
 	s.AddUnaryInterceptors(rbacInterceptor.Unary())
+
+	// 启动 HTTP API Gateway
+	gateway.StartHTTPServer(c, ctx)
 
 	// 启动订阅（传入服务级根 ctx，便于统一优雅退出）
 	sdk.StartSubscribe(ctx.RootCtx, c, &ctx.SDKClients, ctx.Logger, ctx.RedisClient)
