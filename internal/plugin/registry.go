@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
-	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/sdk"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
@@ -22,25 +21,15 @@ type ChainPlugin interface {
 	// Version 返回插件版本
 	Version() string
 
-	// Init 初始化插件
+	// Init 初始化插件，根据配置创建底层 SDK 客户端
 	Init(ctx context.Context, conf interface{}) error
 
 	// HealthCheck 健康检查
 	HealthCheck(ctx context.Context) error
 
-	// CallContract 调用合约
-	CallContract(methodType pb.MethodType, contractName, method string,
-		args []*pb.KeyValuePair, txTimeout int64, withSyncResult bool) (string, string, error)
-
-	// GetTxByTxId 查询交易
-	GetTxByTxId(txId string) (string, bool, error)
-
-	// SubscribeContractEvent 订阅合约事件
-	SubscribeContractEvent(contractConf config.ContractConf, chainConfName, contractConfName,
-		chainType, contractType string) error
-
-	// Stop 停止插件，释放资源
-	Stop() error
+	// SDKClient 返回底层链 SDK 客户端（实现 sdk.ChainSdkInterface）
+	// 通过此方法暴露底层客户端，避免 plugin 包重复定义链操作接口
+	SDKClient() sdk.ChainSdkInterface
 }
 
 // PluginFactory 插件工厂函数类型
@@ -48,10 +37,10 @@ type PluginFactory func() ChainPlugin
 
 // Registry 插件注册中心
 type Registry struct {
-	mu       sync.RWMutex
-	plugins  map[string]ChainPlugin  // 已实例化的插件: name -> plugin
+	mu        sync.RWMutex
+	plugins   map[string]ChainPlugin   // 已实例化的插件: name -> plugin
 	factories map[string]PluginFactory // 插件工厂: chainType -> factory
-	logger   logx.Logger
+	logger    logx.Logger
 }
 
 // NewRegistry 创建插件注册中心
@@ -73,7 +62,7 @@ func (r *Registry) RegisterFactory(chainType string, factory PluginFactory) {
 	r.logger.Infof("[Plugin] registered factory for chain type: %s", chainType)
 }
 
-// CreatePlugin 通过工厂创建插件实例
+// CreatePlugin 通过工厂创建插件实例，并调用 Init 完成初始化
 func (r *Registry) CreatePlugin(ctx context.Context, name, chainType string, conf interface{}) (ChainPlugin, error) {
 	r.mu.RLock()
 	factory, exists := r.factories[chainType]
@@ -148,7 +137,7 @@ func (r *Registry) RemovePlugin(name string) error {
 		return fmt.Errorf("plugin '%s' not found", name)
 	}
 
-	if err := plugin.Stop(); err != nil {
+	if err := plugin.SDKClient().Stop(); err != nil {
 		r.logger.Errorf("[Plugin] stop plugin '%s' error: %v", name, err)
 		return err
 	}
@@ -163,7 +152,7 @@ func (r *Registry) StopAll() {
 	defer r.mu.Unlock()
 
 	for name, plugin := range r.plugins {
-		if err := plugin.Stop(); err != nil {
+		if err := plugin.SDKClient().Stop(); err != nil {
 			r.logger.Errorf("[Plugin] stop plugin '%s' error: %v", name, err)
 		}
 	}

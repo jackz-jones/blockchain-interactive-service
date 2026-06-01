@@ -220,9 +220,6 @@ type ContractConf struct {
 	// EnableSubscribe 是否开启订阅
 	EnableSubscribe bool
 
-	// ContractType 合约类型,枚举值：notification、nft
-	ContractType string
-
 	// nolint:staticcheck
 	// ContractName 合约名称，长安链上调用需要合约名称
 	ContractName string `json:",optional"`

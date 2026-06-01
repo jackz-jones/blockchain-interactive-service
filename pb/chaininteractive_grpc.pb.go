@@ -30,7 +30,7 @@ const (
 type ChainInteractiveClient interface {
 	// GetTxByTxId 查询交易详情
 	GetTxByTxId(ctx context.Context, in *GetTxByTxIdRequest, opts ...grpc.CallOption) (*TxResponse, error)
-	// CallContract 请求本地链合约，给提单平台用的
+	// CallContract 调用指定链上的智能合约
 	CallContract(ctx context.Context, in *CallContractRequest, opts ...grpc.CallOption) (*TxResponse, error)
 	// GetAvailableChainAndContractNames 获取本地可访问的所有链名称，以及旗下的合约名称
 	GetAvailableChainAndContractNames(ctx context.Context, in *GetAvailableChainAndContractNamesRequest, opts ...grpc.CallOption) (*GetAvailableChainAndContractNamesResponse, error)
@@ -77,7 +77,7 @@ func (c *chainInteractiveClient) GetAvailableChainAndContractNames(ctx context.C
 type ChainInteractiveServer interface {
 	// GetTxByTxId 查询交易详情
 	GetTxByTxId(context.Context, *GetTxByTxIdRequest) (*TxResponse, error)
-	// CallContract 请求本地链合约，给提单平台用的
+	// CallContract 调用指定链上的智能合约
 	CallContract(context.Context, *CallContractRequest) (*TxResponse, error)
 	// GetAvailableChainAndContractNames 获取本地可访问的所有链名称，以及旗下的合约名称
 	GetAvailableChainAndContractNames(context.Context, *GetAvailableChainAndContractNamesRequest) (*GetAvailableChainAndContractNamesResponse, error)

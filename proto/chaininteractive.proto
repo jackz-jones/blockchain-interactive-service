@@ -9,7 +9,7 @@ service ChainInteractive {
   // GetTxByTxId 查询交易详情
   rpc GetTxByTxId(GetTxByTxIdRequest) returns(TxResponse) {};
 
-  // CallContract 请求本地链合约，给提单平台用的
+  // CallContract 调用指定链上的智能合约
   rpc CallContract(CallContractRequest) returns(TxResponse) {};
 
   // GetAvailableChainAndContractNames 获取本地可访问的所有链名称，以及旗下的合约名称
@@ -70,17 +70,10 @@ enum ChainType {
   Solana = 2; // Solana链
 }
 
-// 合约类型
-enum ContractType {
-  Notification = 0; // 消息通知合约
-  Nft = 1; // nft 合约
-}
-
 message ContractDesc {
   string contractName = 1; // 合约配置名称
-  ContractType contractType = 2; // 合约类型
-  string contractAddress = 3; // 合约地址，以太坊合约会返回
-  string abi = 4; // 合约 abi，以太坊合约会返回
+  string contractAddress = 2; // 合约地址，以太坊/Solana 合约会返回
+  string abi = 3; // 合约 ABI JSON，以太坊合约会返回
 }
 
 message ChainAndContractName {

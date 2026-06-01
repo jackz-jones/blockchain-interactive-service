@@ -416,7 +416,7 @@ func TestSolanaClient_SubscribeContractEvent_EmptyContractAddr(t *testing.T) {
 		ContractAddr: "",
 	}
 
-	err = client.SubscribeContractEvent(contractConf, "testChain", "testContract", "solana", "notification")
+	err = client.SubscribeContractEvent(contractConf, "testChain", "testContract", "solana")
 	assert.Error(t, err, "空的合约地址应该返回错误")
 	assert.Contains(t, err.Error(), "empty", "错误信息应包含 'empty'")
 }
@@ -435,7 +435,7 @@ func TestSolanaClient_SubscribeContractEvent_InvalidContractAddr(t *testing.T) {
 		ContractAddr: "invalid_contract_address",
 	}
 
-	err = client.SubscribeContractEvent(contractConf, "testChain", "testContract", "solana", "notification")
+	err = client.SubscribeContractEvent(contractConf, "testChain", "testContract", "solana")
 	assert.Error(t, err, "无效的合约地址应该返回错误")
 	assert.Contains(t, err.Error(), "invalid contract address", "错误信息应包含 'invalid contract address'")
 }
@@ -450,7 +450,6 @@ func TestSolanaClient_SendTransaction_QueryMethod(t *testing.T) {
 	contractConfs := map[string]*config.ContractConf{
 		"test_contract": {
 			EnableSubscribe:   false,
-			ContractType:      "notification",
 			ContractAddr:      "11111111111111111111111111111111", // 系统程序地址
 			DeployBlockHeight: 0,
 		},

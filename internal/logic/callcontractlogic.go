@@ -29,7 +29,7 @@ func NewCallContractLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Call
 	}
 }
 
-// CallContract 请求本地链合约，给提单平台用的
+// CallContract 调用指定链上的智能合约
 func (l *CallContractLogic) CallContract(in *pb.CallContractRequest) (*pb.TxResponse, error) {
 
 	// 日志通用信息
@@ -60,7 +60,7 @@ func (l *CallContractLogic) CallContract(in *pb.CallContractRequest) (*pb.TxResp
 
 	// 获取sdk客户端
 	sdkClient, err := sdk.GetSDKClient(l.svcCtx.RootCtx, &l.svcCtx.SDKClients, in.ChainName, l.Logger, chainConf,
-		l.svcCtx.Config.Log, l.svcCtx.RedisClient)
+		l.svcCtx.Config.Log, l.svcCtx.RedisClient, l.svcCtx.ChainClientFactory)
 	if err != nil {
 		fields["err"] = err
 		l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrGetSDKClient.String())

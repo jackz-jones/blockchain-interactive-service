@@ -424,7 +424,7 @@ func (c *EthereumClient) Stop() error {
 
 // SubscribeContractEvent 订阅合约事件
 func (c *EthereumClient) SubscribeContractEvent(contractConf config.ContractConf, chainConfName,
-	contractConfName, chainType, contractType string) error {
+	contractConfName, chainType string) error {
 
 	// 日志通用信息
 	logFields := BuildSubscribeLogFields(map[string]interface{}{
@@ -432,7 +432,6 @@ func (c *EthereumClient) SubscribeContractEvent(contractConf config.ContractConf
 		"contractConfName": contractConfName,
 		"contractAddr":     contractConf.ContractAddr,
 		"contractAbi":      contractConf.Abi,
-		"contractType":     contractConf.ContractType,
 		"module":           "subscribeEth",
 	})
 
@@ -443,7 +442,7 @@ func (c *EthereumClient) SubscribeContractEvent(contractConf config.ContractConf
 	}
 
 	// 获取最新区块高度
-	height, err := c.redisClient.GetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName, contractType,
+	height, err := c.redisClient.GetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName,
 		contractConfName}, "#"))
 	if err != nil {
 		c.Logger.WithFields(logFields...).Errorf("failed to GetLatestBlockHeight: %v", err)
@@ -468,7 +467,7 @@ func (c *EthereumClient) SubscribeContractEvent(contractConf config.ContractConf
 	defer c.wg.Done()
 
 	// 实时订阅合约事件
-	err = c.GetHistoryEvent(contractConf.ContractAddr, chainConfName, contractConfName, chainType, contractType, height,
+	err = c.GetHistoryEvent(contractConf.ContractAddr, chainConfName, contractConfName, chainType, height,
 		contractConf.GetHistoryEventHeightWindow, contractConf.GetHistoryEventInterval, logFields)
 	if err != nil {
 		c.Logger.WithFields(logFields...).Errorf("failed to GetHistoryEvent: %v", err)
@@ -479,7 +478,7 @@ func (c *EthereumClient) SubscribeContractEvent(contractConf config.ContractConf
 }
 
 // GetHistoryEvent 获取历史合约事件，实时事件可能会因为链分叉重组而移除，实时事件不是最终的，历史的比较准确
-func (c *EthereumClient) GetHistoryEvent(contractAddr, chainConfName, contractConfName, chainType, contractType string,
+func (c *EthereumClient) GetHistoryEvent(contractAddr, chainConfName, contractConfName, chainType string,
 	startHeight, window, interval uint64, logFields []logx.LogField) error {
 
 	// 定时去获取一次历史合约事件，以太坊 2.0 是 12s 出一个块
@@ -539,7 +538,7 @@ func (c *EthereumClient) GetHistoryEvent(contractAddr, chainConfName, contractCo
 			if len(logs) == 0 {
 
 				// 即使窗口中没有事件，也更新处理高度
-				err = c.redisClient.SetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName, contractType,
+				err = c.redisClient.SetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName,
 					contractConfName}, "#"), endHeight)
 				if err != nil {
 					c.Logger.WithFields(logFields...).Errorf("failed to SetLatestBlockHeight: %v", err)
@@ -566,8 +565,8 @@ func (c *EthereumClient) GetHistoryEvent(contractAddr, chainConfName, contractCo
 				}
 
 				// 推送整个 log 结构到 redis，通过 log 里面的 topic 识别具体的事件类型，才能正确解析 log 里的事件数据 data
-				if err = c.redisClient.PublishTradeGuardEventToStream(c.ctx, vLog, chainType, chainConfName, contractType,
-					contractConfName, eventName); err != nil {
+				if err = c.redisClient.PublishTradeGuardEventToStream(c.ctx, vLog, chainType, chainConfName,
+					"", contractConfName, eventName); err != nil {
 					c.Logger.WithFields(logFields...).Errorf("failed to publish eth event to redis stream: %v", err)
 					break
 				}
@@ -575,7 +574,7 @@ func (c *EthereumClient) GetHistoryEvent(contractAddr, chainConfName, contractCo
 
 				// 更新处理高度，以及下一次 startHeight
 				if vLog.BlockNumber >= startHeight {
-					err = c.redisClient.SetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName, contractType,
+					err = c.redisClient.SetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName,
 						contractConfName}, "#"), vLog.BlockNumber)
 					if err != nil {
 						c.Logger.WithFields(logFields...).Errorf("failed to SetLatestBlockHeight: %v", err)
@@ -596,7 +595,7 @@ func (c *EthereumClient) GetHistoryEvent(contractAddr, chainConfName, contractCo
 }
 
 // RealTimeEvent 实时订阅合约事件，只会接受此时开始发生的事件，过去的历史事件不会返回
-func (c *EthereumClient) RealTimeEvent(contractAddr, chainConfName, contractConfName, chainType, contractType string,
+func (c *EthereumClient) RealTimeEvent(contractAddr, chainConfName, contractConfName, chainType string,
 	height uint64, logFields []logx.LogField) error {
 
 	// 过滤指定合约的事件
@@ -633,8 +632,8 @@ func (c *EthereumClient) RealTimeEvent(contractAddr, chainConfName, contractConf
 			}
 
 			// 推送整个 log 结构到 redis，通过 log 里面的 topic 识别具体的事件类型，才能正确解析 log 里的事件数据 data
-			if err = c.redisClient.PublishTradeGuardEventToStream(c.ctx, vLog, chainType, chainConfName, contractType,
-				contractConfName, eventName); err != nil {
+			if err = c.redisClient.PublishTradeGuardEventToStream(c.ctx, vLog, chainType, chainConfName,
+				"", contractConfName, eventName); err != nil {
 				c.Logger.WithFields(logFields...).Errorf("failed to publish event to redis stream: %v", err)
 				return err
 			}
@@ -642,7 +641,7 @@ func (c *EthereumClient) RealTimeEvent(contractAddr, chainConfName, contractConf
 
 			// 更新最新区块高度
 			if vLog.BlockNumber > height {
-				err = c.redisClient.SetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName, contractType,
+				err = c.redisClient.SetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName,
 					contractConfName}, "#"), vLog.BlockNumber)
 				if err != nil {
 					c.Logger.WithFields(logFields...).Errorf("failed to SetLatestBlockHeight: %v", err)

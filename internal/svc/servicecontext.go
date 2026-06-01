@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/billing"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/plugin"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/sdk"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/tenant"
@@ -45,6 +46,9 @@ type ServiceContext struct {
 
 	// 计费服务
 	BillingService *billing.Service
+
+	// ChainClientFactory 链客户端工厂函数，通过它创建各链 SDK 客户端
+	ChainClientFactory sdk.ChainClientFactory
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -56,6 +60,31 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Logger:  logx.WithContext(rootCtx),
 		RootCtx: rootCtx,
 		Cancel:  cancel,
+	}
+
+	// 初始化插件注册中心，注册内置链插件工厂
+	pluginRegistry := plugin.NewRegistry(svc.Logger)
+	plugin.RegisterBuiltinPlugins(pluginRegistry)
+
+	// 创建链客户端工厂函数，通过插件注册中心创建各链 SDK 客户端
+	svc.ChainClientFactory = func(ctx context.Context, chainName, chainType string,
+		chainConf *config.ChainConf, logConf logx.LogConf, redisClient *commonEvent.RedisClient) (sdk.ChainSdkInterface, error) {
+
+		// 构造插件初始化所需的配置
+		pluginConf := &plugin.BuiltinPluginConf{
+			ChainConf:   chainConf,
+			LogConf:     logConf,
+			RedisClient: redisClient,
+			ChainName:   chainName,
+		}
+
+		// 通过插件注册中心创建插件实例（工厂模式）
+		p, err := pluginRegistry.CreatePlugin(ctx, chainName, chainType, pluginConf)
+		if err != nil {
+			return nil, fmt.Errorf("create %s plugin: %w", chainType, err)
+		}
+
+		return p.SDKClient(), nil
 	}
 
 	// 初始化数据库
@@ -98,8 +127,8 @@ func (svc *ServiceContext) initDatabase() {
 	svc.Repo = store.NewGormRepository(db)
 	svc.TenantService = tenant.NewService(svc.Repo)
 
-	// 初始化租户级 SDK 管理器
-	svc.TenantSDKManager = sdk.NewTenantSDKManager(svc.Repo, svc.RedisClient, svc.Config.Log, svc.Logger)
+	// 初始化租户级 SDK 管理器（传入链客户端工厂函数，由插件创建客户端）
+	svc.TenantSDKManager = sdk.NewTenantSDKManager(svc.Repo, svc.ChainClientFactory, svc.RedisClient, svc.Config.Log, svc.Logger)
 
 	// 初始化计费服务
 	svc.BillingService = billing.NewService(svc.Repo, svc.Logger)
@@ -117,7 +146,7 @@ func (svc *ServiceContext) initSdkClients() {
 
 		// 检查缓存中是否存在 sdk client，不存在会自动创建，并存入缓存
 		_, err := sdk.GetSDKClient(svc.RootCtx, &svc.SDKClients, chainConfName, svc.Logger, chainConf,
-			svc.Config.Log, svc.RedisClient)
+			svc.Config.Log, svc.RedisClient, svc.ChainClientFactory)
 		if err != nil {
 
 			// 目前配置是确定的，如果出现错误，直接 panic

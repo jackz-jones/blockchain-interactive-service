@@ -89,8 +89,6 @@ ChainConfs:
       notification:
         # 是否开启订阅
         EnableSubscribe: true
-        # 合约类型,枚举值：notification、nft
-        ContractType: "notification"
         # 消息通知合约名称
         ContractName: "notificationv100"
         # 合约部署高度
@@ -98,8 +96,6 @@ ChainConfs:
       nft:
         # 是否开启订阅
         EnableSubscribe: true
-        # 合约类型,枚举值：notification、nft
-        ContractType: "nft"
         # nft合约名称
         ContractName: "nftv100"
         # 合约部署高度
@@ -129,8 +125,6 @@ ChainConfs:
       notification:
         # 是否开启订阅
         EnableSubscribe: true
-        # 合约类型,枚举值：notification、nft
-        ContractType: "notification"
         # 合约地址（Solana 合约即程序ID，base58 格式）
         ContractAddr: "11111111111111111111111111111111"
         # 合约部署高度
@@ -184,8 +178,6 @@ ChainConfs:
       notification:
         # 是否开启订阅
         EnableSubscribe: true
-        # 合约类型,枚举值：notification、nft
-        ContractType: "notification"
         # 消息通知合约地址
         ContractAddr: "0x314b0fD426A57bebaC8727C37bb56DD541D8A6B0"
         # 消息通知合约 abi
@@ -199,8 +191,6 @@ ChainConfs:
       nft:
         # 是否开启订阅
         EnableSubscribe: true
-        # 合约类型,枚举值：notification、nft
-        ContractType: "nft"
         # 消息通知合约地址
         ContractAddr: "0xA5D0D4A769740c803f20C5DFdB429Ebf135B21Cc"
         # 消息通知合约 abi

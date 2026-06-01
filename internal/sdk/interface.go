@@ -52,11 +52,11 @@ type ChainSdkInterface interface {
 	 * @param contractConf 合约配置
 	 * @param chainConfName 链配置名称
 	 * @param contractConfName 合约配置名称
-	 * @param contractType 合约类型
+	 * @param chainType 链类型
 	 *
 	 * @return error 错误信息
 	 */
 
-	SubscribeContractEvent(contractConf config.ContractConf, chainConfName, contractConfName, chainType,
-		contractType string) error
+	SubscribeContractEvent(contractConf config.ContractConf, chainConfName, contractConfName,
+		chainType string) error
 }

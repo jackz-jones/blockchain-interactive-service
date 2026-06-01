@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
-	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 
 	commonEvent "github.com/jackz-jones/common/event"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -20,6 +19,9 @@ import (
 type TenantSDKManager struct {
 	// tenantClients 租户级 SDK 客户端缓存: "tenantID:chainName" -> ChainSdkInterface
 	tenantClients sync.Map
+
+	// factory 链客户端工厂函数，通过它创建链客户端
+	factory ChainClientFactory
 
 	// repo 数据访问层，用于查询租户链配置
 	repo store.Repository
@@ -35,9 +37,10 @@ type TenantSDKManager struct {
 }
 
 // NewTenantSDKManager 创建租户级 SDK 管理器
-func NewTenantSDKManager(repo store.Repository, redisClient *commonEvent.RedisClient,
+func NewTenantSDKManager(repo store.Repository, factory ChainClientFactory, redisClient *commonEvent.RedisClient,
 	logConf logx.LogConf, logger logx.Logger) *TenantSDKManager {
 	return &TenantSDKManager{
+		factory:     factory,
 		repo:        repo,
 		redisClient: redisClient,
 		logConf:     logConf,
@@ -157,36 +160,22 @@ func (m *TenantSDKManager) StopAll() {
 	m.logger.Info("stopped all tenant SDK clients")
 }
 
-// createSDKClient 根据链类型创建 SDK 客户端
+// createSDKClient 根据链类型通过工厂函数创建 SDK 客户端
 func (m *TenantSDKManager) createSDKClient(ctx context.Context, chainType, chainName string,
 	sdkConf *config.SdkConf, contractConfs map[string]*config.ContractConf) (ChainSdkInterface, error) {
 
-	switch strings.ToLower(chainType) {
-	case strings.ToLower(pb.ChainType_Ethereum.String()):
-		client, err := NewEthereumClient(ctx, sdkConf.EthConf, contractConfs, m.redisClient)
-		if err != nil {
-			return nil, fmt.Errorf("create ethereum client for chain '%s': %w", chainName, err)
-		}
-		return client, nil
-
-	case strings.ToLower(pb.ChainType_Chainmaker.String()):
-		client, err := NewChainMakerClient(ctx, chainName, sdkConf.ConfFilePath,
-			contractConfs, m.logConf, m.redisClient)
-		if err != nil {
-			return nil, fmt.Errorf("create chainmaker client for chain '%s': %w", chainName, err)
-		}
-		return client, nil
-
-	case strings.ToLower(pb.ChainType_Solana.String()):
-		client, err := NewSolanaClient(ctx, sdkConf.SolanaConf, contractConfs, m.redisClient)
-		if err != nil {
-			return nil, fmt.Errorf("create solana client for chain '%s': %w", chainName, err)
-		}
-		return client, nil
-
-	default:
-		return nil, fmt.Errorf("unsupported chain type: %s", chainType)
+	chainConf := &config.ChainConf{
+		ChainType:     chainType,
+		SdkConf:       *sdkConf,
+		ContractConfs: contractConfs,
 	}
+
+	client, err := m.factory(ctx, chainName, strings.ToLower(chainType), chainConf, m.logConf, m.redisClient)
+	if err != nil {
+		return nil, fmt.Errorf("create client for chain '%s' (type=%s): %w", chainName, chainType, err)
+	}
+
+	return client, nil
 }
 
 // buildContractConfs 将数据库合约配置转换为内存配置格式
@@ -196,7 +185,6 @@ func buildContractConfs(dbConfigs []*store.TenantContractConfig) map[string]*con
 		contractConf := &config.ContractConf{
 			ContractName: dbConf.ContractName,
 			ContractAddr: dbConf.ContractAddr,
-			ContractType: dbConf.ContractType,
 			Abi:          dbConf.AbiJSON,
 		}
 
@@ -206,7 +194,6 @@ func buildContractConfs(dbConfigs []*store.TenantContractConfig) map[string]*con
 			// 确保核心字段不被覆盖
 			contractConf.ContractName = dbConf.ContractName
 			contractConf.ContractAddr = dbConf.ContractAddr
-			contractConf.ContractType = dbConf.ContractType
 			if dbConf.AbiJSON != "" {
 				contractConf.Abi = dbConf.AbiJSON
 			}

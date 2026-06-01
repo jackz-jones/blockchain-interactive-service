@@ -28,7 +28,7 @@ func (s *ChainInteractiveServer) GetTxByTxId(ctx context.Context, in *__.GetTxBy
 	return l.GetTxByTxId(in)
 }
 
-// CallContract 请求本地链合约，给提单平台用的
+// CallContract 调用指定链上的智能合约
 func (s *ChainInteractiveServer) CallContract(ctx context.Context, in *__.CallContractRequest) (*__.TxResponse, error) {
 	l := logic.NewCallContractLogic(ctx, s.svcCtx)
 	return l.CallContract(in)

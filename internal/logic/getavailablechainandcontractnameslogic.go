@@ -29,6 +29,13 @@ func NewGetAvailableChainAndContractNamesLogic(ctx context.Context,
 	}
 }
 
+// chainTypeMapping 链类型字符串到 pb 枚举的映射
+var chainTypeMapping = map[string]pb.ChainType{
+	"ethereum":   pb.ChainType_Ethereum,
+	"chainmaker": pb.ChainType_Chainmaker,
+	"solana":     pb.ChainType_Solana,
+}
+
 // GetAvailableChainAndContractNames 获取本地可访问的所有链名称，以及旗下的合约名称
 func (l *GetAvailableChainAndContractNamesLogic) GetAvailableChainAndContractNames(
 	in *pb.GetAvailableChainAndContractNamesRequest) (*pb.GetAvailableChainAndContractNamesResponse, error) {
@@ -44,14 +51,9 @@ func (l *GetAvailableChainAndContractNamesLogic) GetAvailableChainAndContractNam
 	for chainName, conf := range l.svcCtx.Config.ChainConfs {
 		if conf.Enable {
 
-			// 解析链类型
-			var chainType pb.ChainType
-			switch strings.ToLower(conf.ChainType) {
-			case strings.ToLower(pb.ChainType_Ethereum.String()):
-				chainType = pb.ChainType_Ethereum
-			case strings.ToLower(pb.ChainType_Chainmaker.String()):
-				chainType = pb.ChainType_Chainmaker
-			default:
+			// 解析链类型（通过映射表，支持动态扩展）
+			chainType, ok := chainTypeMapping[strings.ToLower(conf.ChainType)]
+			if !ok {
 				fields["chainType"] = conf.ChainType
 				l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrUnknownChainType.String())
 				return l.errorResponse(code.ErrUnknownChainType, nil), nil
@@ -62,20 +64,7 @@ func (l *GetAvailableChainAndContractNamesLogic) GetAvailableChainAndContractNam
 			// 收集合约配置名称
 			for contractName, contractConf := range conf.ContractConfs {
 
-				// 解析合约类型
-				var ct pb.ContractType
-				switch strings.ToLower(contractConf.ContractType) {
-				case strings.ToLower(pb.ContractType_Notification.String()):
-					ct = pb.ContractType_Notification
-				case strings.ToLower(pb.ContractType_Nft.String()):
-					ct = pb.ContractType_Nft
-				default:
-					fields["contractType"] = contractConf.ContractType
-					l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrUnknownContractType.String())
-					return l.errorResponse(code.ErrUnknownContractType, nil), nil
-				}
-
-				// 只要以太坊链才需要解析 abi
+				// 只有以太坊链才需要解析 abi
 				var (
 					abi string
 					err error
@@ -88,19 +77,17 @@ func (l *GetAvailableChainAndContractNamesLogic) GetAvailableChainAndContractNam
 						l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrReadAbiJsonFile.String())
 						return l.errorResponse(code.ErrReadAbiJsonFile, nil), nil
 					}
-
 				}
 
-				// 收集合约配置名称
+				// 收集合约配置信息
 				contractDescs = append(contractDescs, &pb.ContractDesc{
 					ContractName:    contractName,
-					ContractType:    ct,
 					ContractAddress: contractConf.ContractAddr,
 					Abi:             abi,
 				})
 			}
 
-			// 收集合约配置名称
+			// 收集链配置信息
 			chainAndContractNames = append(chainAndContractNames, &pb.ChainAndContractName{
 				ChainName:     chainName,
 				ChainType:     chainType,

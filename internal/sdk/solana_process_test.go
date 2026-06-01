@@ -61,7 +61,7 @@ func TestProcessTransactionSignatures_FirstFailureDoesNotAdvanceSlot(t *testing.
 		{Signature: mkSig(2), Slot: 101},
 	}
 	processed, allOK := c.processTransactionSignatures(sigs, 99,
-		"chain", "contract", "solana", "notify", nil)
+		"chain", "contract", "solana", nil)
 	assert.Equal(t, uint64(99), processed, "失败不应推进 processedSlot")
 	assert.False(t, allOK, "整批应标记为未全部成功")
 }
@@ -79,7 +79,7 @@ func TestProcessTransactionSignatures_NilResultTreatedAsFailure(t *testing.T) {
 		{Signature: mkSig(1), Slot: 100},
 	}
 	processed, allOK := c.processTransactionSignatures(sigs, 99,
-		"chain", "contract", "solana", "notify", nil)
+		"chain", "contract", "solana", nil)
 	assert.Equal(t, uint64(99), processed)
 	assert.False(t, allOK)
 }
@@ -90,7 +90,7 @@ func TestProcessTransactionSignatures_EmptyInput(t *testing.T) {
 	defer c.cancel()
 
 	processed, allOK := c.processTransactionSignatures(nil, 42,
-		"chain", "contract", "solana", "notify", nil)
+		"chain", "contract", "solana", nil)
 	assert.Equal(t, uint64(42), processed)
 	assert.True(t, allOK)
 }

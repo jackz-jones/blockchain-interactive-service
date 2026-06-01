@@ -123,8 +123,8 @@ func main() {
     for _, chain := range availResp.Data {
         fmt.Printf("链: %s (类型: %s)\n", chain.ChainName, chain.ChainType)
         for _, contract := range chain.ContractDescs {
-            fmt.Printf("  合约: %s (类型: %s, 地址: %s)\n",
-                contract.ContractName, contract.ContractType, contract.ContractAddress)
+            fmt.Printf("  合约: %s (地址: %s)\n",
+                contract.ContractName, contract.ContractAddress)
         }
     }
 }
@@ -289,7 +289,6 @@ grpcurl -plaintext -d '{
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | contractName | string | 合约配置名称 |
-| contractType | ContractType | 合约类型枚举（0=Notification, 1=Nft） |
 | contractAddress | string | 合约地址（Ethereum/Solana） |
 | abi | string | 合约 ABI JSON（仅 Ethereum） |
 
@@ -327,7 +326,6 @@ ChainConfs:
 ContractConfs:
   notification:
     EnableSubscribe: true
-    ContractType: "notification"
     ContractAddr: "0x..."                    # 合约地址
     Abi: ./etc/notification.json             # ABI JSON 文件路径
     DeployBlockHeight: 0                     # 合约部署区块高度
@@ -370,7 +368,6 @@ ChainConfs:
 ContractConfs:
   notification:
     EnableSubscribe: true
-    ContractType: "notification"
     ContractName: "notificationv100"   # 链上合约名称
     DeployBlockHeight: 5               # 合约部署高度
 ```
@@ -459,7 +456,6 @@ SolanaMethods:
 ContractConfs:
   notification:
     EnableSubscribe: true
-    ContractType: "notification"
     ContractAddr: "program-id-base58"   # Solana 程序 ID（base58 格式）
     DeployBlockHeight: 0                 # 部署时的 Slot 编号
 ```
@@ -500,7 +496,7 @@ sequenceDiagram
 
 ### Redis 事件格式
 
-订阅的事件会发布到 Redis，具体的频道和格式取决于 `contractType` 和 `chainType` 配置。
+订阅的事件会发布到 Redis，具体的频道和格式取决于 `chainType` 和合约配置名称。
 
 ### Redis 部署模式
 
@@ -613,8 +609,7 @@ DevServer:
 | 返回码 | 常量 | 说明 |
 |---|---|---|
 | 200000 | Success | 操作成功 |
-| 600000 | ErrUnknownContractType | 配置中的 `ContractType` 不被识别 |
-| 600001 | ErrUnknownChainType | 配置中的 `ChainType` 不被识别 |
+| 600000 | ErrUnknownChainType | 配置中的 `ChainType` 不被识别 |
 | 600002 | ErrGetSDKClient | 创建或获取 SDK 客户端失败 |
 | 600003 | ErrGetTxByTxId | 根据交易 ID 查询交易失败 |
 | 600004 | ErrSendTransaction | 发送交易到链上失败 |

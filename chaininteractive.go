@@ -14,9 +14,9 @@ import (
 	"github.com/jackz-jones/blockchain-interactive-service/internal/svc"
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 
+	commonGrpc "github.com/jackz-jones/common/grpc"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"
-	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -49,13 +49,22 @@ func main() {
 	rbacInterceptor := middleware.NewRBACInterceptor()
 	quotaInterceptor := middleware.NewQuotaInterceptor(ctx.BillingService)
 
-	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {
+	// 初始化 grpc 服务注册器
+	register := func(grpcServer *grpc.Server) {
 		pb.RegisterChainInteractiveServer(grpcServer, server.NewChainInteractiveServer(ctx))
 
 		if c.Mode == service.DevMode || c.Mode == service.TestMode {
 			reflection.Register(grpcServer)
 		}
-	})
+	}
+
+	// 创建 grpc 服务
+	s, err := commonGrpc.CreateGRPCServer(c.RpcServerConf, register, c.GrpcConf.CaCertFile, c.GrpcConf.ServerCertFile,
+		c.GrpcConf.ServerKeyFile, c.GrpcConf.MaxRecvMsgSize, c.GrpcConf.MaxSendMsgSize)
+	if err != nil {
+		panic(fmt.Errorf("failed to CreateGRPCServer,error: %v", err))
+	}
+
 	defer s.Stop()
 
 	// 注册 gRPC 拦截器
@@ -67,13 +76,18 @@ func main() {
 	gateway.StartHTTPServer(c, ctx)
 
 	// 启动订阅（传入服务级根 ctx，便于统一优雅退出）
-	sdk.StartSubscribe(ctx.RootCtx, c, &ctx.SDKClients, ctx.Logger, ctx.RedisClient)
+	sdk.StartSubscribe(ctx.RootCtx, c, &ctx.SDKClients, ctx.Logger, ctx.RedisClient, ctx.ChainClientFactory)
 
 	// 服务退出前释放所有的 sdk client
 	defer func() {
 		// 先取消根 ctx，通知订阅 goroutine 等退出；然后并发调用各 SDK 的 Stop
 		ctx.Cancel()
 		sdk.StopAllSdkClients(&ctx.SDKClients, ctx.Logger)
+
+		// 停止所有租户级 SDK 客户端
+		if ctx.TenantSDKManager != nil {
+			ctx.TenantSDKManager.StopAll()
+		}
 	}()
 
 	fmt.Printf("Starting rpc server at %s...\n", c.ListenOn)

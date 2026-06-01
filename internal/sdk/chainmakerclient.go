@@ -163,14 +163,13 @@ func (c *ChainMakerClient) Stop() error {
 
 // SubscribeContractEvent 订阅合约事件
 func (c *ChainMakerClient) SubscribeContractEvent(contractConf config.ContractConf, chainConfName, contractConfName,
-	chainType, contractType string) error {
+	chainType string) error {
 
 	// 日志通用信息
 	logFields := BuildSubscribeLogFields(map[string]interface{}{
 		"chainConfName":     chainConfName,
 		"contractConfName":  contractConfName,
 		"contractName":      contractConf.ContractName,
-		"contractType":      contractConf.ContractType,
 		"deployBlockHeight": contractConf.DeployBlockHeight,
 		"module":            "subscribeChainmaker",
 	})
@@ -183,7 +182,7 @@ func (c *ChainMakerClient) SubscribeContractEvent(contractConf config.ContractCo
 
 	// 获取最新区块高度
 	height, err := c.redisClient.GetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName,
-		contractType, contractConfName}, "#"))
+		contractConfName}, "#"))
 	if err != nil {
 		c.Logger.WithFields(logFields...).Errorf("failed to GetLatestBlockHeight: %v", err)
 		return fmt.Errorf("failed to GetLatestBlockHeight: %v", err)
@@ -244,7 +243,7 @@ func (c *ChainMakerClient) SubscribeContractEvent(contractConf config.ContractCo
 			c.Logger.WithFields(logFields...).Infof("received chainmaker contract eventInfo[txid: %s, height: %d]",
 				contractEventInfo.TxId, contractEventInfo.BlockHeight)
 			if err = c.redisClient.PublishTradeGuardEventToStream(c.ctx, contractEventInfo, chainType, chainConfName,
-				contractType, contractConfName, contractEventInfo.Topic); err != nil {
+				"", contractConfName, contractEventInfo.Topic); err != nil {
 				c.Logger.WithFields(logFields...).Errorf("failed to publish eventInfo to redis stream: %v", err)
 				return err
 			}
@@ -252,7 +251,7 @@ func (c *ChainMakerClient) SubscribeContractEvent(contractConf config.ContractCo
 
 			// 更新处理高度，有可能同一个高度有多个事件
 			if contractEventInfo.BlockHeight > height {
-				err = c.redisClient.SetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName, contractType,
+				err = c.redisClient.SetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName,
 					contractConfName}, "#"), contractEventInfo.BlockHeight)
 				if err != nil {
 					c.Logger.WithFields(logFields...).Errorf("failed to SetLatestBlockHeight: %v", err)

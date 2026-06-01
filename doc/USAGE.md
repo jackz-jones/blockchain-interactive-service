@@ -123,8 +123,8 @@ func main() {
     for _, chain := range availResp.Data {
         fmt.Printf("Chain: %s (Type: %s)\n", chain.ChainName, chain.ChainType)
         for _, contract := range chain.ContractDescs {
-            fmt.Printf("  Contract: %s (Type: %s, Addr: %s)\n",
-                contract.ContractName, contract.ContractType, contract.ContractAddress)
+            fmt.Printf("  Contract: %s (Addr: %s)\n",
+                contract.ContractName, contract.ContractAddress)
         }
     }
 }
@@ -289,7 +289,6 @@ Returns all enabled chains and their contract configurations.
 | Field | Type | Description |
 |---|---|---|
 | contractName | string | Contract configuration name |
-| contractType | ContractType | Contract type enum (0=Notification, 1=Nft) |
 | contractAddress | string | Contract address (Ethereum/Solana) |
 | abi | string | Contract ABI JSON (Ethereum only) |
 
@@ -327,7 +326,6 @@ ChainConfs:
 ContractConfs:
   notification:
     EnableSubscribe: true
-    ContractType: "notification"
     ContractAddr: "0x..."                    # Contract address
     Abi: ./etc/notification.json             # ABI JSON file path
     DeployBlockHeight: 0                     # Block height at deployment
@@ -370,7 +368,6 @@ The `chainmaker_sdk_config.yml` file contains chain node addresses, user certifi
 ContractConfs:
   notification:
     EnableSubscribe: true
-    ContractType: "notification"
     ContractName: "notificationv100"   # On-chain contract name
     DeployBlockHeight: 5               # Block height at deployment
 ```
@@ -459,7 +456,6 @@ SolanaMethods:
 ContractConfs:
   notification:
     EnableSubscribe: true
-    ContractType: "notification"
     ContractAddr: "program-id-base58"   # Solana program ID (base58)
     DeployBlockHeight: 0                 # Slot number at deployment
 ```
@@ -500,7 +496,7 @@ sequenceDiagram
 
 ### Redis Event Format
 
-Subscribed events are published to Redis. The specific channel and format depend on the `contractType` and `chainType` configuration.
+Subscribed events are published to Redis. The specific channel and format depend on the `chainType` and contract configuration name.
 
 ### Redis Deployment Modes
 
@@ -613,8 +609,7 @@ DevServer:
 | Code | Constant | Description |
 |---|---|---|
 | 200000 | Success | Operation succeeded |
-| 600000 | ErrUnknownContractType | The `ContractType` in config is not recognized |
-| 600001 | ErrUnknownChainType | The `ChainType` in config is not recognized |
+| 600000 | ErrUnknownChainType | The `ChainType` in config is not recognized |
 | 600002 | ErrGetSDKClient | Failed to create or retrieve SDK client |
 | 600003 | ErrGetTxByTxId | Failed to query transaction by ID |
 | 600004 | ErrSendTransaction | Failed to send transaction to the chain |

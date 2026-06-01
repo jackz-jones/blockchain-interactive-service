@@ -54,7 +54,7 @@ func (l *GetTxByTxIdLogic) GetTxByTxId(in *pb.GetTxByTxIdRequest) (*pb.TxRespons
 
 	// 获取sdk客户端
 	sdkClient, err := sdk.GetSDKClient(l.svcCtx.RootCtx, &l.svcCtx.SDKClients, in.ChainName, l.Logger, chainConf,
-		l.svcCtx.Config.Log, l.svcCtx.RedisClient)
+		l.svcCtx.Config.Log, l.svcCtx.RedisClient, l.svcCtx.ChainClientFactory)
 	if err != nil {
 		fields["err"] = err
 		l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrGetSDKClient.String())
