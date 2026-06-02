@@ -90,7 +90,6 @@ func (a *AuditInterceptor) recordGRPCAudit(
 		Detail:    string(detailBytes),
 		IP:        ip,
 		UserAgent: userAgent,
-		CreatedAt: time.Now(),
 	}
 
 	if err := a.repo.CreateAuditLog(context.Background(), log); err != nil {
@@ -138,7 +137,6 @@ func recordHTTPAudit(repo store.Repository, r *http.Request, statusCode int, dur
 		Detail:    string(detailBytes),
 		IP:        getHTTPClientIP(r),
 		UserAgent: r.UserAgent(),
-		CreatedAt: time.Now(),
 	}
 
 	if err := repo.CreateAuditLog(context.Background(), log); err != nil {

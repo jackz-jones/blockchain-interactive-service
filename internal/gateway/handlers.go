@@ -811,7 +811,6 @@ func recordCallLog(svcCtx *svc.ServiceContext, tenantID uint, r *http.Request,
 		GasUsed:      gasUsed,
 		Duration:     duration.Milliseconds(),
 		RequestIP:    getClientIPFromHTTP(r),
-		CreatedAt:    time.Now(),
 	}
 
 	_ = svcCtx.Repo.CreateCallLog(r.Context(), log)

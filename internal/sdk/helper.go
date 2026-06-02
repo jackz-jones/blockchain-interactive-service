@@ -196,46 +196,46 @@ func scheduleOnce(ctx context.Context, conf config.Config, sdkClients *sync.Map,
 			cc := contractConf
 			chainType := strings.ToLower(chainConf.ChainType)
 
-			go runSubscribeOnce(sdkClient, cc, chainConfName, contractConfName, chainType, logger, 0, 0)
+			key := subscribeKey(chainConfName, contractConfName)
+			go runSubscribeOnce(sdkClient, cc, chainConfName, contractConfName, chainType, logger, 0, 0, key)
 		}
 	}
 }
 
 // runSubscribeOnce 在独立 goroutine 中执行一次订阅。
 // - 使用局部 subErr 变量，不与外层共享。
-// - defer 中清理 SubscribeFlag，使得下一次轮询可以重新拉起。
+// - defer 中清理 SubscribeFlag，使得下一次轮询可重订阅。
+// - flagKey 由调用方传入，支持配置文件路径和 DB 路径两种 key 格式。
 func runSubscribeOnce(sdkClient ChainSdkInterface, cc *config.ContractConf,
 	chainConfName, contractConfName, chainType string, logger logx.Logger,
-	chainConfigID, contractConfigID uint) {
-
-	key := subscribeKey(chainConfName, contractConfName)
+	chainConfigID, contractConfigID uint, flagKey string) {
 
 	// 检查是否重复订阅
-	val, ok := SubscribeFlag.Load(key)
+	val, ok := SubscribeFlag.Load(flagKey)
 	if ok {
 		if b, _ := val.(bool); b {
-			logger.Infof("[chain: %s] [contract: %s] already subscribed", chainConfName, contractConfName)
+			logger.Infof("[chain: %s] [contract: %s] already subscribed (key=%s)", chainConfName, contractConfName, flagKey)
 			return
 		}
 	}
 
 	// 标记为已订阅
-	SubscribeFlag.Store(key, true)
+	SubscribeFlag.Store(flagKey, true)
 
 	// 退出路径保证清理 SubscribeFlag，使得下一次 subscribeRescheduleInterval 轮询可触发重订阅
-	defer SubscribeFlag.Delete(key)
+	defer SubscribeFlag.Delete(flagKey)
 
 	// 使用局部 subErr，不与外层共享，避免并发写入竞争
 	subErr := sdkClient.SubscribeContractEvent(
 		*cc, chainConfName, contractConfName, chainType, chainConfigID, contractConfigID)
 	if subErr != nil {
-		logger.Errorf("failed to subscribe chain %s contract %s event,err: %v",
-			chainConfName, contractConfName, subErr)
+		logger.Errorf("failed to subscribe chain %s contract %s event (key=%s): %v",
+			chainConfName, contractConfName, flagKey, subErr)
 		return
 	}
 
-	logger.Infof("[chain: %s] [contract: %s] subscribe goroutine returned normally",
-		chainConfName, contractConfName)
+	logger.Infof("[chain: %s] [contract: %s] subscribe goroutine returned normally (key=%s)",
+		chainConfName, contractConfName, flagKey)
 }
 
 // scheduleDBOnce 执行一次 DB 配置路径的订阅扫描
@@ -296,33 +296,9 @@ func scheduleDBOnce(ctx context.Context, tenantMgr *TenantSDKManager, repo store
 			}
 		}
 
-		go runDBSubscribeOnce(sdkClient, cc, chainConfig.ChainName, contract.ContractName,
+		go runSubscribeOnce(sdkClient, cc, chainConfig.ChainName, contract.ContractName,
 			chainType, logger, chainConfig.ID, contract.ID, flagKey)
 	}
-}
-
-// runDBSubscribeOnce 在独立 goroutine 中执行一次 DB 路径的订阅
-func runDBSubscribeOnce(sdkClient ChainSdkInterface, cc *config.ContractConf,
-	chainConfName, contractConfName, chainType string, logger logx.Logger,
-	chainConfigID, contractConfigID uint, flagKey string) {
-
-	// 标记为已订阅
-	SubscribeFlag.Store(flagKey, true)
-
-	// 退出路径保证清理 SubscribeFlag
-	defer SubscribeFlag.Delete(flagKey)
-
-	// 执行订阅
-	subErr := sdkClient.SubscribeContractEvent(
-		*cc, chainConfName, contractConfName, chainType, chainConfigID, contractConfigID)
-	if subErr != nil {
-		logger.Errorf("failed to subscribe DB chain %s (ID=%d) contract %s (ID=%d) event: %v",
-			chainConfName, chainConfigID, contractConfName, contractConfigID, subErr)
-		return
-	}
-
-	logger.Infof("[DB chain: %s ID=%d] [contract: %s ID=%d] subscribe goroutine returned normally",
-		chainConfName, chainConfigID, contractConfName, contractConfigID)
 }
 
 func GetDefaultSdkLogger(logPath string, maxAge int) *zap.SugaredLogger {

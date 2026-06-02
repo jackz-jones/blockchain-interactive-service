@@ -41,30 +41,19 @@ type GatewayConf struct {
 }
 
 // DatabaseConf 数据库配置
+// 参考 common 包 db.InitGormDB，支持 mysql、kingbase_mysql、kingbase_pgsql、postgres
 type DatabaseConf struct {
-	// Driver 数据库驱动：postgres、mysql
-	Driver string `json:",default=postgres"` //nolint:staticcheck
+	// Type 数据库类型，支持: mysql、kingbase_mysql、kingbase_pgsql、postgres
+	Type string `json:",default=mysql"` //nolint:staticcheck
 
-	// Host 数据库主机地址
-	Host string `json:",default=localhost"` //nolint:staticcheck
+	// DSN 数据库连接字符串
+	DSN string
 
-	// Port 数据库端口
-	Port int `json:",default=5432"` //nolint:staticcheck
+	// MaxIdleConns 空闲连接池最大数量（可选，默认使用 common 包内置值）
+	MaxIdleConns int `json:",optional"` //nolint:staticcheck
 
-	// User 数据库用户名
-	User string `json:",default=postgres"` //nolint:staticcheck
-
-	// Password 数据库密码
-	Password string `json:",optional"` //nolint:staticcheck
-
-	// DBName 数据库名
-	DBName string `json:",default=chain_interactive"` //nolint:staticcheck
-
-	// SSLMode SSL 模式（postgres 专用）
-	SSLMode string `json:",default=disable"` //nolint:staticcheck
-
-	// AutoMigrate 是否自动迁移表结构
-	AutoMigrate bool `json:",default=true"` //nolint:staticcheck
+	// MaxOpenConns 最大连接数（可选，默认使用 common 包内置值）
+	MaxOpenConns int `json:",optional"` //nolint:staticcheck
 }
 
 // GrpcConf contain all config items for grpc server initiation

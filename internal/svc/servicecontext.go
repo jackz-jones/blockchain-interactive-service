@@ -105,28 +105,11 @@ func NewServiceContext(c config.Config) *ServiceContext {
 
 // 初始化数据库连接
 func (svc *ServiceContext) initDatabase() {
-	dbConf := &store.DBConfig{
-		Driver:   svc.Config.DatabaseConf.Driver,
-		Host:     svc.Config.DatabaseConf.Host,
-		Port:     svc.Config.DatabaseConf.Port,
-		User:     svc.Config.DatabaseConf.User,
-		Password: svc.Config.DatabaseConf.Password,
-		DBName:   svc.Config.DatabaseConf.DBName,
-		SSLMode:  svc.Config.DatabaseConf.SSLMode,
-	}
-
-	db, err := store.NewDB(dbConf)
+	db, err := store.NewDB(&svc.Config.DatabaseConf)
 	if err != nil {
-		panic(fmt.Errorf("failed to connect database: %v", err))
+		panic(fmt.Errorf("failed to init database: %v", err))
 	}
 	svc.DB = db
-
-	// 自动迁移表结构
-	if svc.Config.DatabaseConf.AutoMigrate {
-		if err := store.AutoMigrate(db); err != nil {
-			panic(fmt.Errorf("failed to auto migrate database: %v", err))
-		}
-	}
 
 	// 初始化 Repository 和 TenantService
 	svc.Repo = store.NewGormRepository(db)

@@ -3,77 +3,20 @@ package store
 import (
 	"fmt"
 
+	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
+	commonDB "github.com/jackz-jones/common/db"
 	"github.com/zeromicro/go-zero/core/logx"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
-// 数据库驱动常量
-const (
-	DriverPostgres = "postgres"
-	DriverMySQL    = "mysql"
-)
-
-// DBConfig 数据库配置
-type DBConfig struct {
-	Driver   string // 数据库驱动：postgres、mysql
-	Host     string // 主机地址
-	Port     int    // 端口
-	User     string // 用户名
-	Password string // 密码
-	DBName   string // 数据库名
-	SSLMode  string // SSL 模式（postgres 专用）
-}
-
-// DSN 生成数据库连接字符串
-func (c *DBConfig) DSN() string {
-	switch c.Driver {
-	case DriverPostgres:
-		sslMode := c.SSLMode
-		if sslMode == "" {
-			sslMode = "disable"
-		}
-		return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-			c.Host, c.Port, c.User, c.Password, c.DBName, sslMode)
-	case DriverMySQL:
-		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-			c.User, c.Password, c.Host, c.Port, c.DBName)
-	default:
-		return ""
-	}
-}
-
-// NewDB 创建数据库连接
-func NewDB(cfg *DBConfig) (*gorm.DB, error) {
-	var dialector gorm.Dialector
-
-	switch cfg.Driver {
-	case DriverPostgres:
-		dialector = postgres.Open(cfg.DSN())
-	case DriverMySQL:
-		dialector = mysql.Open(cfg.DSN())
-	default:
-		return nil, fmt.Errorf("unsupported database driver: %s", cfg.Driver)
+// NewDB 创建数据库连接并自动迁移表结构
+// 复用 common 包 InitGormDB 方法，统一连接池配置和初始化逻辑
+func NewDB(cfg *config.DatabaseConf) (*gorm.DB, error) {
+	if cfg.DSN == "" {
+		return nil, fmt.Errorf("database DSN is required")
 	}
 
-	db, err := gorm.Open(dialector, &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Warn),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect database: %w", err)
-	}
-
-	logx.Infof("[Store] database connected successfully, driver=%s, host=%s, db=%s",
-		cfg.Driver, cfg.Host, cfg.DBName)
-
-	return db, nil
-}
-
-// AutoMigrate 自动迁移数据库表结构
-func AutoMigrate(db *gorm.DB) error {
-	err := db.AutoMigrate(
+	db, err := commonDB.InitGormDB(cfg.Type, cfg.DSN,
 		&Tenant{},
 		&User{},
 		&APIKey{},
@@ -85,9 +28,23 @@ func AutoMigrate(db *gorm.DB) error {
 		&AuditLog{},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to auto migrate: %w", err)
+		return nil, fmt.Errorf("failed to init database via common.InitGormDB: %w", err)
 	}
 
-	logx.Info("[Store] database auto migration completed")
-	return nil
+	// 如果用户配置了自定义连接池参数，覆盖 common 包的默认值
+	if cfg.MaxIdleConns > 0 || cfg.MaxOpenConns > 0 {
+		sqlDB, sqlErr := db.DB()
+		if sqlErr == nil {
+			if cfg.MaxIdleConns > 0 {
+				sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+			}
+			if cfg.MaxOpenConns > 0 {
+				sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+			}
+		}
+	}
+
+	logx.Infof("[Store] database connected successfully, type=%s", cfg.Type)
+
+	return db, nil
 }
