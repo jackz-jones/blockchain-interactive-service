@@ -2,12 +2,14 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
 
 	"chainmaker.org/chainmaker/common/v2/log"
 	commonEvent "github.com/jackz-jones/common/event"
@@ -46,6 +48,11 @@ func BuildSubscribeLogFields(fields map[string]interface{}) []logx.LogField {
 // subscribeKey 生成 SubscribeFlag 使用的 key
 func subscribeKey(chainConfName, contractConfName string) string {
 	return fmt.Sprintf("%s-%s", chainConfName, contractConfName)
+}
+
+// subscribeKeyByID 生成基于 DB ID 的 SubscribeFlag key（DB 路径专用）
+func subscribeKeyByID(chainConfigID, contractConfigID uint) string {
+	return fmt.Sprintf("db:%d-%d", chainConfigID, contractConfigID)
 }
 
 // GetSDKClient 获取可用的 sdk client
@@ -135,12 +142,19 @@ func StopAllSdkClients(sdkClients *sync.Map, logger logx.Logger) {
 //  5. 主 goroutine 监听 ctx.Done，收到退出信号后立即返回；订阅 goroutine 由 SDK 的 Stop()/ctx
 //     取消机制驱动退出。
 func StartSubscribe(ctx context.Context, conf config.Config, sdkClients *sync.Map, logger logx.Logger,
-	redisClient *commonEvent.RedisClient, factory ChainClientFactory) {
+	redisClient *commonEvent.RedisClient, factory ChainClientFactory,
+	tenantMgr *TenantSDKManager, repo store.Repository) {
 	go func() {
 		ticker := time.NewTicker(subscribeRescheduleInterval)
 		defer ticker.Stop()
 		for {
+			// 配置文件路径订阅
 			scheduleOnce(ctx, conf, sdkClients, logger, redisClient, factory)
+
+			// DB 配置路径订阅
+			if repo != nil && tenantMgr != nil {
+				scheduleDBOnce(ctx, tenantMgr, repo, logger, redisClient, factory, conf.Log)
+			}
 
 			// 每隔 subscribeRescheduleInterval 重新检查一下所有链的订阅，或被 ctx 中断退出
 			select {
@@ -182,7 +196,7 @@ func scheduleOnce(ctx context.Context, conf config.Config, sdkClients *sync.Map,
 			cc := contractConf
 			chainType := strings.ToLower(chainConf.ChainType)
 
-			go runSubscribeOnce(sdkClient, cc, chainConfName, contractConfName, chainType, logger)
+			go runSubscribeOnce(sdkClient, cc, chainConfName, contractConfName, chainType, logger, 0, 0)
 		}
 	}
 }
@@ -191,7 +205,8 @@ func scheduleOnce(ctx context.Context, conf config.Config, sdkClients *sync.Map,
 // - 使用局部 subErr 变量，不与外层共享。
 // - defer 中清理 SubscribeFlag，使得下一次轮询可以重新拉起。
 func runSubscribeOnce(sdkClient ChainSdkInterface, cc *config.ContractConf,
-	chainConfName, contractConfName, chainType string, logger logx.Logger) {
+	chainConfName, contractConfName, chainType string, logger logx.Logger,
+	chainConfigID, contractConfigID uint) {
 
 	key := subscribeKey(chainConfName, contractConfName)
 
@@ -211,7 +226,8 @@ func runSubscribeOnce(sdkClient ChainSdkInterface, cc *config.ContractConf,
 	defer SubscribeFlag.Delete(key)
 
 	// 使用局部 subErr，不与外层共享，避免并发写入竞争
-	subErr := sdkClient.SubscribeContractEvent(*cc, chainConfName, contractConfName, chainType)
+	subErr := sdkClient.SubscribeContractEvent(
+		*cc, chainConfName, contractConfName, chainType, chainConfigID, contractConfigID)
 	if subErr != nil {
 		logger.Errorf("failed to subscribe chain %s contract %s event,err: %v",
 			chainConfName, contractConfName, subErr)
@@ -220,6 +236,93 @@ func runSubscribeOnce(sdkClient ChainSdkInterface, cc *config.ContractConf,
 
 	logger.Infof("[chain: %s] [contract: %s] subscribe goroutine returned normally",
 		chainConfName, contractConfName)
+}
+
+// scheduleDBOnce 执行一次 DB 配置路径的订阅扫描
+// 从数据库查询所有 EnableSubscribe=true 的合约配置，为每个合约启动订阅
+func scheduleDBOnce(ctx context.Context, tenantMgr *TenantSDKManager, repo store.Repository,
+	logger logx.Logger, redisClient *commonEvent.RedisClient, factory ChainClientFactory, logConf logx.LogConf) {
+
+	// 查询所有启用订阅的合约配置
+	contracts, err := repo.ListAllEnabledSubscribeContracts(ctx)
+	if err != nil {
+		logger.Errorf("scheduleDBOnce: failed to list enabled subscribe contracts: %v", err)
+		return
+	}
+
+	for _, contract := range contracts {
+		// 跳过链未启用的合约
+		if !contract.ChainConfig.Enable {
+			continue
+		}
+
+		chainConfig := contract.ChainConfig
+		chainType := strings.ToLower(chainConfig.ChainType)
+
+		// 获取或创建 SDK 客户端
+		sdkClient, clientErr := tenantMgr.GetTenantSDKClient(ctx, chainConfig.TenantID, chainConfig.ChainName)
+		if clientErr != nil {
+			logger.Errorf("scheduleDBOnce: failed to get SDK client for chain %s (ID=%d): %v",
+				chainConfig.ChainName, chainConfig.ID, clientErr)
+			continue
+		}
+
+		// 构建合约配置
+		cc := &config.ContractConf{
+			ContractName:    contract.ContractName,
+			ContractAddr:    contract.ContractAddr,
+			Abi:             contract.AbiJSON,
+			EnableSubscribe: true,
+		}
+
+		// 解析额外配置
+		if contract.ExtraConf != "" {
+			_ = json.Unmarshal([]byte(contract.ExtraConf), cc)
+			cc.ContractName = contract.ContractName
+			cc.ContractAddr = contract.ContractAddr
+			if contract.AbiJSON != "" {
+				cc.Abi = contract.AbiJSON
+			}
+			cc.EnableSubscribe = true
+		}
+
+		// 使用 DB ID 作为 SubscribeFlag key，与配置文件路径隔离
+		flagKey := subscribeKeyByID(chainConfig.ID, contract.ID)
+
+		// 检查是否已订阅
+		if val, ok := SubscribeFlag.Load(flagKey); ok {
+			if b, _ := val.(bool); b {
+				continue
+			}
+		}
+
+		go runDBSubscribeOnce(sdkClient, cc, chainConfig.ChainName, contract.ContractName,
+			chainType, logger, chainConfig.ID, contract.ID, flagKey)
+	}
+}
+
+// runDBSubscribeOnce 在独立 goroutine 中执行一次 DB 路径的订阅
+func runDBSubscribeOnce(sdkClient ChainSdkInterface, cc *config.ContractConf,
+	chainConfName, contractConfName, chainType string, logger logx.Logger,
+	chainConfigID, contractConfigID uint, flagKey string) {
+
+	// 标记为已订阅
+	SubscribeFlag.Store(flagKey, true)
+
+	// 退出路径保证清理 SubscribeFlag
+	defer SubscribeFlag.Delete(flagKey)
+
+	// 执行订阅
+	subErr := sdkClient.SubscribeContractEvent(
+		*cc, chainConfName, contractConfName, chainType, chainConfigID, contractConfigID)
+	if subErr != nil {
+		logger.Errorf("failed to subscribe DB chain %s (ID=%d) contract %s (ID=%d) event: %v",
+			chainConfName, chainConfigID, contractConfName, contractConfigID, subErr)
+		return
+	}
+
+	logger.Infof("[DB chain: %s ID=%d] [contract: %s ID=%d] subscribe goroutine returned normally",
+		chainConfName, chainConfigID, contractConfName, contractConfigID)
 }
 
 func GetDefaultSdkLogger(logPath string, maxAge int) *zap.SugaredLogger {

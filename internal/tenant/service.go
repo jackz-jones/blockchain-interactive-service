@@ -160,7 +160,9 @@ func (s *Service) EnableTenant(ctx context.Context, id uint) error {
 }
 
 // CreateUser 创建子账号
-func (s *Service) CreateUser(ctx context.Context, tenantID uint, username, password string, role store.UserRole) (*store.User, error) {
+func (s *Service) CreateUser(
+	ctx context.Context, tenantID uint, username, password string, role store.UserRole,
+) (*store.User, error) {
 	// 检查用户名是否已存在
 	existing, err := s.repo.GetUserByUsername(ctx, username)
 	if err != nil {
@@ -256,12 +258,18 @@ func generateAPIKey() string {
 	return "cis_" + hex.EncodeToString(bytes)
 }
 
+// 套餐名称常量
+const (
+	planDeveloper  = "developer"
+	planEnterprise = "enterprise"
+)
+
 // 根据套餐获取默认月调用上限
 func getDefaultMonthlyLimit(plan string) uint64 {
 	switch plan {
-	case "developer":
+	case planDeveloper:
 		return 50000
-	case "enterprise":
+	case planEnterprise:
 		return 0 // 无限制
 	default: // free
 		return 1000
@@ -271,9 +279,9 @@ func getDefaultMonthlyLimit(plan string) uint64 {
 // 根据套餐获取默认日调用上限
 func getDefaultDailyLimit(plan string) uint64 {
 	switch plan {
-	case "developer":
+	case planDeveloper:
 		return 5000
-	case "enterprise":
+	case planEnterprise:
 		return 0 // 无限制
 	default: // free
 		return 100
@@ -283,9 +291,9 @@ func getDefaultDailyLimit(plan string) uint64 {
 // 根据套餐获取默认 QPS 限制
 func getDefaultRateLimit(plan string) int {
 	switch plan {
-	case "developer":
+	case planDeveloper:
 		return 50
-	case "enterprise":
+	case planEnterprise:
 		return 500
 	default: // free
 		return 10

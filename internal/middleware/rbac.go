@@ -24,7 +24,10 @@ func NewRBACInterceptor() *RBACInterceptor {
 
 // Unary 一元 RPC 权限校验拦截器
 func (r *RBACInterceptor) Unary() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(
+		ctx context.Context, req interface{},
+		info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (interface{}, error) {
 		// 跳过不需要权限检查的接口
 		if shouldSkipAuth(info.FullMethod) {
 			return handler(ctx, req)
@@ -87,7 +90,11 @@ func defaultMethodPermissions() map[string][]store.UserRole {
 		"/pb.ChainInteractive/CallContract": {store.UserRoleAdmin, store.UserRoleDeveloper},
 
 		// 查询类接口 - 所有角色都可以访问
-		"/pb.ChainInteractive/GetTxByTxId":                       {store.UserRoleAdmin, store.UserRoleDeveloper, store.UserRoleReadonly},
-		"/pb.ChainInteractive/GetAvailableChainAndContractNames": {store.UserRoleAdmin, store.UserRoleDeveloper, store.UserRoleReadonly},
+		"/pb.ChainInteractive/GetTxByTxId": {
+			store.UserRoleAdmin, store.UserRoleDeveloper, store.UserRoleReadonly,
+		},
+		"/pb.ChainInteractive/GetAvailableChainAndContractNames": {
+			store.UserRoleAdmin, store.UserRoleDeveloper, store.UserRoleReadonly,
+		},
 	}
 }

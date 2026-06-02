@@ -26,7 +26,10 @@ func NewAuditInterceptor(repo store.Repository) *AuditInterceptor {
 
 // Unary 一元 RPC 审计日志拦截器
 func (a *AuditInterceptor) Unary() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(
+		ctx context.Context, req interface{},
+		info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (interface{}, error) {
 		if shouldSkipAuth(info.FullMethod) {
 			return handler(ctx, req)
 		}
@@ -43,7 +46,10 @@ func (a *AuditInterceptor) Unary() grpc.UnaryServerInterceptor {
 }
 
 // recordGRPCAudit 记录 gRPC 审计日志
-func (a *AuditInterceptor) recordGRPCAudit(ctx context.Context, method string, req interface{}, callErr error, duration time.Duration) {
+func (a *AuditInterceptor) recordGRPCAudit(
+	ctx context.Context, method string, req interface{},
+	callErr error, duration time.Duration,
+) {
 	tenantID := GetTenantID(ctx)
 	userID := GetUserID(ctx)
 

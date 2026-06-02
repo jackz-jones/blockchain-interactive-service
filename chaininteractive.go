@@ -76,7 +76,8 @@ func main() {
 	gateway.StartHTTPServer(c, ctx)
 
 	// 启动订阅（传入服务级根 ctx，便于统一优雅退出）
-	sdk.StartSubscribe(ctx.RootCtx, c, &ctx.SDKClients, ctx.Logger, ctx.RedisClient, ctx.ChainClientFactory)
+	sdk.StartSubscribe(ctx.RootCtx, c, &ctx.SDKClients, ctx.Logger, ctx.RedisClient, ctx.ChainClientFactory,
+		ctx.TenantSDKManager, ctx.Repo)
 
 	// 服务退出前释放所有的 sdk client
 	defer func() {

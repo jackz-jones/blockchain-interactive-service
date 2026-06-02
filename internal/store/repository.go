@@ -47,6 +47,14 @@ type Repository interface {
 	UpdateContractConfig(ctx context.Context, config *TenantContractConfig) error
 	DeleteContractConfig(ctx context.Context, id uint) error
 	CheckContractNameUnique(ctx context.Context, chainConfigID uint, contractName string, excludeID uint) (bool, error)
+	ListEnabledSubscribeContracts(ctx context.Context, tenantID uint) ([]*TenantContractConfig, error)
+	ListAllEnabledSubscribeContracts(ctx context.Context) ([]*TenantContractConfig, error)
+	GetContractConfigByChainAndName(
+		ctx context.Context, tenantID uint, chainName, contractName string,
+	) (*TenantContractConfig, error)
+	GetContractConfigByChainAndAddr(
+		ctx context.Context, tenantID uint, chainName, contractAddr string,
+	) (*TenantContractConfig, error)
 
 	// 调用记录相关
 	CreateCallLog(ctx context.Context, log *CallLog) error
@@ -165,7 +173,9 @@ func (r *GormRepository) GetUserByUsername(ctx context.Context, username string)
 	return &user, err
 }
 
-func (r *GormRepository) ListUsersByTenant(ctx context.Context, tenantID uint, offset, limit int) ([]*User, int64, error) {
+func (r *GormRepository) ListUsersByTenant(
+	ctx context.Context, tenantID uint, offset, limit int,
+) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	db := r.db.WithContext(ctx).Model(&User{}).Where("tenant_id = ?", tenantID)
@@ -197,7 +207,9 @@ func (r *GormRepository) GetAPIKeyByKey(ctx context.Context, key string) (*APIKe
 	return &apiKey, err
 }
 
-func (r *GormRepository) ListAPIKeysByTenant(ctx context.Context, tenantID uint, offset, limit int) ([]*APIKey, int64, error) {
+func (r *GormRepository) ListAPIKeysByTenant(
+	ctx context.Context, tenantID uint, offset, limit int,
+) ([]*APIKey, int64, error) {
 	var keys []*APIKey
 	var total int64
 	db := r.db.WithContext(ctx).Model(&APIKey{}).Where("tenant_id = ?", tenantID)
@@ -224,7 +236,9 @@ func (r *GormRepository) CreateChainConfig(ctx context.Context, config *TenantCh
 	return r.db.WithContext(ctx).Create(config).Error
 }
 
-func (r *GormRepository) GetChainConfig(ctx context.Context, tenantID uint, chainName string) (*TenantChainConfig, error) {
+func (r *GormRepository) GetChainConfig(
+	ctx context.Context, tenantID uint, chainName string,
+) (*TenantChainConfig, error) {
 	var config TenantChainConfig
 	err := r.db.WithContext(ctx).Where("tenant_id = ? AND chain_name = ?", tenantID, chainName).First(&config).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -256,7 +270,9 @@ func (r *GormRepository) GetChainConfigByID(ctx context.Context, id uint) (*Tena
 	return &config, err
 }
 
-func (r *GormRepository) CheckChainNameUnique(ctx context.Context, tenantID uint, chainName string, excludeID uint) (bool, error) {
+func (r *GormRepository) CheckChainNameUnique(
+	ctx context.Context, tenantID uint, chainName string, excludeID uint,
+) (bool, error) {
 	var count int64
 	db := r.db.WithContext(ctx).Model(&TenantChainConfig{}).Where("tenant_id = ? AND chain_name = ?", tenantID, chainName)
 	if excludeID > 0 {
@@ -283,7 +299,9 @@ func (r *GormRepository) GetContractConfig(ctx context.Context, id uint) (*Tenan
 	return &config, err
 }
 
-func (r *GormRepository) ListContractConfigsByChain(ctx context.Context, chainConfigID uint) ([]*TenantContractConfig, error) {
+func (r *GormRepository) ListContractConfigsByChain(
+	ctx context.Context, chainConfigID uint,
+) ([]*TenantContractConfig, error) {
 	var configs []*TenantContractConfig
 	err := r.db.WithContext(ctx).Where("chain_config_id = ?", chainConfigID).Find(&configs).Error
 	return configs, err
@@ -297,9 +315,12 @@ func (r *GormRepository) DeleteContractConfig(ctx context.Context, id uint) erro
 	return r.db.WithContext(ctx).Delete(&TenantContractConfig{}, id).Error
 }
 
-func (r *GormRepository) CheckContractNameUnique(ctx context.Context, chainConfigID uint, contractName string, excludeID uint) (bool, error) {
+func (r *GormRepository) CheckContractNameUnique(
+	ctx context.Context, chainConfigID uint, contractName string, excludeID uint,
+) (bool, error) {
 	var count int64
-	db := r.db.WithContext(ctx).Model(&TenantContractConfig{}).Where("chain_config_id = ? AND contract_name = ?", chainConfigID, contractName)
+	db := r.db.WithContext(ctx).Model(&TenantContractConfig{}).
+		Where("chain_config_id = ? AND contract_name = ?", chainConfigID, contractName)
 	if excludeID > 0 {
 		db = db.Where("id != ?", excludeID)
 	}
@@ -309,13 +330,70 @@ func (r *GormRepository) CheckContractNameUnique(ctx context.Context, chainConfi
 	return count == 0, nil
 }
 
+func (r *GormRepository) ListEnabledSubscribeContracts(
+	ctx context.Context, tenantID uint,
+) ([]*TenantContractConfig, error) {
+	var configs []*TenantContractConfig
+	db := r.db.WithContext(ctx).Where("enable_subscribe = ?", true)
+	if tenantID > 0 {
+		db = db.Where("tenant_id = ?", tenantID)
+	}
+	err := db.Preload("ChainConfig").Find(&configs).Error
+	return configs, err
+}
+
+func (r *GormRepository) ListAllEnabledSubscribeContracts(ctx context.Context) ([]*TenantContractConfig, error) {
+	var configs []*TenantContractConfig
+	err := r.db.WithContext(ctx).
+		Where("enable_subscribe = ?", true).
+		Preload("ChainConfig").
+		Find(&configs).Error
+	return configs, err
+}
+
+func (r *GormRepository) GetContractConfigByChainAndName(
+	ctx context.Context, tenantID uint, chainName, contractName string,
+) (*TenantContractConfig, error) {
+	var config TenantContractConfig
+	err := r.db.WithContext(ctx).
+		Joins("JOIN tenant_chain_configs ON tenant_chain_configs.id = tenant_contract_configs.chain_config_id").
+		Where(
+			"tenant_contract_configs.tenant_id = ? AND tenant_chain_configs.chain_name = ?"+
+				" AND tenant_contract_configs.contract_name = ?",
+			tenantID, chainName, contractName).
+		First(&config).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &config, err
+}
+
+func (r *GormRepository) GetContractConfigByChainAndAddr(
+	ctx context.Context, tenantID uint, chainName, contractAddr string,
+) (*TenantContractConfig, error) {
+	var config TenantContractConfig
+	err := r.db.WithContext(ctx).
+		Joins("JOIN tenant_chain_configs ON tenant_chain_configs.id = tenant_contract_configs.chain_config_id").
+		Where(
+			"tenant_contract_configs.tenant_id = ? AND tenant_chain_configs.chain_name = ?"+
+				" AND tenant_contract_configs.contract_addr = ?",
+			tenantID, chainName, contractAddr).
+		First(&config).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &config, err
+}
+
 // ========== 调用记录 ==========
 
 func (r *GormRepository) CreateCallLog(ctx context.Context, log *CallLog) error {
 	return r.db.WithContext(ctx).Create(log).Error
 }
 
-func (r *GormRepository) ListCallLogs(ctx context.Context, filter CallLogFilter, offset, limit int) ([]*CallLog, int64, error) {
+func (r *GormRepository) ListCallLogs(
+	ctx context.Context, filter CallLogFilter, offset, limit int,
+) ([]*CallLog, int64, error) {
 	var logs []*CallLog
 	var total int64
 	db := r.db.WithContext(ctx).Model(&CallLog{})
@@ -358,7 +436,9 @@ func (r *GormRepository) CountCallsByTenantToday(ctx context.Context, tenantID u
 	return count, err
 }
 
-func (r *GormRepository) CountCallsByTenantMonth(ctx context.Context, tenantID uint, year int, month time.Month) (int64, error) {
+func (r *GormRepository) CountCallsByTenantMonth(
+	ctx context.Context, tenantID uint, year int, month time.Month,
+) (int64, error) {
 	var count int64
 	monthStart := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
 	monthEnd := monthStart.AddDate(0, 1, 0)
@@ -374,7 +454,9 @@ func (r *GormRepository) CreateBill(ctx context.Context, bill *Bill) error {
 	return r.db.WithContext(ctx).Create(bill).Error
 }
 
-func (r *GormRepository) ListBillsByTenant(ctx context.Context, tenantID uint, offset, limit int) ([]*Bill, int64, error) {
+func (r *GormRepository) ListBillsByTenant(
+	ctx context.Context, tenantID uint, offset, limit int,
+) ([]*Bill, int64, error) {
 	var bills []*Bill
 	var total int64
 	db := r.db.WithContext(ctx).Model(&Bill{}).Where("tenant_id = ?", tenantID)
@@ -418,7 +500,9 @@ func (r *GormRepository) CreateAuditLog(ctx context.Context, log *AuditLog) erro
 	return r.db.WithContext(ctx).Create(log).Error
 }
 
-func (r *GormRepository) ListAuditLogs(ctx context.Context, filter AuditLogFilter, offset, limit int) ([]*AuditLog, int64, error) {
+func (r *GormRepository) ListAuditLogs(
+	ctx context.Context, filter AuditLogFilter, offset, limit int,
+) ([]*AuditLog, int64, error) {
 	var logs []*AuditLog
 	var total int64
 	db := r.db.WithContext(ctx).Model(&AuditLog{})

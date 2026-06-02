@@ -32,14 +32,14 @@ type ChainPlugin interface {
 	SDKClient() sdk.ChainSdkInterface
 }
 
-// PluginFactory 插件工厂函数类型
-type PluginFactory func() ChainPlugin
+// Factory 插件工厂函数类型
+type Factory func() ChainPlugin
 
 // Registry 插件注册中心
 type Registry struct {
 	mu        sync.RWMutex
-	plugins   map[string]ChainPlugin   // 已实例化的插件: name -> plugin
-	factories map[string]PluginFactory // 插件工厂: chainType -> factory
+	plugins   map[string]ChainPlugin // 已实例化的插件: name -> plugin
+	factories map[string]Factory     // 插件工厂: chainType -> factory
 	logger    logx.Logger
 }
 
@@ -47,14 +47,14 @@ type Registry struct {
 func NewRegistry(logger logx.Logger) *Registry {
 	return &Registry{
 		plugins:   make(map[string]ChainPlugin),
-		factories: make(map[string]PluginFactory),
+		factories: make(map[string]Factory),
 		logger:    logger,
 	}
 }
 
 // RegisterFactory 注册插件工厂（按链类型注册）
 // 开发者实现新链插件后，调用此方法注册工厂函数
-func (r *Registry) RegisterFactory(chainType string, factory PluginFactory) {
+func (r *Registry) RegisterFactory(chainType string, factory Factory) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -97,13 +97,13 @@ func (r *Registry) GetPlugin(name string) (ChainPlugin, bool) {
 }
 
 // ListPlugins 列出所有已注册的插件
-func (r *Registry) ListPlugins() []PluginInfo {
+func (r *Registry) ListPlugins() []Info {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var infos []PluginInfo
+	var infos []Info
 	for name, plugin := range r.plugins {
-		infos = append(infos, PluginInfo{
+		infos = append(infos, Info{
 			Name:      name,
 			ChainType: plugin.ChainType(),
 			Version:   plugin.Version(),
@@ -172,8 +172,8 @@ func (r *Registry) HealthCheckAll(ctx context.Context) map[string]error {
 	return results
 }
 
-// PluginInfo 插件信息
-type PluginInfo struct {
+// Info 插件信息
+type Info struct {
 	Name      string `json:"name"`
 	ChainType string `json:"chain_type"`
 	Version   string `json:"version"`

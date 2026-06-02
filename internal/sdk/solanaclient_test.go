@@ -416,7 +416,7 @@ func TestSolanaClient_SubscribeContractEvent_EmptyContractAddr(t *testing.T) {
 		ContractAddr: "",
 	}
 
-	err = client.SubscribeContractEvent(contractConf, "testChain", "testContract", "solana")
+	err = client.SubscribeContractEvent(contractConf, "testChain", "testContract", "solana", 0, 0)
 	assert.Error(t, err, "空的合约地址应该返回错误")
 	assert.Contains(t, err.Error(), "empty", "错误信息应包含 'empty'")
 }
@@ -435,7 +435,7 @@ func TestSolanaClient_SubscribeContractEvent_InvalidContractAddr(t *testing.T) {
 		ContractAddr: "invalid_contract_address",
 	}
 
-	err = client.SubscribeContractEvent(contractConf, "testChain", "testContract", "solana")
+	err = client.SubscribeContractEvent(contractConf, "testChain", "testContract", "solana", 0, 0)
 	assert.Error(t, err, "无效的合约地址应该返回错误")
 	assert.Contains(t, err.Error(), "invalid contract address", "错误信息应包含 'invalid contract address'")
 }

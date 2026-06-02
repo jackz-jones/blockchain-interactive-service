@@ -23,7 +23,10 @@ func NewQuotaInterceptor(billingService *billing.Service) *QuotaInterceptor {
 
 // Unary 一元 RPC 配额检查拦截器
 func (q *QuotaInterceptor) Unary() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(
+		ctx context.Context, req interface{},
+		info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (interface{}, error) {
 		if shouldSkipAuth(info.FullMethod) {
 			return handler(ctx, req)
 		}

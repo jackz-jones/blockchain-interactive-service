@@ -8,7 +8,7 @@ require (
 	chainmaker.org/chainmaker/sdk-go/v2 v2.3.8
 	github.com/ethereum/go-ethereum v1.14.11
 	github.com/gagliardetto/solana-go v1.8.3
-	github.com/jackz-jones/common v0.0.0-20260323065044-b3ce2b57b723
+	github.com/jackz-jones/common v0.0.0-20260602055554-1720cf36ec5f
 	github.com/mr-tron/base58 v1.2.0
 	github.com/stretchr/testify v1.9.0
 	github.com/zeromicro/go-zero v1.6.2

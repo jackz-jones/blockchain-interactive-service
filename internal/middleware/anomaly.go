@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -176,9 +175,9 @@ func HTTPAnomalyMiddleware(detector *AnomalyDetector) func(http.Handler) http.Ha
 			if apiKeyID > 0 && detector.IsKeyBanned(apiKeyID) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
-				_, _ = w.Write([]byte(fmt.Sprintf(
-					`{"code":403,"message":"api key temporarily banned due to anomalous activity","ban_info":"contact support to unban"}`,
-				)))
+				_, _ = w.Write([]byte(
+					`{"code":403,"message":"api key temporarily banned",` +
+						`"ban_info":"contact support to unban"}`))
 				return
 			}
 

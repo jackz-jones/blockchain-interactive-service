@@ -53,10 +53,12 @@ type ChainSdkInterface interface {
 	 * @param chainConfName 链配置名称
 	 * @param contractConfName 合约配置名称
 	 * @param chainType 链类型
+	 * @param chainConfigID 链配置数据库主键 ID（DB 路径使用，配置文件路径传 0）
+	 * @param contractConfigID 合约配置数据库主键 ID（DB 路径使用，配置文件路径传 0）
 	 *
 	 * @return error 错误信息
 	 */
 
 	SubscribeContractEvent(contractConf config.ContractConf, chainConfName, contractConfName,
-		chainType string) error
+		chainType string, chainConfigID, contractConfigID uint) error
 }

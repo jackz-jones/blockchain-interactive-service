@@ -163,7 +163,7 @@ func (c *ChainMakerClient) Stop() error {
 
 // SubscribeContractEvent 订阅合约事件
 func (c *ChainMakerClient) SubscribeContractEvent(contractConf config.ContractConf, chainConfName, contractConfName,
-	chainType string) error {
+	chainType string, chainConfigID, contractConfigID uint) error {
 
 	// 日志通用信息
 	logFields := BuildSubscribeLogFields(map[string]interface{}{
@@ -180,9 +180,16 @@ func (c *ChainMakerClient) SubscribeContractEvent(contractConf config.ContractCo
 		return errors.New("chainmaker contract name empty")
 	}
 
+	// 构建 Redis key：DB 路径使用 ID 格式，配置文件路径使用旧格式
+	var blockHeightKey string
+	if chainConfigID > 0 && contractConfigID > 0 {
+		blockHeightKey = fmt.Sprintf("block_height:%d:%d", chainConfigID, contractConfigID)
+	} else {
+		blockHeightKey = strings.Join([]string{chainType, chainConfName, contractConfName}, "#")
+	}
+
 	// 获取最新区块高度
-	height, err := c.redisClient.GetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName,
-		contractConfName}, "#"))
+	height, err := c.redisClient.GetLatestBlockHeight(c.ctx, blockHeightKey)
 	if err != nil {
 		c.Logger.WithFields(logFields...).Errorf("failed to GetLatestBlockHeight: %v", err)
 		return fmt.Errorf("failed to GetLatestBlockHeight: %v", err)
@@ -242,8 +249,8 @@ func (c *ChainMakerClient) SubscribeContractEvent(contractConf config.ContractCo
 			// 发布合约事件到redis stream
 			c.Logger.WithFields(logFields...).Infof("received chainmaker contract eventInfo[txid: %s, height: %d]",
 				contractEventInfo.TxId, contractEventInfo.BlockHeight)
-			if err = c.redisClient.PublishTradeGuardEventToStream(c.ctx, contractEventInfo, chainType, chainConfName,
-				"", contractConfName, contractEventInfo.Topic); err != nil {
+			if err = c.redisClient.PublishCrossChainEventToStream(c.ctx, contractEventInfo,
+				chainConfigID, contractConfigID, contractEventInfo.Topic); err != nil {
 				c.Logger.WithFields(logFields...).Errorf("failed to publish eventInfo to redis stream: %v", err)
 				return err
 			}
@@ -251,8 +258,7 @@ func (c *ChainMakerClient) SubscribeContractEvent(contractConf config.ContractCo
 
 			// 更新处理高度，有可能同一个高度有多个事件
 			if contractEventInfo.BlockHeight > height {
-				err = c.redisClient.SetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName,
-					contractConfName}, "#"), contractEventInfo.BlockHeight)
+				err = c.redisClient.SetLatestBlockHeight(c.ctx, blockHeightKey, contractEventInfo.BlockHeight)
 				if err != nil {
 					c.Logger.WithFields(logFields...).Errorf("failed to SetLatestBlockHeight: %v", err)
 					return err

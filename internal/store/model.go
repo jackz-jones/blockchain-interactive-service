@@ -74,31 +74,34 @@ type APIKey struct {
 
 // TenantChainConfig 租户链配置表
 type TenantChainConfig struct {
-	ID        uint           `gorm:"primaryKey" json:"id"`
-	TenantID  uint           `gorm:"not null;index:idx_tenant_chain,unique" json:"tenant_id"`          // 所属租户
-	ChainName string         `gorm:"size:64;not null;index:idx_tenant_chain,unique" json:"chain_name"` // 链名称
-	ChainType string         `gorm:"size:32;not null" json:"chain_type"`                               // 链类型：ethereum、chainmaker、solana
-	Enable    bool           `gorm:"not null;default:true" json:"enable"`                              // 是否启用
-	SdkConf   string         `gorm:"type:text" json:"sdk_conf"`                                        // SDK 配置 JSON
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	ID               uint           `gorm:"primaryKey" json:"id"`
+	TenantID         uint           `gorm:"not null;index:idx_tenant_chain,unique" json:"tenant_id"`          // 所属租户
+	ChainName        string         `gorm:"size:64;not null;index:idx_tenant_chain,unique" json:"chain_name"` // 链名称
+	ChainType        string         `gorm:"size:32;not null" json:"chain_type"`
+	Enable           bool           `gorm:"not null;default:true" json:"enable"`
+	ConnectionStatus string         `gorm:"size:16;not null;default:unknown" json:"connection_status"`
+	ConnectionError  string         `gorm:"size:1024" json:"connection_error"`
+	SdkConf          string         `gorm:"type:text" json:"sdk_conf"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	DeletedAt        gorm.DeletedAt `gorm:"index" json:"-"`
 
 	Tenant Tenant `gorm:"foreignKey:TenantID" json:"-"`
 }
 
 // TenantContractConfig 租户合约配置表
 type TenantContractConfig struct {
-	ID            uint           `gorm:"primaryKey" json:"id"`
-	TenantID      uint           `gorm:"not null;index" json:"tenant_id"`        // 所属租户
-	ChainConfigID uint           `gorm:"not null;index" json:"chain_config_id"`  // 关联的链配置
-	ContractName  string         `gorm:"size:128;not null" json:"contract_name"` // 合约名称
-	ContractAddr  string         `gorm:"size:256" json:"contract_addr"`          // 合约地址
-	AbiJSON       string         `gorm:"type:text" json:"abi_json"`              // ABI JSON
-	ExtraConf     string         `gorm:"type:text" json:"extra_conf"`            // 额外配置 JSON
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
-	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
+	ID              uint           `gorm:"primaryKey" json:"id"`
+	TenantID        uint           `gorm:"not null;index" json:"tenant_id"`                // 所属租户
+	ChainConfigID   uint           `gorm:"not null;index" json:"chain_config_id"`          // 关联的链配置
+	ContractName    string         `gorm:"size:128;not null" json:"contract_name"`         // 合约名称
+	ContractAddr    string         `gorm:"size:256" json:"contract_addr"`                  // 合约地址
+	AbiJSON         string         `gorm:"type:text" json:"abi_json"`                      // ABI JSON
+	EnableSubscribe bool           `gorm:"not null;default:false" json:"enable_subscribe"` // 是否开启事件订阅
+	ExtraConf       string         `gorm:"type:text" json:"extra_conf"`                    // 额外配置 JSON
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`
 
 	Tenant      Tenant            `gorm:"foreignKey:TenantID" json:"-"`
 	ChainConfig TenantChainConfig `gorm:"foreignKey:ChainConfigID" json:"-"`

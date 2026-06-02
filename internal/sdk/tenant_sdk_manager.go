@@ -17,7 +17,7 @@ import (
 // TenantSDKManager 租户级 SDK 客户端管理器
 // 支持按租户 ID + 链名称获取对应的 SDK 客户端，实现资源隔离
 type TenantSDKManager struct {
-	// tenantClients 租户级 SDK 客户端缓存: "tenantID:chainName" -> ChainSdkInterface
+	// tenantClients 租户级 SDK 客户端缓存: "chain:{chainConfigID}" -> ChainSdkInterface
 	tenantClients sync.Map
 
 	// factory 链客户端工厂函数，通过它创建链客户端
@@ -48,21 +48,16 @@ func NewTenantSDKManager(repo store.Repository, factory ChainClientFactory, redi
 	}
 }
 
-// tenantChainKey 生成租户链缓存 key
-func tenantChainKey(tenantID uint, chainName string) string {
-	return fmt.Sprintf("%d:%s", tenantID, chainName)
+// chainCacheKey 生成基于链配置 ID 的缓存 key
+func chainCacheKey(chainConfigID uint) string {
+	return fmt.Sprintf("chain:%d", chainConfigID)
 }
 
 // GetTenantSDKClient 获取租户级 SDK 客户端
 // 如果缓存中存在则直接返回，否则从数据库加载配置并创建客户端
-func (m *TenantSDKManager) GetTenantSDKClient(ctx context.Context, tenantID uint, chainName string) (ChainSdkInterface, error) {
-	key := tenantChainKey(tenantID, chainName)
-
-	// 尝试从缓存获取
-	if client, ok := m.tenantClients.Load(key); ok {
-		return client.(ChainSdkInterface), nil
-	}
-
+func (m *TenantSDKManager) GetTenantSDKClient(
+	ctx context.Context, tenantID uint, chainName string,
+) (ChainSdkInterface, error) {
 	// 从数据库加载租户链配置
 	chainConfig, err := m.repo.GetChainConfig(ctx, tenantID, chainName)
 	if err != nil {
@@ -73,6 +68,14 @@ func (m *TenantSDKManager) GetTenantSDKClient(ctx context.Context, tenantID uint
 	}
 	if !chainConfig.Enable {
 		return nil, fmt.Errorf("chain '%s' is disabled for tenant %d", chainName, tenantID)
+	}
+
+	// 使用 chainConfigID 作为缓存 key
+	key := chainCacheKey(chainConfig.ID)
+
+	// 尝试从缓存获取
+	if client, ok := m.tenantClients.Load(key); ok {
+		return client.(ChainSdkInterface), nil
 	}
 
 	// 解析 SDK 配置 JSON
@@ -96,16 +99,33 @@ func (m *TenantSDKManager) GetTenantSDKClient(ctx context.Context, tenantID uint
 		return nil, err
 	}
 
-	// 缓存
+	// 缓存（使用 chainConfigID 作为 key）
 	m.tenantClients.Store(key, client)
-	m.logger.Infof("created tenant SDK client: tenant=%d, chain=%s", tenantID, chainName)
+	m.logger.Infof("created tenant SDK client: tenant=%d, chain=%s, chainConfigID=%d", tenantID, chainName, chainConfig.ID)
 
 	return client, nil
 }
 
 // InvalidateTenantCache 使租户链配置缓存失效（配置变更时调用）
 func (m *TenantSDKManager) InvalidateTenantCache(tenantID uint, chainName string) {
-	key := tenantChainKey(tenantID, chainName)
+	// 先查询获取 chainConfigID
+	chainConfig, err := m.repo.GetChainConfig(context.Background(), tenantID, chainName)
+	if err != nil || chainConfig == nil {
+		// 如果查不到，尝试遍历清理
+		m.logger.Infof(
+			"invalidateTenantCache: cannot find chain config, fallback to range delete: tenant=%d, chain=%s",
+			tenantID, chainName)
+		m.tenantClients.Range(func(key, value interface{}) bool {
+			if client, ok := value.(ChainSdkInterface); ok {
+				client.Stop()
+			}
+			m.tenantClients.Delete(key)
+			return true
+		})
+		return
+	}
+
+	key := chainCacheKey(chainConfig.ID)
 
 	// 如果存在旧客户端，先停止
 	if old, ok := m.tenantClients.LoadAndDelete(key); ok {
@@ -114,21 +134,37 @@ func (m *TenantSDKManager) InvalidateTenantCache(tenantID uint, chainName string
 		}
 	}
 
-	m.logger.Infof("invalidated tenant SDK cache: tenant=%d, chain=%s", tenantID, chainName)
+	m.logger.Infof("invalidated tenant SDK cache: tenant=%d, chain=%s, chainConfigID=%d",
+		tenantID, chainName, chainConfig.ID)
+}
+
+// InvalidateTenantCacheByID 使指定 chainConfigID 的缓存失效
+func (m *TenantSDKManager) InvalidateTenantCacheByID(chainConfigID uint) {
+	key := chainCacheKey(chainConfigID)
+	if old, ok := m.tenantClients.LoadAndDelete(key); ok {
+		if client, ok := old.(ChainSdkInterface); ok {
+			client.Stop()
+		}
+	}
+	m.logger.Infof("invalidated tenant SDK cache by ID: chainConfigID=%d", chainConfigID)
 }
 
 // InvalidateAllTenantCache 使某个租户的所有链配置缓存失效
 func (m *TenantSDKManager) InvalidateAllTenantCache(tenantID uint) {
-	prefix := fmt.Sprintf("%d:", tenantID)
-	m.tenantClients.Range(func(key, value interface{}) bool {
-		if k, ok := key.(string); ok && strings.HasPrefix(k, prefix) {
-			if client, ok := value.(ChainSdkInterface); ok {
+	// 查询该租户的所有链配置
+	configs, err := m.repo.ListChainConfigsByTenant(context.Background(), tenantID)
+	if err != nil {
+		m.logger.Errorf("InvalidateAllTenantCache: list chain configs failed: %v", err)
+		return
+	}
+	for _, cfg := range configs {
+		key := chainCacheKey(cfg.ID)
+		if old, ok := m.tenantClients.LoadAndDelete(key); ok {
+			if client, ok := old.(ChainSdkInterface); ok {
 				client.Stop()
 			}
-			m.tenantClients.Delete(key)
 		}
-		return true
-	})
+	}
 	m.logger.Infof("invalidated all tenant SDK cache: tenant=%d", tenantID)
 }
 
@@ -191,15 +227,21 @@ func (m *TenantSDKManager) RestartSubscription(tenantID uint, chainName string) 
 
 // GetClientStatus 获取租户链客户端的运行状态
 func (m *TenantSDKManager) GetClientStatus(tenantID uint, chainName string) map[string]interface{} {
-	key := tenantChainKey(tenantID, chainName)
 	status := map[string]interface{}{
 		"tenant_id":     tenantID,
 		"chain_name":    chainName,
 		"client_active": false,
 	}
 
+	chainConfig, err := m.repo.GetChainConfig(context.Background(), tenantID, chainName)
+	if err != nil || chainConfig == nil {
+		return status
+	}
+
+	key := chainCacheKey(chainConfig.ID)
 	if _, ok := m.tenantClients.Load(key); ok {
 		status["client_active"] = true
+		status["chain_config_id"] = chainConfig.ID
 	}
 
 	return status

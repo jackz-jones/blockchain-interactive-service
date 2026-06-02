@@ -19,6 +19,9 @@ type BuiltinPluginConf struct {
 	ChainName   string
 }
 
+// 内置插件版本号
+const builtinPluginVersion = "1.0.0"
+
 // ========== Ethereum 插件适配器 ==========
 
 // EthereumPlugin 以太坊链插件
@@ -27,7 +30,7 @@ type EthereumPlugin struct {
 	name   string
 }
 
-func NewEthereumPluginFactory() PluginFactory {
+func NewEthereumPluginFactory() Factory {
 	return func() ChainPlugin {
 		return &EthereumPlugin{}
 	}
@@ -35,7 +38,7 @@ func NewEthereumPluginFactory() PluginFactory {
 
 func (p *EthereumPlugin) Name() string                     { return p.name }
 func (p *EthereumPlugin) ChainType() string                { return "ethereum" }
-func (p *EthereumPlugin) Version() string                  { return "1.0.0" }
+func (p *EthereumPlugin) Version() string                  { return builtinPluginVersion }
 func (p *EthereumPlugin) SDKClient() sdk.ChainSdkInterface { return p.client }
 
 func (p *EthereumPlugin) Init(ctx context.Context, conf interface{}) error {
@@ -70,7 +73,7 @@ type ChainMakerPlugin struct {
 	name   string
 }
 
-func NewChainMakerPluginFactory() PluginFactory {
+func NewChainMakerPluginFactory() Factory {
 	return func() ChainPlugin {
 		return &ChainMakerPlugin{}
 	}
@@ -78,7 +81,7 @@ func NewChainMakerPluginFactory() PluginFactory {
 
 func (p *ChainMakerPlugin) Name() string                     { return p.name }
 func (p *ChainMakerPlugin) ChainType() string                { return "chainmaker" }
-func (p *ChainMakerPlugin) Version() string                  { return "1.0.0" }
+func (p *ChainMakerPlugin) Version() string                  { return builtinPluginVersion }
 func (p *ChainMakerPlugin) SDKClient() sdk.ChainSdkInterface { return p.client }
 
 func (p *ChainMakerPlugin) Init(ctx context.Context, conf interface{}) error {
@@ -113,7 +116,7 @@ type SolanaPlugin struct {
 	name   string
 }
 
-func NewSolanaPluginFactory() PluginFactory {
+func NewSolanaPluginFactory() Factory {
 	return func() ChainPlugin {
 		return &SolanaPlugin{}
 	}
@@ -121,7 +124,7 @@ func NewSolanaPluginFactory() PluginFactory {
 
 func (p *SolanaPlugin) Name() string                     { return p.name }
 func (p *SolanaPlugin) ChainType() string                { return "solana" }
-func (p *SolanaPlugin) Version() string                  { return "1.0.0" }
+func (p *SolanaPlugin) Version() string                  { return builtinPluginVersion }
 func (p *SolanaPlugin) SDKClient() sdk.ChainSdkInterface { return p.client }
 
 func (p *SolanaPlugin) Init(ctx context.Context, conf interface{}) error {

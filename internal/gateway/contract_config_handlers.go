@@ -16,42 +16,47 @@ import (
 
 // ContractConfigRequest 合约配置请求体
 type ContractConfigRequest struct {
-	ContractName string `json:"contract_name"` // 合约名称（必填）
-	ContractAddr string `json:"contract_addr"` // 合约地址
-	AbiJSON      string `json:"abi_json"`      // ABI JSON
-	ExtraConf    string `json:"extra_conf"`    // 额外配置 JSON（包含 enableSubscribe、deployBlockHeight 等）
+	ContractName    string `json:"contract_name"`    // 合约名称（必填）
+	ContractAddr    string `json:"contract_addr"`    // 合约地址
+	AbiJSON         string `json:"abi_json"`         // ABI JSON
+	EnableSubscribe bool   `json:"enable_subscribe"` // 是否开启事件订阅
+	ExtraConf       string `json:"extra_conf"`       // 额外配置 JSON（包含 deployBlockHeight 等）
 }
 
 // ContractConfigResponse 合约配置响应体
 type ContractConfigResponse struct {
-	ID            uint   `json:"id"`
-	TenantID      uint   `json:"tenant_id"`
-	ChainConfigID uint   `json:"chain_config_id"`
-	ContractName  string `json:"contract_name"`
-	ContractAddr  string `json:"contract_addr"`
-	AbiJSON       string `json:"abi_json"`
-	ExtraConf     string `json:"extra_conf"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
+	ID              uint   `json:"id"`
+	TenantID        uint   `json:"tenant_id"`
+	ChainConfigID   uint   `json:"chain_config_id"`
+	ContractName    string `json:"contract_name"`
+	ContractAddr    string `json:"contract_addr"`
+	AbiJSON         string `json:"abi_json"`
+	EnableSubscribe bool   `json:"enable_subscribe"`
+	ExtraConf       string `json:"extra_conf"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 // toContractConfigResponse 将数据库模型转换为响应体
 func toContractConfigResponse(config *store.TenantContractConfig) *ContractConfigResponse {
 	return &ContractConfigResponse{
-		ID:            config.ID,
-		TenantID:      config.TenantID,
-		ChainConfigID: config.ChainConfigID,
-		ContractName:  config.ContractName,
-		ContractAddr:  config.ContractAddr,
-		AbiJSON:       config.AbiJSON,
-		ExtraConf:     config.ExtraConf,
-		CreatedAt:     config.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:     config.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:              config.ID,
+		TenantID:        config.TenantID,
+		ChainConfigID:   config.ChainConfigID,
+		ContractName:    config.ContractName,
+		ContractAddr:    config.ContractAddr,
+		AbiJSON:         config.AbiJSON,
+		EnableSubscribe: config.EnableSubscribe,
+		ExtraConf:       config.ExtraConf,
+		CreatedAt:       config.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:       config.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
 
 // getChainConfigIDFromPath 从路径参数中获取 chainConfigId 并校验归属权限
-func getChainConfigIDFromPath(r *http.Request, svcCtx *svc.ServiceContext, tenantID uint) (uint, *store.TenantChainConfig, error) {
+func getChainConfigIDFromPath(
+	r *http.Request, svcCtx *svc.ServiceContext, tenantID uint,
+) (uint, *store.TenantChainConfig, error) {
 	vars := pathvar.Vars(r)
 	idStr := vars["chainConfigId"]
 	id, err := strconv.ParseUint(idStr, 10, 64)
@@ -101,6 +106,18 @@ func CreateContractConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
+		// 前置依赖校验：链配置必须启用
+		if !chainConfig.Enable {
+			errorResponse(w, http.StatusBadRequest, "关联的链配置未启用，请先启用链配置")
+			return
+		}
+
+		// 连通性警告（不阻塞，但在响应中返回警告）
+		var warning string
+		if chainConfig.ConnectionStatus != connectionStatusConnected {
+			warning = "关联的链配置尚未通过连通性测试，合约配置可能无法正常工作"
+		}
+
 		// 解析请求体
 		var req ContractConfigRequest
 		if err := httpx.ParseJsonBody(r, &req); err != nil {
@@ -135,12 +152,13 @@ func CreateContractConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 
 		// 创建合约配置
 		config := &store.TenantContractConfig{
-			TenantID:      tenantID,
-			ChainConfigID: chainConfigID,
-			ContractName:  req.ContractName,
-			ContractAddr:  req.ContractAddr,
-			AbiJSON:       req.AbiJSON,
-			ExtraConf:     req.ExtraConf,
+			TenantID:        tenantID,
+			ChainConfigID:   chainConfigID,
+			ContractName:    req.ContractName,
+			ContractAddr:    req.ContractAddr,
+			AbiJSON:         req.AbiJSON,
+			EnableSubscribe: req.EnableSubscribe,
+			ExtraConf:       req.ExtraConf,
 		}
 
 		if err := svcCtx.Repo.CreateContractConfig(r.Context(), config); err != nil {
@@ -154,7 +172,15 @@ func CreateContractConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		// 记录审计日志
 		recordConfigAuditLog(svcCtx, r, tenantID, "create", "contract_config", config.ID, nil, config)
 
-		successResponse(w, toContractConfigResponse(config))
+		// 返回响应（包含可能的警告）
+		if warning != "" {
+			successResponse(w, map[string]interface{}{
+				"data":    toContractConfigResponse(config),
+				"warning": warning,
+			})
+		} else {
+			successResponse(w, toContractConfigResponse(config))
+		}
 	}
 }
 

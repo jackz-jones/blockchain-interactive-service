@@ -17,9 +17,6 @@ type Service struct {
 	// dailyCounters 日调用计数器缓存: tenantID -> count（内存缓存，定期同步到 DB）
 	dailyCounters sync.Map
 
-	// monthlyCounters 月调用计数器缓存
-	monthlyCounters sync.Map
-
 	logger logx.Logger
 }
 

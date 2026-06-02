@@ -422,7 +422,7 @@ func (c *SolanaClient) Stop() error {
 // 语义与 Ethereum/ChainMaker 保持一致：调用方（StartSubscribe 的 goroutine）会阻塞，
 // 若返回非 nil 错误，则 StartSubscribe 会清理 SubscribeFlag，在下一个 3 秒轮询触发重订阅。
 func (c *SolanaClient) SubscribeContractEvent(contractConf config.ContractConf, chainConfName,
-	contractConfName, chainType string) error {
+	contractConfName, chainType string, chainConfigID, contractConfigID uint) error {
 
 	// 日志通用信息
 	logFields := BuildSubscribeLogFields(map[string]interface{}{
@@ -445,9 +445,16 @@ func (c *SolanaClient) SubscribeContractEvent(contractConf config.ContractConf, 
 		return fmt.Errorf("invalid contract address: %v", err)
 	}
 
+	// 构建 Redis key：DB 路径使用 ID 格式，配置文件路径使用旧格式
+	var blockHeightKey string
+	if chainConfigID > 0 && contractConfigID > 0 {
+		blockHeightKey = fmt.Sprintf("block_height:%d:%d", chainConfigID, contractConfigID)
+	} else {
+		blockHeightKey = strings.Join([]string{chainType, chainConfName, contractConfName}, "#")
+	}
+
 	// 获取最新区块高度
-	height, err := c.redisClient.GetLatestBlockHeight(c.ctx, strings.Join([]string{chainType, chainConfName,
-		contractConfName}, "#"))
+	height, err := c.redisClient.GetLatestBlockHeight(c.ctx, blockHeightKey)
 	if err != nil {
 		c.Logger.WithFields(logFields...).Errorf("failed to GetLatestBlockHeight: %v", err)
 		return fmt.Errorf("failed to GetLatestBlockHeight: %v", err)
@@ -470,7 +477,7 @@ func (c *SolanaClient) SubscribeContractEvent(contractConf config.ContractConf, 
 	c.wg.Add(1)
 	defer c.wg.Done()
 	return c.getHistoryEvents(contractConf, chainConfName, contractConfName, chainType,
-		height, logFields, programID)
+		height, logFields, programID, chainConfigID, contractConfigID, blockHeightKey)
 }
 
 // getHistoryEvents 轮询获取历史事件（同步阻塞）
@@ -478,7 +485,7 @@ func (c *SolanaClient) SubscribeContractEvent(contractConf config.ContractConf, 
 // 然后获取每笔交易的详情来解析事件数据。
 func (c *SolanaClient) getHistoryEvents(contractConf config.ContractConf, chainConfName, contractConfName,
 	chainType string, startSlot uint64, logFields []logx.LogField,
-	programID solana.PublicKey) error {
+	programID solana.PublicKey, chainConfigID, contractConfigID uint, blockHeightKey string) error {
 
 	// 轮询间隔：默认 5 秒
 	interval := time.Duration(contractConf.GetHistoryEventInterval) * time.Millisecond
@@ -492,7 +499,7 @@ func (c *SolanaClient) getHistoryEvents(contractConf config.ContractConf, chainC
 		queryLimit = 1000
 	}
 
-	key := strings.Join([]string{chainType, chainConfName, contractConfName}, "#")
+	key := blockHeightKey
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -537,7 +544,7 @@ func (c *SolanaClient) getHistoryEvents(contractConf config.ContractConf, chainC
 
 			// 处理每笔交易的事件；返回 (已处理的最大 slot, 是否所有签名都成功处理)
 			processedSlot, allOK := c.processTransactionSignatures(newSigs, currentSlot,
-				chainConfName, contractConfName, chainType, logFields)
+				chainConfName, contractConfName, chainType, logFields, chainConfigID, contractConfigID)
 
 			// 仅在 "本轮所有签名都成功处理" 时推进 currentSlot；
 			// 只要有一笔失败，就停在失败 slot 之前，等待下一轮重试。
@@ -625,7 +632,8 @@ func (c *SolanaClient) fetchNewSignatures(programID solana.PublicKey, currentSlo
 //
 // 任一签名失败则立刻停止推进 processedSlot，避免跳过失败 slot 导致事件永久丢失。
 func (c *SolanaClient) processTransactionSignatures(sigs []*rpc.TransactionSignature, currentSlot uint64,
-	chainConfName, contractConfName, chainType string, logFields []logx.LogField) (uint64, bool) {
+	chainConfName, contractConfName, chainType string, logFields []logx.LogField,
+	chainConfigID, contractConfigID uint) (uint64, bool) {
 
 	processedSlot := currentSlot
 	for _, txSig := range sigs {
@@ -647,7 +655,7 @@ func (c *SolanaClient) processTransactionSignatures(sigs []*rpc.TransactionSigna
 
 		// 解析交易日志并发布事件
 		if pubErr := c.processAndPublishEvent(txResult, txSig.Signature.String(), txSig.Slot,
-			chainConfName, contractConfName, chainType, logFields); pubErr != nil {
+			chainConfName, contractConfName, chainType, logFields, chainConfigID, contractConfigID); pubErr != nil {
 			c.Logger.WithFields(logFields...).Errorf("failed to publish event for %s: %v, stop advancing slot at %d",
 				txSig.Signature.String(), pubErr, processedSlot)
 			return processedSlot, false
@@ -670,7 +678,8 @@ func sortTransactionSignatures(sigs []*rpc.TransactionSignature) {
 
 // processAndPublishEvent 解析交易结果并发布事件到 Redis。返回非 nil 错误表示发布失败。
 func (c *SolanaClient) processAndPublishEvent(txResult *rpc.GetTransactionResult, signature string, slot uint64,
-	chainConfName, contractConfName, chainType string, logFields []logx.LogField) error {
+	chainConfName, contractConfName, chainType string, logFields []logx.LogField,
+	chainConfigID, contractConfigID uint) error {
 
 	if txResult == nil || txResult.Meta == nil {
 		// 交易无 meta 视作无事件可发布，直接返回 nil（不阻塞 slot 推进）
@@ -697,8 +706,8 @@ func (c *SolanaClient) processAndPublishEvent(txResult *rpc.GetTransactionResult
 	}
 
 	// 发布事件到 Redis
-	err = c.redisClient.PublishTradeGuardEventToStream(c.ctx, string(eventBytes), chainType,
-		chainConfName, "", contractConfName, signature)
+	err = c.redisClient.PublishCrossChainEventToStream(c.ctx, string(eventBytes),
+		chainConfigID, contractConfigID, signature)
 	if err != nil {
 		c.Logger.WithFields(logFields...).Errorf("failed to publish event to redis: %v", err)
 		return err

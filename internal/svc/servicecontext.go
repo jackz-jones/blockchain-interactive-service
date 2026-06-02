@@ -9,6 +9,7 @@ import (
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/plugin"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/sdk"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/service"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/tenant"
 
@@ -47,6 +48,9 @@ type ServiceContext struct {
 	// 计费服务
 	BillingService *billing.Service
 
+	// 配置解析器（业务语义到 ID 的映射层）
+	ConfigResolver *service.ConfigResolver
+
 	// ChainClientFactory 链客户端工厂函数，通过它创建各链 SDK 客户端
 	ChainClientFactory sdk.ChainClientFactory
 }
@@ -68,7 +72,8 @@ func NewServiceContext(c config.Config) *ServiceContext {
 
 	// 创建链客户端工厂函数，通过插件注册中心创建各链 SDK 客户端
 	svc.ChainClientFactory = func(ctx context.Context, chainName, chainType string,
-		chainConf *config.ChainConf, logConf logx.LogConf, redisClient *commonEvent.RedisClient) (sdk.ChainSdkInterface, error) {
+		chainConf *config.ChainConf, logConf logx.LogConf,
+		redisClient *commonEvent.RedisClient) (sdk.ChainSdkInterface, error) {
 
 		// 构造插件初始化所需的配置
 		pluginConf := &plugin.BuiltinPluginConf{
@@ -128,10 +133,14 @@ func (svc *ServiceContext) initDatabase() {
 	svc.TenantService = tenant.NewService(svc.Repo)
 
 	// 初始化租户级 SDK 管理器（传入链客户端工厂函数，由插件创建客户端）
-	svc.TenantSDKManager = sdk.NewTenantSDKManager(svc.Repo, svc.ChainClientFactory, svc.RedisClient, svc.Config.Log, svc.Logger)
+	svc.TenantSDKManager = sdk.NewTenantSDKManager(
+		svc.Repo, svc.ChainClientFactory, svc.RedisClient, svc.Config.Log, svc.Logger)
 
 	// 初始化计费服务
 	svc.BillingService = billing.NewService(svc.Repo, svc.Logger)
+
+	// 初始化配置解析器
+	svc.ConfigResolver = service.NewConfigResolver(svc.Repo)
 }
 
 // 初始化已配置链的 sdk 客户端

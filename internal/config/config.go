@@ -28,43 +28,43 @@ type Config struct {
 // GatewayConf HTTP API Gateway 配置
 type GatewayConf struct {
 	// Enable 是否启用 HTTP Gateway
-	Enable bool `json:",default=true"`
+	Enable bool `json:",default=true"` //nolint:staticcheck
 
 	// Host HTTP 监听地址
-	Host string `json:",default=0.0.0.0"`
+	Host string `json:",default=0.0.0.0"` //nolint:staticcheck
 
 	// Port HTTP 监听端口
-	Port int `json:",default=8080"`
+	Port int `json:",default=8080"` //nolint:staticcheck
 
 	// RateLimit 默认 QPS 限制（每租户）
-	RateLimit int `json:",default=10"`
+	RateLimit int `json:",default=10"` //nolint:staticcheck
 }
 
 // DatabaseConf 数据库配置
 type DatabaseConf struct {
 	// Driver 数据库驱动：postgres、mysql
-	Driver string `json:",default=postgres"`
+	Driver string `json:",default=postgres"` //nolint:staticcheck
 
 	// Host 数据库主机地址
-	Host string `json:",default=localhost"`
+	Host string `json:",default=localhost"` //nolint:staticcheck
 
 	// Port 数据库端口
-	Port int `json:",default=5432"`
+	Port int `json:",default=5432"` //nolint:staticcheck
 
 	// User 数据库用户名
-	User string `json:",default=postgres"`
+	User string `json:",default=postgres"` //nolint:staticcheck
 
 	// Password 数据库密码
-	Password string `json:",optional"`
+	Password string `json:",optional"` //nolint:staticcheck
 
 	// DBName 数据库名
-	DBName string `json:",default=chain_interactive"`
+	DBName string `json:",default=chain_interactive"` //nolint:staticcheck
 
 	// SSLMode SSL 模式（postgres 专用）
-	SSLMode string `json:",default=disable"`
+	SSLMode string `json:",default=disable"` //nolint:staticcheck
 
 	// AutoMigrate 是否自动迁移表结构
-	AutoMigrate bool `json:",default=true"`
+	AutoMigrate bool `json:",default=true"` //nolint:staticcheck
 }
 
 // GrpcConf contain all config items for grpc server initiation

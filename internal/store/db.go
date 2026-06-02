@@ -10,6 +10,12 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+// 数据库驱动常量
+const (
+	DriverPostgres = "postgres"
+	DriverMySQL    = "mysql"
+)
+
 // DBConfig 数据库配置
 type DBConfig struct {
 	Driver   string // 数据库驱动：postgres、mysql
@@ -24,14 +30,14 @@ type DBConfig struct {
 // DSN 生成数据库连接字符串
 func (c *DBConfig) DSN() string {
 	switch c.Driver {
-	case "postgres":
+	case DriverPostgres:
 		sslMode := c.SSLMode
 		if sslMode == "" {
 			sslMode = "disable"
 		}
 		return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 			c.Host, c.Port, c.User, c.Password, c.DBName, sslMode)
-	case "mysql":
+	case DriverMySQL:
 		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 			c.User, c.Password, c.Host, c.Port, c.DBName)
 	default:
@@ -44,9 +50,9 @@ func NewDB(cfg *DBConfig) (*gorm.DB, error) {
 	var dialector gorm.Dialector
 
 	switch cfg.Driver {
-	case "postgres":
+	case DriverPostgres:
 		dialector = postgres.Open(cfg.DSN())
-	case "mysql":
+	case DriverMySQL:
 		dialector = mysql.Open(cfg.DSN())
 	default:
 		return nil, fmt.Errorf("unsupported database driver: %s", cfg.Driver)

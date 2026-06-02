@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -14,6 +15,15 @@ import (
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 	"github.com/zeromicro/go-zero/rest/httpx"
 	"github.com/zeromicro/go-zero/rest/pathvar"
+)
+
+// 常量定义
+const (
+	// sourceDatabase 数据来源标识：数据库
+	sourceDatabase = "database"
+
+	// connectionStatusConnected 连通性状态：已连接
+	connectionStatusConnected = "connected"
 )
 
 // JSON 响应辅助函数
@@ -190,7 +200,7 @@ func GetAvailableChainsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 				contractNames = append(contractNames, cc.ContractName)
 			}
 
-			source := "database"
+			source := sourceDatabase
 			if _, exists := chainMap[dbConf.ChainName]; exists {
 				source = "database (overrides config_file)"
 			}
@@ -270,7 +280,7 @@ func GetChainStatusHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 
 		status["chain_type"] = chainConfig.ChainType
 		status["enable"] = chainConfig.Enable
-		status["source"] = "database"
+		status["source"] = sourceDatabase
 		status["contracts"] = contractStatuses
 
 		successResponse(w, status)
@@ -489,17 +499,31 @@ func CreateChainConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		}
 
 		config := &store.TenantChainConfig{
-			TenantID:  tenantID,
-			ChainName: req.ChainName,
-			ChainType: strings.ToLower(req.ChainType),
-			Enable:    req.Enable,
-			SdkConf:   req.SdkConf,
+			TenantID:         tenantID,
+			ChainName:        req.ChainName,
+			ChainType:        strings.ToLower(req.ChainType),
+			Enable:           req.Enable,
+			ConnectionStatus: "unknown",
+			SdkConf:          req.SdkConf,
 		}
 
 		if err := svcCtx.Repo.CreateChainConfig(r.Context(), config); err != nil {
 			errorResponse(w, http.StatusInternalServerError, "create chain config: "+err.Error())
 			return
 		}
+
+		// 自动触发连通性测试（异步，不阻塞响应）
+		go func(cfg *store.TenantChainConfig) {
+			_, testErr := svcCtx.TenantSDKManager.GetTenantSDKClient(context.Background(), cfg.TenantID, cfg.ChainName)
+			if testErr != nil {
+				cfg.ConnectionStatus = "failed"
+				cfg.ConnectionError = testErr.Error()
+			} else {
+				cfg.ConnectionStatus = connectionStatusConnected
+				cfg.ConnectionError = ""
+			}
+			_ = svcCtx.Repo.UpdateChainConfig(context.Background(), cfg)
+		}(config)
 
 		// 记录审计日志
 		recordConfigAuditLog(svcCtx, r, tenantID, "create", "chain_config", config.ID, nil, config)

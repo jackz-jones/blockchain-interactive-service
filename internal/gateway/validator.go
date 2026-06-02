@@ -50,10 +50,7 @@ func validateEthereumContract(req *ContractConfigRequest) error {
 	if req.AbiJSON == "" {
 		return fmt.Errorf("abi_json is required for ethereum chain type")
 	}
-	if err := validateABIJSON(req.AbiJSON); err != nil {
-		return err
-	}
-	return nil
+	return validateABIJSON(req.AbiJSON)
 }
 
 // validateChainmakerContract 校验长安链合约配置

@@ -30,6 +30,9 @@ const (
 
 	// MetadataKeyAPIKey 请求 metadata 中的 API Key 字段名
 	MetadataKeyAPIKey = "x-api-key"
+
+	// statusActive API Key 活跃状态
+	statusActive = "active"
 )
 
 // AuthInterceptor API Key 认证拦截器
@@ -44,7 +47,10 @@ func NewAuthInterceptor(repo store.Repository) *AuthInterceptor {
 
 // Unary 一元 RPC 认证拦截器
 func (a *AuthInterceptor) Unary() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(
+		ctx context.Context, req interface{},
+		info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (interface{}, error) {
 		// 跳过健康检查等内部接口
 		if shouldSkipAuth(info.FullMethod) {
 			return handler(ctx, req)
@@ -105,7 +111,7 @@ func (a *AuthInterceptor) authenticate(ctx context.Context) (context.Context, er
 	}
 
 	// 检查 API Key 状态
-	if apiKey.Status != "active" {
+	if apiKey.Status != statusActive {
 		return nil, status.Error(codes.Unauthenticated, "api key is revoked")
 	}
 

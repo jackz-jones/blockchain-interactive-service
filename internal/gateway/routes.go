@@ -36,6 +36,24 @@ func RegisterRoutes(server *rest.Server, svcCtx *svc.ServiceContext) {
 				Path:    "/api/v1/chains/:chainName/status",
 				Handler: GetChainStatusHandler(svcCtx),
 			},
+			// 事件订阅
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/v1/events/subscribe",
+				Handler: EventSubscribeHandler(svcCtx),
+			},
+			// 事件轮询
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/v1/events/poll",
+				Handler: EventPollHandler(svcCtx),
+			},
+			// 取消事件订阅
+			{
+				Method:  http.MethodDelete,
+				Path:    "/api/v1/events/subscribe/:subscriptionId",
+				Handler: EventUnsubscribeHandler(svcCtx),
+			},
 		},
 		rest.WithPrefix(""),
 	)
