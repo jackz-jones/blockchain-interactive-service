@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/code"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/middleware"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/svc"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/util"
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
@@ -36,7 +37,7 @@ var chainTypeMapping = map[string]pb.ChainType{
 	"solana":     pb.ChainType_Solana,
 }
 
-// GetAvailableChainAndContractNames 获取本地可访问的所有链名称，以及旗下的合约名称
+// GetAvailableChainAndContractNames 获取当前租户可访问的所有链名称，以及旗下的合约名称
 func (l *GetAvailableChainAndContractNamesLogic) GetAvailableChainAndContractNames(
 	in *pb.GetAvailableChainAndContractNamesRequest) (*pb.GetAvailableChainAndContractNamesResponse, error) {
 
@@ -46,54 +47,56 @@ func (l *GetAvailableChainAndContractNamesLogic) GetAvailableChainAndContractNam
 	}
 	l.Logger.WithFields(util.ConvertToLogFields(fields)...).Info("receive GetAvailableChainAndContractNames request")
 
-	// 收集本地配置可用的链和合约名称
+	// 获取租户 ID
+	tenantID := middleware.GetTenantID(l.ctx)
+	if tenantID == 0 {
+		return l.errorResponse(code.ErrGetSDKClient, nil), nil
+	}
+
+	// 从 DB 查询租户的链配置
+	chainConfigs, err := l.svcCtx.Repo.ListChainConfigsByTenant(l.ctx, tenantID)
+	if err != nil {
+		l.Logger.WithFields(util.ConvertToLogFields(fields)...).Errorf("list chain configs: %v", err)
+		return l.errorResponse(code.ErrGetSDKClient, err), nil
+	}
+
+	// 收集链和合约名称
 	chainAndContractNames := make([]*pb.ChainAndContractName, 0)
-	for chainName, conf := range l.svcCtx.Config.ChainConfs {
-		if conf.Enable {
+	for _, chainConf := range chainConfigs {
+		if !chainConf.Enable {
+			continue
+		}
 
-			// 解析链类型（通过映射表，支持动态扩展）
-			chainType, ok := chainTypeMapping[strings.ToLower(conf.ChainType)]
-			if !ok {
-				fields["chainType"] = conf.ChainType
-				l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrUnknownChainType.String())
-				return l.errorResponse(code.ErrUnknownChainType, nil), nil
-			}
+		// 解析链类型
+		chainType, ok := chainTypeMapping[strings.ToLower(chainConf.ChainType)]
+		if !ok {
+			fields["chainType"] = chainConf.ChainType
+			l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrUnknownChainType.String())
+			continue
+		}
 
-			contractDescs := make([]*pb.ContractDesc, 0)
+		// 查询该链下的合约配置
+		contractConfigs, contractErr := l.svcCtx.Repo.ListContractConfigsByChain(l.ctx, chainConf.ID)
+		if contractErr != nil {
+			l.Logger.WithFields(util.ConvertToLogFields(fields)...).
+				Errorf("list contract configs for chain %s: %v", chainConf.ChainName, contractErr)
+			continue
+		}
 
-			// 收集合约配置名称
-			for contractName, contractConf := range conf.ContractConfs {
-
-				// 只有以太坊链才需要解析 abi
-				var (
-					abi string
-					err error
-				)
-				if chainType == pb.ChainType_Ethereum {
-					abi, err = util.ReadAbiJsonFile(contractConf.Abi)
-					if err != nil {
-						fields["abi"] = contractConf.Abi
-						fields["error"] = err
-						l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrReadAbiJsonFile.String())
-						return l.errorResponse(code.ErrReadAbiJsonFile, nil), nil
-					}
-				}
-
-				// 收集合约配置信息
-				contractDescs = append(contractDescs, &pb.ContractDesc{
-					ContractName:    contractName,
-					ContractAddress: contractConf.ContractAddr,
-					Abi:             abi,
-				})
-			}
-
-			// 收集链配置信息
-			chainAndContractNames = append(chainAndContractNames, &pb.ChainAndContractName{
-				ChainName:     chainName,
-				ChainType:     chainType,
-				ContractDescs: contractDescs,
+		contractDescs := make([]*pb.ContractDesc, 0)
+		for _, cc := range contractConfigs {
+			contractDescs = append(contractDescs, &pb.ContractDesc{
+				ContractName:    cc.ContractName,
+				ContractAddress: cc.ContractAddr,
+				Abi:             cc.AbiJSON,
 			})
 		}
+
+		chainAndContractNames = append(chainAndContractNames, &pb.ChainAndContractName{
+			ChainName:     chainConf.ChainName,
+			ChainType:     chainType,
+			ContractDescs: contractDescs,
+		})
 	}
 
 	// 返回成功信息

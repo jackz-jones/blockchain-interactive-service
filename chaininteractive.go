@@ -36,12 +36,6 @@ func main() {
 	var c config.Config
 	conf.MustLoad(*configFile, &c)
 
-	// 验证配置是否合法
-	if err := c.Validate(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
 	ctx := svc.NewServiceContext(c)
 
 	// 创建认证和权限拦截器
@@ -75,15 +69,13 @@ func main() {
 	// 启动 HTTP API Gateway
 	gateway.StartHTTPServer(c, ctx)
 
-	// 启动订阅（传入服务级根 ctx，便于统一优雅退出）
-	sdk.StartSubscribe(ctx.RootCtx, c, &ctx.SDKClients, ctx.Logger, ctx.RedisClient, ctx.ChainClientFactory,
-		ctx.TenantSDKManager, ctx.Repo)
+	// 启动订阅（仅基于 DB 配置）
+	sdk.StartSubscribe(ctx.RootCtx, ctx.Logger, ctx.TenantSDKManager, ctx.Repo)
 
 	// 服务退出前释放所有的 sdk client
 	defer func() {
-		// 先取消根 ctx，通知订阅 goroutine 等退出；然后并发调用各 SDK 的 Stop
+		// 先取消根 ctx，通知订阅 goroutine 等退出
 		ctx.Cancel()
-		sdk.StopAllSdkClients(&ctx.SDKClients, ctx.Logger)
 
 		// 停止所有租户级 SDK 客户端
 		if ctx.TenantSDKManager != nil {

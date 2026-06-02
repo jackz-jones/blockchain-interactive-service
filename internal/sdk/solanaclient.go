@@ -14,7 +14,6 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/code"
-	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 	commonEvent "github.com/jackz-jones/common/event"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -36,7 +35,7 @@ type SolanaClient struct {
 	wg sync.WaitGroup
 
 	// 合约配置，配置名称--》合约信息
-	contractConfigs map[string]*config.ContractConf
+	contractConfigs map[string]*ContractConf
 
 	// RPC 连接
 	rpcClient     *rpc.Client
@@ -57,7 +56,7 @@ type SolanaClient struct {
 }
 
 // NewSolanaClient 创建一个 SolanaClient 对象
-func NewSolanaClient(ctx context.Context, solanaConf config.SolanaConf, contractConfs map[string]*config.ContractConf,
+func NewSolanaClient(ctx context.Context, solanaConf SolanaConf, contractConfs map[string]*ContractConf,
 	redisClient *commonEvent.RedisClient) (*SolanaClient, error) {
 
 	// 验证 RPC URL 不为空
@@ -273,7 +272,7 @@ func (c *SolanaClient) waitForTransactionConfirmation(txId string, txTimeout int
 }
 
 // invokeContract 调用合约方法（写链）
-func (c *SolanaClient) invokeContract(contractAddress solana.PublicKey, methodSpec config.SolanaMethodSpec,
+func (c *SolanaClient) invokeContract(contractAddress solana.PublicKey, methodSpec SolanaMethodSpec,
 	args []*pb.KeyValuePair) (string, error) {
 
 	// 获取最新区块哈希
@@ -343,7 +342,7 @@ func (c *SolanaClient) invokeContract(contractAddress solana.PublicKey, methodSp
 
 // queryContract 查询合约状态（读链）
 // Solana 合约的状态存在 "账户数据" 里，正确的读取方式是 GetMultipleAccounts 而非 SimulateTransaction。
-func (c *SolanaClient) queryContract(methodSpec config.SolanaMethodSpec) (interface{}, error) {
+func (c *SolanaClient) queryContract(methodSpec SolanaMethodSpec) (interface{}, error) {
 	if len(methodSpec.QueryAccounts) == 0 {
 		return nil, errors.New("solana query method requires non-empty QueryAccounts in method spec")
 	}
@@ -421,7 +420,7 @@ func (c *SolanaClient) Stop() error {
 // SubscribeContractEvent 订阅合约事件（阻塞直到 ctx Done 或致命错误返回）。
 // 语义与 Ethereum/ChainMaker 保持一致：调用方（StartSubscribe 的 goroutine）会阻塞，
 // 若返回非 nil 错误，则 StartSubscribe 会清理 SubscribeFlag，在下一个 3 秒轮询触发重订阅。
-func (c *SolanaClient) SubscribeContractEvent(contractConf config.ContractConf, chainConfName,
+func (c *SolanaClient) SubscribeContractEvent(contractConf ContractConf, chainConfName,
 	contractConfName, chainType string, chainConfigID, contractConfigID uint) error {
 
 	// 日志通用信息
@@ -483,7 +482,7 @@ func (c *SolanaClient) SubscribeContractEvent(contractConf config.ContractConf, 
 // getHistoryEvents 轮询获取历史事件（同步阻塞）
 // 使用 GetSignaturesForAddressWithOpts 轮询合约相关的已确认交易签名，
 // 然后获取每笔交易的详情来解析事件数据。
-func (c *SolanaClient) getHistoryEvents(contractConf config.ContractConf, chainConfName, contractConfName,
+func (c *SolanaClient) getHistoryEvents(contractConf ContractConf, chainConfName, contractConfName,
 	chainType string, startSlot uint64, logFields []logx.LogField,
 	programID solana.PublicKey, chainConfigID, contractConfigID uint, blockHeightKey string) error {
 

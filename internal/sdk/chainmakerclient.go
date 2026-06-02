@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 
 	"chainmaker.org/chainmaker/pb-go/v2/common"
@@ -37,7 +36,7 @@ type ChainMakerClient struct {
 
 // NewChainMakerClient 创建一个长安链客户端对象
 func NewChainMakerClient(ctx context.Context, chainConfName, sdkConfigPath string,
-	contractConfs map[string]*config.ContractConf, logConf logx.LogConf,
+	contractConfs map[string]*ContractConf, logConf logx.LogConf,
 	redisClient *commonEvent.RedisClient) (*ChainMakerClient, error) {
 	client, err := chainmakersdk.NewChainClient(chainmakersdk.WithConfPath(sdkConfigPath),
 
@@ -162,7 +161,7 @@ func (c *ChainMakerClient) Stop() error {
 }
 
 // SubscribeContractEvent 订阅合约事件
-func (c *ChainMakerClient) SubscribeContractEvent(contractConf config.ContractConf, chainConfName, contractConfName,
+func (c *ChainMakerClient) SubscribeContractEvent(contractConf ContractConf, chainConfName, contractConfName,
 	chainType string, chainConfigID, contractConfigID uint) error {
 
 	// 日志通用信息

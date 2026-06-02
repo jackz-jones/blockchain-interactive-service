@@ -3,7 +3,6 @@ package svc
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/billing"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
@@ -20,9 +19,6 @@ import (
 
 type ServiceContext struct {
 	Config config.Config
-
-	// 与链交互的 sdk 客户端,chainName -> sdk.ChainSdkInterface
-	SDKClients sync.Map
 	logx.Logger
 
 	// RootCtx 服务级根 ctx，所有 SDK 客户端共享该 ctx 作为父 ctx；
@@ -72,7 +68,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 
 	// 创建链客户端工厂函数，通过插件注册中心创建各链 SDK 客户端
 	svc.ChainClientFactory = func(ctx context.Context, chainName, chainType string,
-		chainConf *config.ChainConf, logConf logx.LogConf,
+		chainConf *sdk.ChainConf, logConf logx.LogConf,
 		redisClient *commonEvent.RedisClient) (sdk.ChainSdkInterface, error) {
 
 		// 构造插件初始化所需的配置
@@ -92,14 +88,12 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		return p.SDKClient(), nil
 	}
 
+	// 初始化 redis client（需要在 initDatabase 之前，因为 TenantSDKManager 依赖 RedisClient）
+	svc.initRedisClient()
+
 	// 初始化数据库
 	svc.initDatabase()
 
-	// 初始化 redis client
-	svc.initRedisClient()
-
-	// 初始化已配置链的 sdk 客户端
-	svc.initSdkClients()
 	return svc
 }
 
@@ -124,28 +118,6 @@ func (svc *ServiceContext) initDatabase() {
 
 	// 初始化配置解析器
 	svc.ConfigResolver = service.NewConfigResolver(svc.Repo)
-}
-
-// 初始化已配置链的 sdk 客户端
-func (svc *ServiceContext) initSdkClients() {
-	for chainConfName, chainConf := range svc.Config.ChainConfs {
-
-		// 如果链未启用，则跳过
-		if !chainConf.Enable {
-			svc.Logger.Infof("chain %s is not enabled,skip...", chainConfName)
-			continue
-		}
-
-		// 检查缓存中是否存在 sdk client，不存在会自动创建，并存入缓存
-		_, err := sdk.GetSDKClient(svc.RootCtx, &svc.SDKClients, chainConfName, svc.Logger, chainConf,
-			svc.Config.Log, svc.RedisClient, svc.ChainClientFactory)
-		if err != nil {
-
-			// 目前配置是确定的，如果出现错误，直接 panic
-			panic(fmt.Errorf("failed to GetSDKClient for chain %s[%v] when initSdkClients,err: %v",
-				chainConfName, chainConf, err))
-		}
-	}
 }
 
 // 初始化redis client

@@ -13,7 +13,6 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 
-	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/util"
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 
@@ -41,7 +40,7 @@ type EthereumClient struct {
 	fromAddress common.Address
 
 	// 合约配置，配置名称--》合约信息
-	contractConfigs map[string]*config.ContractConf
+	contractConfigs map[string]*ContractConf
 
 	// http 和 websocket 连接，前者用于发交易和查询，后者用于订阅事件
 	httpClient *ethclient.Client
@@ -58,7 +57,7 @@ type EthereumClient struct {
 }
 
 // NewEthereumClient 创建一个 EthereumClient 对象
-func NewEthereumClient(ctx context.Context, ethConf config.EthConf, contractConfs map[string]*config.ContractConf,
+func NewEthereumClient(ctx context.Context, ethConf EthConf, contractConfs map[string]*ContractConf,
 	redisClient *commonEvent.RedisClient) (*EthereumClient, error) {
 
 	// 建立 http 连接
@@ -423,7 +422,7 @@ func (c *EthereumClient) Stop() error {
 }
 
 // SubscribeContractEvent 订阅合约事件
-func (c *EthereumClient) SubscribeContractEvent(contractConf config.ContractConf, chainConfName,
+func (c *EthereumClient) SubscribeContractEvent(contractConf ContractConf, chainConfName,
 	contractConfName, chainType string, chainConfigID, contractConfigID uint) error {
 
 	// 日志通用信息

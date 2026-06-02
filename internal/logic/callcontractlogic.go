@@ -95,53 +95,28 @@ func (l *CallContractLogic) CallContract(in *pb.CallContractRequest) (*pb.TxResp
 	}), nil
 }
 
-// getSDKClient 获取 SDK 客户端，支持 DB 优先查找，配置文件回退
-// 1. 如果 context 中有租户身份（tenantID > 0），先尝试从 DB（TenantSDKManager）查找
-// 2. DB 查找失败则回退到配置文件路径（sdkClients sync.Map）
-// 3. 未提供租户身份时仅从配置文件查找（向后兼容）
+// getSDKClient 获取 SDK 客户端（从 DB 配置加载）
 func (l *CallContractLogic) getSDKClient(
 	chainName string, fields map[string]interface{},
 ) (sdk.ChainSdkInterface, error) {
-	// 尝试从 context 获取租户 ID（由 gRPC auth interceptor 注入）
+	// 从 context 获取租户 ID（由 gRPC auth interceptor 注入）
 	tenantID := middleware.GetTenantID(l.ctx)
-
-	// 如果有租户身份，优先从 DB 查找（DB 配置优先级高于配置文件）
-	if tenantID > 0 {
-		client, err := l.svcCtx.TenantSDKManager.GetTenantSDKClient(l.ctx, tenantID, chainName)
-		if err == nil {
-			l.Logger.WithFields(util.ConvertToLogFields(fields)...).
-				Infof("got SDK client from DB: tenant=%d, chain=%s", tenantID, chainName)
-			return client, nil
-		}
-		// DB 查找失败，记录日志后回退到配置文件
-		l.Logger.WithFields(util.ConvertToLogFields(fields)...).
-			Infof("DB lookup failed (tenant=%d, chain=%s): %v, fallback to config file",
-				tenantID, chainName, err)
+	if tenantID == 0 {
+		l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error("tenant ID not found in context")
+		return nil, fmt.Errorf("tenant identity required")
 	}
 
-	// 配置文件路径：检查 chainConf 是否存在
-	chainConf, exist := l.svcCtx.Config.ChainConfs[chainName]
-	if !exist {
-		l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrChainNotExist.String())
-		return nil, fmt.Errorf("%s", code.ErrChainNotExist.String())
-	}
-
-	// 如果链未启用，直接返回错误
-	if !chainConf.Enable {
-		l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrChainNotEnable.String())
-		return nil, fmt.Errorf("%s", code.ErrChainNotEnable.String())
-	}
-
-	// 从配置文件获取 SDK 客户端
-	sdkClient, err := sdk.GetSDKClient(l.svcCtx.RootCtx, &l.svcCtx.SDKClients, chainName, l.Logger, chainConf,
-		l.svcCtx.Config.Log, l.svcCtx.RedisClient, l.svcCtx.ChainClientFactory)
+	client, err := l.svcCtx.TenantSDKManager.GetTenantSDKClient(l.ctx, tenantID, chainName)
 	if err != nil {
 		fields["err"] = err
-		l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrGetSDKClient.String())
+		l.Logger.WithFields(util.ConvertToLogFields(fields)...).
+			Errorf("failed to get SDK client from DB: tenant=%d, chain=%s, err=%v", tenantID, chainName, err)
 		return nil, err
 	}
 
-	return sdkClient, nil
+	l.Logger.WithFields(util.ConvertToLogFields(fields)...).
+		Infof("got SDK client: tenant=%d, chain=%s", tenantID, chainName)
+	return client, nil
 }
 
 // errorResponse returns the error response.

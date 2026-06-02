@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/sdk"
 
 	commonEvent "github.com/jackz-jones/common/event"
@@ -13,7 +12,7 @@ import (
 
 // BuiltinPluginConf 内置插件配置（创建底层 SDK 客户端所需的完整配置）
 type BuiltinPluginConf struct {
-	ChainConf   *config.ChainConf
+	ChainConf   *sdk.ChainConf
 	LogConf     logx.LogConf
 	RedisClient *commonEvent.RedisClient
 	ChainName   string
@@ -49,7 +48,7 @@ func (p *EthereumPlugin) Init(ctx context.Context, conf interface{}) error {
 	p.name = c.ChainName
 
 	// 插件自己负责创建底层 SDK 客户端
-	client, err := sdk.NewEthereumClient(ctx, c.ChainConf.SdkConf.EthConf,
+	client, err := sdk.NewEthereumClient(ctx, c.ChainConf.SDKConf.EthConf,
 		c.ChainConf.ContractConfs, c.RedisClient)
 	if err != nil {
 		return fmt.Errorf("create ethereum client: %w", err)
@@ -92,7 +91,7 @@ func (p *ChainMakerPlugin) Init(ctx context.Context, conf interface{}) error {
 	p.name = c.ChainName
 
 	// 插件自己负责创建底层 SDK 客户端
-	client, err := sdk.NewChainMakerClient(ctx, c.ChainName, c.ChainConf.SdkConf.ConfFilePath,
+	client, err := sdk.NewChainMakerClient(ctx, c.ChainName, c.ChainConf.SDKConf.ConfFilePath,
 		c.ChainConf.ContractConfs, c.LogConf, c.RedisClient)
 	if err != nil {
 		return fmt.Errorf("create chainmaker client: %w", err)
@@ -135,7 +134,7 @@ func (p *SolanaPlugin) Init(ctx context.Context, conf interface{}) error {
 	p.name = c.ChainName
 
 	// 插件自己负责创建底层 SDK 客户端
-	client, err := sdk.NewSolanaClient(ctx, c.ChainConf.SdkConf.SolanaConf,
+	client, err := sdk.NewSolanaClient(ctx, c.ChainConf.SDKConf.SolanaConf,
 		c.ChainConf.ContractConfs, c.RedisClient)
 	if err != nil {
 		return fmt.Errorf("create solana client: %w", err)

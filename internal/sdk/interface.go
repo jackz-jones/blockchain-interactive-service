@@ -2,7 +2,6 @@
 package sdk
 
 import (
-	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 )
 
@@ -59,6 +58,6 @@ type ChainSdkInterface interface {
 	 * @return error 错误信息
 	 */
 
-	SubscribeContractEvent(contractConf config.ContractConf, chainConfName, contractConfName,
+	SubscribeContractEvent(contractConf ContractConf, chainConfName, contractConfName,
 		chainType string, chainConfigID, contractConfigID uint) error
 }

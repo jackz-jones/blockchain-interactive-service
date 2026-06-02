@@ -9,7 +9,6 @@ import (
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
-	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,8 +27,8 @@ func TestBase58(t *testing.T) {
 
 // getTestSolanaConf 返回用于测试的 Solana 配置，使用 QuickNode 公共 Devnet 节点
 // 注意：官方的 api.devnet.solana.com 可能无法访问，这里使用 QuickNode 提供的公共 Devnet 节点
-func getTestSolanaConf() config.SolanaConf {
-	return config.SolanaConf{
+func getTestSolanaConf() SolanaConf {
+	return SolanaConf{
 		RpcUrl: "https://docs-demo.solana-devnet.quiknode.pro/",
 
 		// 对应 Solana 地址：5pVyoAeURQHNMVU7DmfMHvCDNmTEYXWfEwc136GYhTKG，开发网公开的一个地址，账户余额管够
@@ -47,7 +46,7 @@ func getTestSolanaConf() config.SolanaConf {
 func TestNewSolanaClient(t *testing.T) {
 	tests := []struct {
 		name        string
-		solanaConf  config.SolanaConf
+		solanaConf  SolanaConf
 		expectError bool
 	}{
 		{
@@ -57,7 +56,7 @@ func TestNewSolanaClient(t *testing.T) {
 		},
 		{
 			name: "invalid private key",
-			solanaConf: config.SolanaConf{
+			solanaConf: SolanaConf{
 				RpcUrl:          "https://docs-demo.solana-devnet.quiknode.pro/",
 				PrivateKey:      "invalid_private_key",
 				CommitmentLevel: "confirmed",
@@ -68,7 +67,7 @@ func TestNewSolanaClient(t *testing.T) {
 		},
 		{
 			name: "empty rpc url",
-			solanaConf: config.SolanaConf{
+			solanaConf: SolanaConf{
 				RpcUrl:          "",
 				PrivateKey:      "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG",
 				CommitmentLevel: "confirmed",
@@ -79,7 +78,7 @@ func TestNewSolanaClient(t *testing.T) {
 		},
 		{
 			name: "invalid commitment level defaults to confirmed",
-			solanaConf: config.SolanaConf{
+			solanaConf: SolanaConf{
 				RpcUrl:          "https://docs-demo.solana-devnet.quiknode.pro/",
 				PrivateKey:      "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG",
 				CommitmentLevel: "invalid_level",
@@ -274,7 +273,7 @@ func TestSolanaClient_CommitmentLevels(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			solanaConf := config.SolanaConf{
+			solanaConf := SolanaConf{
 				RpcUrl:          "https://docs-demo.solana-devnet.quiknode.pro/",
 				PrivateKey:      "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG",
 				CommitmentLevel: tt.commitmentLevel,
@@ -412,7 +411,7 @@ func TestSolanaClient_SubscribeContractEvent_EmptyContractAddr(t *testing.T) {
 	defer client.Stop()
 
 	// 测试空的合约地址
-	contractConf := config.ContractConf{
+	contractConf := ContractConf{
 		ContractAddr: "",
 	}
 
@@ -431,7 +430,7 @@ func TestSolanaClient_SubscribeContractEvent_InvalidContractAddr(t *testing.T) {
 	defer client.Stop()
 
 	// 测试无效的合约地址
-	contractConf := config.ContractConf{
+	contractConf := ContractConf{
 		ContractAddr: "invalid_contract_address",
 	}
 
@@ -447,7 +446,7 @@ func TestSolanaClient_SendTransaction_QueryMethod(t *testing.T) {
 	}
 
 	solanaConf := getTestSolanaConf()
-	contractConfs := map[string]*config.ContractConf{
+	contractConfs := map[string]*ContractConf{
 		"test_contract": {
 			EnableSubscribe:   false,
 			ContractAddr:      "11111111111111111111111111111111", // 系统程序地址

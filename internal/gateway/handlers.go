@@ -151,7 +151,7 @@ func GetTxByTxIdHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	}
 }
 
-// GetAvailableChainsHandler 获取可用链列表 Handler（统一视图：合并配置文件与数据库配置）
+// GetAvailableChainsHandler 获取可用链列表 Handler（从数据库加载租户链配置）
 func GetAvailableChainsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID := middleware.GetTenantIDFromHTTP(r)
@@ -160,34 +160,15 @@ func GetAvailableChainsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
-		// 收集结果：chainName -> chainInfo
-		chainMap := make(map[string]map[string]interface{})
-
-		// 1. 从配置文件加载链配置
-		for chainName, conf := range svcCtx.Config.ChainConfs {
-			if conf.Enable {
-				contractNames := make([]string, 0)
-				for contractName := range conf.ContractConfs {
-					contractNames = append(contractNames, contractName)
-				}
-				chainMap[chainName] = map[string]interface{}{
-					"chain_name":    chainName,
-					"chain_type":    strings.ToLower(conf.ChainType),
-					"enable":        true,
-					"source":        "config_file",
-					"contracts":     contractNames,
-					"client_active": false,
-				}
-			}
-		}
-
-		// 2. 从数据库加载租户链配置（数据库优先级高于配置文件）
+		// 从数据库加载租户链配置
 		dbConfigs, err := svcCtx.Repo.ListChainConfigsByTenant(r.Context(), tenantID)
 		if err != nil {
 			errorResponse(w, http.StatusInternalServerError, "list chain configs: "+err.Error())
 			return
 		}
 
+		// 收集结果
+		chains := make([]map[string]interface{}, 0)
 		for _, dbConf := range dbConfigs {
 			if !dbConf.Enable {
 				continue
@@ -200,34 +181,22 @@ func GetAvailableChainsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 				contractNames = append(contractNames, cc.ContractName)
 			}
 
-			source := sourceDatabase
-			if _, exists := chainMap[dbConf.ChainName]; exists {
-				source = "database (overrides config_file)"
-			}
-
-			chainMap[dbConf.ChainName] = map[string]interface{}{
+			chainInfo := map[string]interface{}{
 				"chain_name":    dbConf.ChainName,
 				"chain_type":    dbConf.ChainType,
 				"enable":        dbConf.Enable,
-				"source":        source,
 				"contracts":     contractNames,
 				"client_active": false,
 				"config_id":     dbConf.ID,
 			}
-		}
 
-		// 3. 检查客户端活跃状态
-		for chainName, info := range chainMap {
-			status := svcCtx.TenantSDKManager.GetClientStatus(tenantID, chainName)
+			// 检查客户端活跃状态
+			status := svcCtx.TenantSDKManager.GetClientStatus(tenantID, dbConf.ChainName)
 			if active, ok := status["client_active"].(bool); ok {
-				info["client_active"] = active
+				chainInfo["client_active"] = active
 			}
-		}
 
-		// 转换为列表
-		chains := make([]map[string]interface{}, 0, len(chainMap))
-		for _, info := range chainMap {
-			chains = append(chains, info)
+			chains = append(chains, chainInfo)
 		}
 
 		successResponse(w, map[string]interface{}{

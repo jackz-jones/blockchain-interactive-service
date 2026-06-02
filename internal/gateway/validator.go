@@ -5,16 +5,14 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 )
 
-// 支持的链类型列表
-var SupportedChainTypes = []string{"ethereum", "chainmaker", "solana"}
-
-// IsSupportedChainType 检查链类型是否在支持列表中
+// IsSupportedChainType 检查链类型是否在支持列表中（大小写不敏感）
 func IsSupportedChainType(chainType string) bool {
-	ct := strings.ToLower(chainType)
-	for _, t := range SupportedChainTypes {
-		if ct == t {
+	for name := range pb.ChainType_value {
+		if strings.EqualFold(name, chainType) {
 			return true
 		}
 	}
@@ -126,8 +124,13 @@ func validateABIJSON(abiStr string) error {
 // ValidateChainType 校验链类型是否合法
 func ValidateChainType(chainType string) error {
 	if !IsSupportedChainType(chainType) {
+		// 构建支持的类型列表字符串
+		types := make([]string, 0, len(pb.ChainType_value))
+		for t := range pb.ChainType_value {
+			types = append(types, strings.ToLower(t))
+		}
 		return fmt.Errorf("unsupported chain_type '%s', supported types: %s",
-			chainType, strings.Join(SupportedChainTypes, ", "))
+			chainType, strings.Join(types, ", "))
 	}
 	return nil
 }

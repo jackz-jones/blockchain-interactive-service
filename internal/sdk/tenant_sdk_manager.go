@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
 
 	commonEvent "github.com/jackz-jones/common/event"
@@ -79,7 +78,7 @@ func (m *TenantSDKManager) GetTenantSDKClient(
 	}
 
 	// 解析 SDK 配置 JSON
-	var sdkConf config.SdkConf
+	var sdkConf SDKConf
 	if chainConfig.SdkConf != "" {
 		if err := json.Unmarshal([]byte(chainConfig.SdkConf), &sdkConf); err != nil {
 			return nil, fmt.Errorf("parse sdk conf json: %w", err)
@@ -249,11 +248,11 @@ func (m *TenantSDKManager) GetClientStatus(tenantID uint, chainName string) map[
 
 // createSDKClient 根据链类型通过工厂函数创建 SDK 客户端
 func (m *TenantSDKManager) createSDKClient(ctx context.Context, chainType, chainName string,
-	sdkConf *config.SdkConf, contractConfs map[string]*config.ContractConf) (ChainSdkInterface, error) {
+	sdkConf *SDKConf, contractConfs map[string]*ContractConf) (ChainSdkInterface, error) {
 
-	chainConf := &config.ChainConf{
+	chainConf := &ChainConf{
 		ChainType:     chainType,
-		SdkConf:       *sdkConf,
+		SDKConf:       *sdkConf,
 		ContractConfs: contractConfs,
 	}
 
@@ -266,10 +265,10 @@ func (m *TenantSDKManager) createSDKClient(ctx context.Context, chainType, chain
 }
 
 // buildContractConfs 将数据库合约配置转换为内存配置格式
-func buildContractConfs(dbConfigs []*store.TenantContractConfig) map[string]*config.ContractConf {
-	result := make(map[string]*config.ContractConf)
+func buildContractConfs(dbConfigs []*store.TenantContractConfig) map[string]*ContractConf {
+	result := make(map[string]*ContractConf)
 	for _, dbConf := range dbConfigs {
-		contractConf := &config.ContractConf{
+		contractConf := &ContractConf{
 			ContractName: dbConf.ContractName,
 			ContractAddr: dbConf.ContractAddr,
 			Abi:          dbConf.AbiJSON,

@@ -9,7 +9,6 @@ import (
 	"strconv"
 
 	"github.com/gagliardetto/solana-go"
-	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 )
 
@@ -66,7 +65,7 @@ func kvPairToMap(args []*pb.KeyValuePair) map[string][]byte {
 //   - args: 调用方传入的 KeyValuePair 列表，Key 对应 ArgSchema.Name。
 //
 // 注意：不得在 spec.Discriminator 缺失时退化为 JSON 编码，必须返回错误。
-func EncodeInstructionData(spec config.SolanaMethodSpec, args []*pb.KeyValuePair) ([]byte, error) {
+func EncodeInstructionData(spec SolanaMethodSpec, args []*pb.KeyValuePair) ([]byte, error) {
 	disc, err := ParseDiscriminator(spec.Discriminator)
 	if err != nil {
 		return nil, fmt.Errorf("parse discriminator: %v", err)
@@ -193,7 +192,7 @@ func resolvePubkey(raw string, fromAddress solana.PublicKey) (solana.PublicKey, 
 // BuildAccountMetaSlice 根据 MethodSpec.Accounts 构造 AccountMetaSlice。
 // 若 spec.Accounts 为空，则返回默认 "[fromAddress(signer,writable)]" 并置 usedDefault=true
 // 以便调用方打印 WARN 日志提醒。
-func BuildAccountMetaSlice(accounts []config.SolanaAccountMeta, fromAddress solana.PublicKey) (
+func BuildAccountMetaSlice(accounts []SolanaAccountMeta, fromAddress solana.PublicKey) (
 	solana.AccountMetaSlice, bool, error) {
 
 	if len(accounts) == 0 {
