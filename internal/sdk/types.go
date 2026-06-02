@@ -61,6 +61,9 @@ type ChainMakerConf struct {
 	// UserEncCert 国密加密证书（base64 编码字符串，可选）
 	UserEncCert string `json:"UserEncCert,omitempty"`
 
+	// ProxyUrl 代理地址（可选，如 socks5://host:port）
+	ProxyUrl string `json:"ProxyUrl,omitempty"`
+
 	// Nodes 节点配置列表
 	Nodes []ChainMakerNodeConf `json:"Nodes,omitempty"`
 }

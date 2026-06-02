@@ -82,6 +82,7 @@ type TenantChainConfig struct {
 	UserTlsCert string `gorm:"type:text" json:"user_tls_cert"` // TLS 证书密文（base64 编码）
 	UserEncKey  string `gorm:"type:text" json:"user_enc_key"`  // 国密加密私钥密文（可选）
 	UserEncCert string `gorm:"type:text" json:"user_enc_cert"` // 国密加密证书密文（可选）
+	ProxyUrl    string `gorm:"size:512" json:"proxy_url"`      // 代理地址（可选，如 socks5://host:port）
 
 	// ========== Ethereum 专属字段 ==========
 	EthChainId   int64  `gorm:"default:0" json:"eth_chain_id"` // 以太坊链 ID

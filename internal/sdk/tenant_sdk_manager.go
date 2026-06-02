@@ -30,6 +30,7 @@ func buildSDKConfFromDB(chainConfig *store.TenantChainConfig, nodes []*store.Ten
 			UserTlsCert: chainConfig.UserTlsCert,
 			UserEncKey:  chainConfig.UserEncKey,
 			UserEncCert: chainConfig.UserEncCert,
+			ProxyUrl:    chainConfig.ProxyUrl,
 		}
 		// 构建节点配置
 		for _, n := range nodes {

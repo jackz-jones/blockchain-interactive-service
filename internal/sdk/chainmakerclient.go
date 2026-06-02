@@ -82,8 +82,8 @@ func NewChainMakerClient(ctx context.Context, chainConfName string, conf ChainMa
 		conf.UserEncCert,
 		conf.UserEncKey,
 		logPath,
-		"",     // proxyUrl: 暂不支持代理
-		"info", // logLevel
+		conf.ProxyUrl,
+		logConf.Level,
 		logConf.KeepDays,
 	)
 	if err != nil {

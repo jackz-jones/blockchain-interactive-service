@@ -437,6 +437,7 @@ type CreateChainConfigRequestBody struct {
 	UserTlsCert string `json:"user_tls_cert"`
 	UserEncKey  string `json:"user_enc_key"`
 	UserEncCert string `json:"user_enc_cert"`
+	ProxyUrl    string `json:"proxy_url"`
 
 	// Ethereum 专属字段
 	EthChainId   int64  `json:"eth_chain_id"`
@@ -875,6 +876,7 @@ func buildChainConfigFromRequest(tenantID uint, req *CreateChainConfigRequestBod
 		config.UserTlsCert = req.UserTlsCert
 		config.UserEncKey = req.UserEncKey
 		config.UserEncCert = req.UserEncCert
+		config.ProxyUrl = req.ProxyUrl
 	case ChainTypeEthereum:
 		config.EthChainId = req.EthChainId
 		config.HttpUrl = req.HttpUrl
