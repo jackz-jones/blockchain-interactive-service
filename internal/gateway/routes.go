@@ -30,6 +30,12 @@ func RegisterRoutes(server *rest.Server, svcCtx *svc.ServiceContext) {
 				Path:    "/api/v1/chains",
 				Handler: GetAvailableChainsHandler(svcCtx),
 			},
+			// 获取链运行状态
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/v1/chains/:chainName/status",
+				Handler: GetChainStatusHandler(svcCtx),
+			},
 		},
 		rest.WithPrefix(""),
 	)
@@ -90,6 +96,11 @@ func RegisterRoutes(server *rest.Server, svcCtx *svc.ServiceContext) {
 				Handler: ListChainConfigsHandler(svcCtx),
 			},
 			{
+				Method:  http.MethodGet,
+				Path:    "/api/v1/chain-configs/:id",
+				Handler: GetChainConfigDetailHandler(svcCtx),
+			},
+			{
 				Method:  http.MethodPut,
 				Path:    "/api/v1/chain-configs/:id",
 				Handler: UpdateChainConfigHandler(svcCtx),
@@ -99,11 +110,42 @@ func RegisterRoutes(server *rest.Server, svcCtx *svc.ServiceContext) {
 				Path:    "/api/v1/chain-configs/:id",
 				Handler: DeleteChainConfigHandler(svcCtx),
 			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/v1/chain-configs/:id/test-connection",
+				Handler: TestChainConnectionHandler(svcCtx),
+			},
 			// 用户管理
 			{
 				Method:  http.MethodGet,
 				Path:    "/api/v1/users",
 				Handler: ListUsersHandler(svcCtx),
+			},
+			// 合约配置管理（链配置子资源）
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/v1/chain-configs/:chainConfigId/contracts",
+				Handler: CreateContractConfigHandler(svcCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/v1/chain-configs/:chainConfigId/contracts",
+				Handler: ListContractConfigsHandler(svcCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/v1/chain-configs/:chainConfigId/contracts/:id",
+				Handler: GetContractConfigHandler(svcCtx),
+			},
+			{
+				Method:  http.MethodPut,
+				Path:    "/api/v1/chain-configs/:chainConfigId/contracts/:id",
+				Handler: UpdateContractConfigHandler(svcCtx),
+			},
+			{
+				Method:  http.MethodDelete,
+				Path:    "/api/v1/chain-configs/:chainConfigId/contracts/:id",
+				Handler: DeleteContractConfigHandler(svcCtx),
 			},
 		},
 		rest.WithPrefix(""),

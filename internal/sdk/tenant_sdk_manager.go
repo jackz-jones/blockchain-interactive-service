@@ -160,6 +160,51 @@ func (m *TenantSDKManager) StopAll() {
 	m.logger.Info("stopped all tenant SDK clients")
 }
 
+// StopSubscription 停止指定合约的订阅
+// 通过使缓存失效来停止订阅（Stop 会终止订阅 goroutine），下次重建时不会重新订阅已禁用的合约
+func (m *TenantSDKManager) StopSubscription(tenantID uint, chainName string) {
+	m.InvalidateTenantCache(tenantID, chainName)
+}
+
+// StopAllSubscriptions 停止指定链下所有合约的订阅
+// 当链配置被删除时调用
+func (m *TenantSDKManager) StopAllSubscriptions(tenantID uint, chainName string) {
+	// 清除该链的 SubscribeFlag
+	prefix := fmt.Sprintf("%d_%s_", tenantID, chainName)
+	SubscribeFlag.Range(func(key, value interface{}) bool {
+		if k, ok := key.(string); ok && strings.HasPrefix(k, prefix) {
+			SubscribeFlag.Delete(key)
+		}
+		return true
+	})
+
+	// 使缓存失效并停止客户端
+	m.InvalidateTenantCache(tenantID, chainName)
+}
+
+// RestartSubscription 重启指定链的订阅
+// 通过使缓存失效来触发重建，重建时会根据最新配置启动订阅
+func (m *TenantSDKManager) RestartSubscription(tenantID uint, chainName string) {
+	m.InvalidateTenantCache(tenantID, chainName)
+	m.logger.Infof("restart subscription triggered: tenant=%d, chain=%s", tenantID, chainName)
+}
+
+// GetClientStatus 获取租户链客户端的运行状态
+func (m *TenantSDKManager) GetClientStatus(tenantID uint, chainName string) map[string]interface{} {
+	key := tenantChainKey(tenantID, chainName)
+	status := map[string]interface{}{
+		"tenant_id":     tenantID,
+		"chain_name":    chainName,
+		"client_active": false,
+	}
+
+	if _, ok := m.tenantClients.Load(key); ok {
+		status["client_active"] = true
+	}
+
+	return status
+}
+
 // createSDKClient 根据链类型通过工厂函数创建 SDK 客户端
 func (m *TenantSDKManager) createSDKClient(ctx context.Context, chainType, chainName string,
 	sdkConf *config.SdkConf, contractConfs map[string]*config.ContractConf) (ChainSdkInterface, error) {

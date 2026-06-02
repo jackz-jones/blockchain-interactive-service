@@ -34,9 +34,11 @@ type Repository interface {
 	// 租户链配置相关
 	CreateChainConfig(ctx context.Context, config *TenantChainConfig) error
 	GetChainConfig(ctx context.Context, tenantID uint, chainName string) (*TenantChainConfig, error)
+	GetChainConfigByID(ctx context.Context, id uint) (*TenantChainConfig, error)
 	ListChainConfigsByTenant(ctx context.Context, tenantID uint) ([]*TenantChainConfig, error)
 	UpdateChainConfig(ctx context.Context, config *TenantChainConfig) error
 	DeleteChainConfig(ctx context.Context, id uint) error
+	CheckChainNameUnique(ctx context.Context, tenantID uint, chainName string, excludeID uint) (bool, error)
 
 	// 租户合约配置相关
 	CreateContractConfig(ctx context.Context, config *TenantContractConfig) error
@@ -44,6 +46,7 @@ type Repository interface {
 	ListContractConfigsByChain(ctx context.Context, chainConfigID uint) ([]*TenantContractConfig, error)
 	UpdateContractConfig(ctx context.Context, config *TenantContractConfig) error
 	DeleteContractConfig(ctx context.Context, id uint) error
+	CheckContractNameUnique(ctx context.Context, chainConfigID uint, contractName string, excludeID uint) (bool, error)
 
 	// 调用记录相关
 	CreateCallLog(ctx context.Context, log *CallLog) error
@@ -244,6 +247,27 @@ func (r *GormRepository) DeleteChainConfig(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&TenantChainConfig{}, id).Error
 }
 
+func (r *GormRepository) GetChainConfigByID(ctx context.Context, id uint) (*TenantChainConfig, error) {
+	var config TenantChainConfig
+	err := r.db.WithContext(ctx).First(&config, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &config, err
+}
+
+func (r *GormRepository) CheckChainNameUnique(ctx context.Context, tenantID uint, chainName string, excludeID uint) (bool, error) {
+	var count int64
+	db := r.db.WithContext(ctx).Model(&TenantChainConfig{}).Where("tenant_id = ? AND chain_name = ?", tenantID, chainName)
+	if excludeID > 0 {
+		db = db.Where("id != ?", excludeID)
+	}
+	if err := db.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count == 0, nil
+}
+
 // ========== 租户合约配置 ==========
 
 func (r *GormRepository) CreateContractConfig(ctx context.Context, config *TenantContractConfig) error {
@@ -271,6 +295,18 @@ func (r *GormRepository) UpdateContractConfig(ctx context.Context, config *Tenan
 
 func (r *GormRepository) DeleteContractConfig(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&TenantContractConfig{}, id).Error
+}
+
+func (r *GormRepository) CheckContractNameUnique(ctx context.Context, chainConfigID uint, contractName string, excludeID uint) (bool, error) {
+	var count int64
+	db := r.db.WithContext(ctx).Model(&TenantContractConfig{}).Where("chain_config_id = ? AND contract_name = ?", chainConfigID, contractName)
+	if excludeID > 0 {
+		db = db.Where("id != ?", excludeID)
+	}
+	if err := db.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count == 0, nil
 }
 
 // ========== 调用记录 ==========

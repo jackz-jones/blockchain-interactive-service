@@ -141,7 +141,7 @@ func GetTxByTxIdHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	}
 }
 
-// GetAvailableChainsHandler 获取可用链列表 Handler
+// GetAvailableChainsHandler 获取可用链列表 Handler（统一视图：合并配置文件与数据库配置）
 func GetAvailableChainsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID := middleware.GetTenantIDFromHTTP(r)
@@ -150,15 +150,130 @@ func GetAvailableChainsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
-		chains, err := svcCtx.TenantSDKManager.ListTenantChains(r.Context(), tenantID)
+		// 收集结果：chainName -> chainInfo
+		chainMap := make(map[string]map[string]interface{})
+
+		// 1. 从配置文件加载链配置
+		for chainName, conf := range svcCtx.Config.ChainConfs {
+			if conf.Enable {
+				contractNames := make([]string, 0)
+				for contractName := range conf.ContractConfs {
+					contractNames = append(contractNames, contractName)
+				}
+				chainMap[chainName] = map[string]interface{}{
+					"chain_name":    chainName,
+					"chain_type":    strings.ToLower(conf.ChainType),
+					"enable":        true,
+					"source":        "config_file",
+					"contracts":     contractNames,
+					"client_active": false,
+				}
+			}
+		}
+
+		// 2. 从数据库加载租户链配置（数据库优先级高于配置文件）
+		dbConfigs, err := svcCtx.Repo.ListChainConfigsByTenant(r.Context(), tenantID)
 		if err != nil {
-			errorResponse(w, http.StatusInternalServerError, "list chains: "+err.Error())
+			errorResponse(w, http.StatusInternalServerError, "list chain configs: "+err.Error())
 			return
+		}
+
+		for _, dbConf := range dbConfigs {
+			if !dbConf.Enable {
+				continue
+			}
+
+			// 获取合约配置
+			contractConfigs, _ := svcCtx.Repo.ListContractConfigsByChain(r.Context(), dbConf.ID)
+			contractNames := make([]string, 0)
+			for _, cc := range contractConfigs {
+				contractNames = append(contractNames, cc.ContractName)
+			}
+
+			source := "database"
+			if _, exists := chainMap[dbConf.ChainName]; exists {
+				source = "database (overrides config_file)"
+			}
+
+			chainMap[dbConf.ChainName] = map[string]interface{}{
+				"chain_name":    dbConf.ChainName,
+				"chain_type":    dbConf.ChainType,
+				"enable":        dbConf.Enable,
+				"source":        source,
+				"contracts":     contractNames,
+				"client_active": false,
+				"config_id":     dbConf.ID,
+			}
+		}
+
+		// 3. 检查客户端活跃状态
+		for chainName, info := range chainMap {
+			status := svcCtx.TenantSDKManager.GetClientStatus(tenantID, chainName)
+			if active, ok := status["client_active"].(bool); ok {
+				info["client_active"] = active
+			}
+		}
+
+		// 转换为列表
+		chains := make([]map[string]interface{}, 0, len(chainMap))
+		for _, info := range chainMap {
+			chains = append(chains, info)
 		}
 
 		successResponse(w, map[string]interface{}{
 			"chains": chains,
+			"total":  len(chains),
 		})
+	}
+}
+
+// GetChainStatusHandler 获取链运行状态 Handler
+func GetChainStatusHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tenantID := middleware.GetTenantIDFromHTTP(r)
+		if tenantID == 0 {
+			errorResponse(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		vars := pathvar.Vars(r)
+		chainName := vars["chainName"]
+		if chainName == "" {
+			errorResponse(w, http.StatusBadRequest, "chainName is required")
+			return
+		}
+
+		// 获取客户端状态
+		status := svcCtx.TenantSDKManager.GetClientStatus(tenantID, chainName)
+
+		// 获取链配置信息
+		chainConfig, err := svcCtx.Repo.GetChainConfig(r.Context(), tenantID, chainName)
+		if err != nil {
+			errorResponse(w, http.StatusInternalServerError, "get chain config: "+err.Error())
+			return
+		}
+		if chainConfig == nil {
+			errorResponse(w, http.StatusNotFound, "chain not found for this tenant")
+			return
+		}
+
+		// 获取合约配置列表及订阅状态
+		contractConfigs, _ := svcCtx.Repo.ListContractConfigsByChain(r.Context(), chainConfig.ID)
+		var contractStatuses []map[string]interface{}
+		for _, cc := range contractConfigs {
+			cs := map[string]interface{}{
+				"contract_name": cc.ContractName,
+				"contract_addr": cc.ContractAddr,
+			}
+			contractStatuses = append(contractStatuses, cs)
+		}
+
+		status["chain_type"] = chainConfig.ChainType
+		status["enable"] = chainConfig.Enable
+		status["source"] = "database"
+		status["contracts"] = contractStatuses
+
+		successResponse(w, status)
 	}
 }
 
@@ -344,8 +459,32 @@ func CreateChainConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
+		// 权限校验：仅 admin 可写
+		role := middleware.GetUserRoleFromHTTP(r)
+		if role != store.UserRoleAdmin {
+			errorResponse(w, http.StatusForbidden, "admin role required for write operations")
+			return
+		}
+
 		if req.ChainName == "" || req.ChainType == "" {
 			errorResponse(w, http.StatusBadRequest, "chain_name and chain_type are required")
+			return
+		}
+
+		// 校验链类型是否合法
+		if err := ValidateChainType(req.ChainType); err != nil {
+			errorResponse(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		// 校验链名称唯一性
+		unique, err := svcCtx.Repo.CheckChainNameUnique(r.Context(), tenantID, req.ChainName, 0)
+		if err != nil {
+			errorResponse(w, http.StatusInternalServerError, "check chain name: "+err.Error())
+			return
+		}
+		if !unique {
+			errorResponse(w, http.StatusConflict, "chain_name already exists for this tenant")
 			return
 		}
 
@@ -361,6 +500,9 @@ func CreateChainConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			errorResponse(w, http.StatusInternalServerError, "create chain config: "+err.Error())
 			return
 		}
+
+		// 记录审计日志
+		recordConfigAuditLog(svcCtx, r, tenantID, "create", "chain_config", config.ID, nil, config)
 
 		successResponse(w, config)
 	}
@@ -408,6 +550,28 @@ func UpdateChainConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
+		// 权限校验：仅 admin 可写
+		role := middleware.GetUserRoleFromHTTP(r)
+		if role != store.UserRoleAdmin {
+			errorResponse(w, http.StatusForbidden, "admin role required for write operations")
+			return
+		}
+
+		// 校验链类型
+		if req.ChainType != "" {
+			if err := ValidateChainType(req.ChainType); err != nil {
+				errorResponse(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+
+		// 获取变更前快照
+		before, _ := svcCtx.Repo.GetChainConfigByID(r.Context(), uint(id))
+		if before != nil && before.TenantID != tenantID {
+			errorResponse(w, http.StatusForbidden, "chain config not owned by current tenant")
+			return
+		}
+
 		config := &store.TenantChainConfig{
 			TenantID:  tenantID,
 			ChainName: req.ChainName,
@@ -424,6 +588,9 @@ func UpdateChainConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 
 		// 使缓存失效，下次请求时会重新加载
 		svcCtx.TenantSDKManager.InvalidateTenantCache(tenantID, req.ChainName)
+
+		// 记录审计日志
+		recordConfigAuditLog(svcCtx, r, tenantID, "update", "chain_config", config.ID, before, config)
 
 		successResponse(w, config)
 	}
@@ -446,15 +613,156 @@ func DeleteChainConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
+		// 权限校验：仅 admin 可写
+		role := middleware.GetUserRoleFromHTTP(r)
+		if role != store.UserRoleAdmin {
+			errorResponse(w, http.StatusForbidden, "admin role required for write operations")
+			return
+		}
+
+		// 获取变更前快照
+		before, _ := svcCtx.Repo.GetChainConfigByID(r.Context(), uint(id))
+		if before != nil && before.TenantID != tenantID {
+			errorResponse(w, http.StatusForbidden, "chain config not owned by current tenant")
+			return
+		}
+
 		if err := svcCtx.Repo.DeleteChainConfig(r.Context(), uint(id)); err != nil {
 			errorResponse(w, http.StatusInternalServerError, "delete chain config: "+err.Error())
 			return
 		}
 
-		// 使该租户所有缓存失效
-		svcCtx.TenantSDKManager.InvalidateAllTenantCache(tenantID)
+		// 停止该链下所有订阅并使缓存失效
+		if before != nil {
+			svcCtx.TenantSDKManager.StopAllSubscriptions(tenantID, before.ChainName)
+		} else {
+			svcCtx.TenantSDKManager.InvalidateAllTenantCache(tenantID)
+		}
+
+		// 记录审计日志
+		recordConfigAuditLog(svcCtx, r, tenantID, "delete", "chain_config", uint(id), before, nil)
 
 		successResponse(w, nil)
+	}
+}
+
+// GetChainConfigDetailHandler 获取链配置详情（含关联合约配置列表）Handler
+func GetChainConfigDetailHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tenantID := middleware.GetTenantIDFromHTTP(r)
+		if tenantID == 0 {
+			errorResponse(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		vars := pathvar.Vars(r)
+		idStr := vars["id"]
+		id, err := strconv.ParseUint(idStr, 10, 64)
+		if err != nil {
+			errorResponse(w, http.StatusBadRequest, "invalid id")
+			return
+		}
+
+		// 查询链配置
+		chainConfig, err := svcCtx.Repo.GetChainConfigByID(r.Context(), uint(id))
+		if err != nil {
+			errorResponse(w, http.StatusInternalServerError, "get chain config: "+err.Error())
+			return
+		}
+		if chainConfig == nil {
+			errorResponse(w, http.StatusNotFound, "chain config not found")
+			return
+		}
+		if chainConfig.TenantID != tenantID {
+			errorResponse(w, http.StatusForbidden, "chain config not owned by current tenant")
+			return
+		}
+
+		// 查询关联的合约配置
+		contractConfigs, err := svcCtx.Repo.ListContractConfigsByChain(r.Context(), chainConfig.ID)
+		if err != nil {
+			errorResponse(w, http.StatusInternalServerError, "list contract configs: "+err.Error())
+			return
+		}
+
+		var contracts []*ContractConfigResponse
+		for _, c := range contractConfigs {
+			contracts = append(contracts, toContractConfigResponse(c))
+		}
+
+		// 获取客户端状态
+		clientStatus := svcCtx.TenantSDKManager.GetClientStatus(tenantID, chainConfig.ChainName)
+
+		successResponse(w, map[string]interface{}{
+			"id":            chainConfig.ID,
+			"tenant_id":     chainConfig.TenantID,
+			"chain_name":    chainConfig.ChainName,
+			"chain_type":    chainConfig.ChainType,
+			"enable":        chainConfig.Enable,
+			"sdk_conf":      chainConfig.SdkConf,
+			"created_at":    chainConfig.CreatedAt,
+			"updated_at":    chainConfig.UpdatedAt,
+			"contracts":     contracts,
+			"client_status": clientStatus,
+		})
+	}
+}
+
+// TestChainConnectionHandler 测试链连接 Handler
+func TestChainConnectionHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tenantID := middleware.GetTenantIDFromHTTP(r)
+		if tenantID == 0 {
+			errorResponse(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		// 权限校验：仅 admin 可操作
+		role := middleware.GetUserRoleFromHTTP(r)
+		if role != store.UserRoleAdmin {
+			errorResponse(w, http.StatusForbidden, "admin role required")
+			return
+		}
+
+		vars := pathvar.Vars(r)
+		idStr := vars["id"]
+		id, err := strconv.ParseUint(idStr, 10, 64)
+		if err != nil {
+			errorResponse(w, http.StatusBadRequest, "invalid id")
+			return
+		}
+
+		// 查询链配置
+		chainConfig, err := svcCtx.Repo.GetChainConfigByID(r.Context(), uint(id))
+		if err != nil {
+			errorResponse(w, http.StatusInternalServerError, "get chain config: "+err.Error())
+			return
+		}
+		if chainConfig == nil {
+			errorResponse(w, http.StatusNotFound, "chain config not found")
+			return
+		}
+		if chainConfig.TenantID != tenantID {
+			errorResponse(w, http.StatusForbidden, "chain config not owned by current tenant")
+			return
+		}
+
+		// 尝试创建 SDK 客户端来测试连接
+		_, testErr := svcCtx.TenantSDKManager.GetTenantSDKClient(r.Context(), tenantID, chainConfig.ChainName)
+
+		result := map[string]interface{}{
+			"chain_name": chainConfig.ChainName,
+			"chain_type": chainConfig.ChainType,
+			"success":    testErr == nil,
+		}
+		if testErr != nil {
+			result["error"] = testErr.Error()
+		}
+
+		// 记录审计日志
+		recordConfigAuditLog(svcCtx, r, tenantID, "test_connection", "chain_config", chainConfig.ID, nil, result)
+
+		successResponse(w, result)
 	}
 }
 
