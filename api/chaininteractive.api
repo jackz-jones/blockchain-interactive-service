@@ -1,0 +1,357 @@
+syntax = "v1"
+
+info (
+	title:   "Chain Interactive Service HTTP API"
+	desc:    "区块链交互服务 RESTful API"
+	author:  "chain-interactive"
+	version: "v1"
+)
+
+// ==================== 类型定义 ====================
+
+// --- 通用响应 ---
+type CommonResponse {
+	Code    int         `json:"code"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
+// --- 合约调用 ---
+type CallContractRequest {
+	ChainName    string            `json:"chain_name"`
+	ContractName string            `json:"contract_name"`
+	Method       string            `json:"method"`
+	Params       map[string]string `json:"params"`
+}
+
+// --- 交易查询 ---
+type GetTxByTxIdRequest {
+	TxId      string `path:"txId"`
+	ChainName string `form:"chain_name"`
+}
+
+// --- 链状态 ---
+type GetChainStatusRequest {
+	ChainName string `path:"chainName"`
+}
+
+// --- 事件订阅 ---
+type EventSubscribeRequest {
+	ChainName    string `json:"chain_name"`
+	ContractName string `json:"contract_name,optional"`
+	ContractAddr string `json:"contract_addr,optional"`
+}
+
+type EventPollRequest {
+	SubscriptionId string `form:"subscription_id"`
+	Count          int    `form:"count,optional"`
+}
+
+type EventUnsubscribeRequest {
+	SubscriptionId string `path:"subscriptionId"`
+}
+
+// --- 租户管理 ---
+type CreateTenantRequest {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Phone    string `json:"phone,optional"`
+	Plan     string `json:"plan,optional"`
+	Password string `json:"password"`
+}
+
+type TenantIdPathRequest {
+	Id uint `path:"id"`
+}
+
+type ListTenantsRequest {
+	Page     int `form:"page,optional"`
+	PageSize int `form:"page_size,optional"`
+}
+
+// --- API Key 管理 ---
+type CreateAPIKeyRequest {
+	Name        string `json:"name,optional"`
+	Permissions string `json:"permissions,optional"`
+	IpWhitelist string `json:"ip_whitelist,optional"`
+	ExpiresIn   int    `json:"expires_in,optional"`
+}
+
+type ListAPIKeysRequest {
+	Page     int `form:"page,optional"`
+	PageSize int `form:"page_size,optional"`
+}
+
+// --- 链配置管理 ---
+type NodeConfig {
+	NodeAddr    string `json:"node_addr"`
+	ConnCnt     int    `json:"conn_cnt,optional"`
+	EnableTls   bool   `json:"enable_tls,optional"`
+	TlsHostName string `json:"tls_host_name,optional"`
+	CaCert      string `json:"ca_cert,optional"`
+}
+
+type CreateChainConfigRequest {
+	ChainName string `json:"chain_name"`
+	ChainType string `json:"chain_type"`
+	Enable    bool   `json:"enable,optional"`
+	// ChainMaker 专属字段
+	ChainId     string `json:"chain_id,optional"`
+	AuthType    string `json:"auth_type,optional"`
+	OrgId       string `json:"org_id,optional"`
+	HashType    string `json:"hash_type,optional"`
+	SignKey     string `json:"sign_key,optional"`
+	SignCert    string `json:"sign_cert,optional"`
+	UserTlsKey  string `json:"user_tls_key,optional"`
+	UserTlsCert string `json:"user_tls_cert,optional"`
+	UserEncKey  string `json:"user_enc_key,optional"`
+	UserEncCert string `json:"user_enc_cert,optional"`
+	ProxyUrl    string `json:"proxy_url,optional"`
+	// Ethereum 专属字段
+	EthChainId   int64  `json:"eth_chain_id,optional"`
+	HttpUrl      string `json:"http_url,optional"`
+	WebsocketUrl string `json:"websocket_url,optional"`
+	PrivateKey   string `json:"private_key,optional"`
+	GasLimit     int64  `json:"gas_limit,optional"`
+	// Solana 专属字段
+	SolRpcUrl       string `json:"sol_rpc_url,optional"`
+	SolPrivateKey   string `json:"sol_private_key,optional"`
+	CommitmentLevel string `json:"commitment_level,optional"`
+	SkipPreflight   bool   `json:"skip_preflight,optional"`
+	MaxRetries      int    `json:"max_retries,optional"`
+	// 节点配置
+	Nodes []NodeConfig `json:"nodes,optional"`
+}
+
+type ChainConfigIdPathRequest {
+	Id uint `path:"id"`
+}
+
+type UpdateChainConfigRequest {
+	Id uint `path:"id"`
+	CreateChainConfigRequest
+}
+
+// --- 合约配置管理 ---
+type CreateContractConfigRequest {
+	ChainConfigId   uint   `path:"chainConfigId"`
+	ContractName    string `json:"contract_name"`
+	ContractAddr    string `json:"contract_addr,optional"`
+	AbiJson         string `json:"abi_json,optional"`
+	EnableSubscribe bool   `json:"enable_subscribe,optional"`
+	ExtraConf       string `json:"extra_conf,optional"`
+}
+
+type ListContractConfigsRequest {
+	ChainConfigId uint `path:"chainConfigId"`
+}
+
+type GetContractConfigRequest {
+	ChainConfigId uint `path:"chainConfigId"`
+	Id            uint `path:"id"`
+}
+
+type UpdateContractConfigRequest {
+	ChainConfigId   uint   `path:"chainConfigId"`
+	Id              uint   `path:"id"`
+	ContractName    string `json:"contract_name"`
+	ContractAddr    string `json:"contract_addr,optional"`
+	AbiJson         string `json:"abi_json,optional"`
+	EnableSubscribe bool   `json:"enable_subscribe,optional"`
+	ExtraConf       string `json:"extra_conf,optional"`
+}
+
+type DeleteContractConfigRequest {
+	ChainConfigId uint `path:"chainConfigId"`
+	Id            uint `path:"id"`
+}
+
+// --- 用户管理 ---
+type ListUsersRequest {
+	Page     int `form:"page,optional"`
+	PageSize int `form:"page_size,optional"`
+}
+
+// --- Dashboard ---
+type ListCallLogsRequest {
+	Page         int    `form:"page,optional"`
+	PageSize     int    `form:"page_size,optional"`
+	ChainName    string `form:"chain_name,optional"`
+	ContractName string `form:"contract_name,optional"`
+	Status       string `form:"status,optional"`
+	StartTime    string `form:"start_time,optional"`
+	EndTime      string `form:"end_time,optional"`
+}
+
+type ListBillsRequest {
+	Page     int `form:"page,optional"`
+	PageSize int `form:"page_size,optional"`
+}
+
+type ListAuditLogsRequest {
+	Page      int    `form:"page,optional"`
+	PageSize  int    `form:"page_size,optional"`
+	Action    string `form:"action,optional"`
+	UserId    uint   `form:"user_id,optional"`
+	StartTime string `form:"start_time,optional"`
+	EndTime   string `form:"end_time,optional"`
+}
+
+// ==================== 服务定义 ====================
+
+// 公开 API 组 — 合约调用、交易查询、链列表、链状态
+@server (
+	prefix:     /api/v1
+	group:      chain
+	middleware: AuthMiddleware,RateLimitMiddleware,QuotaMiddleware
+)
+service chaininteractive-api {
+	@handler CallContract
+	post /contract/call (CallContractRequest) returns (CommonResponse)
+
+	@handler GetTxByTxId
+	get /tx/:txId (GetTxByTxIdRequest) returns (CommonResponse)
+
+	@handler GetAvailableChains
+	get /chains returns (CommonResponse)
+
+	@handler GetChainStatus
+	get /chains/:chainName/status (GetChainStatusRequest) returns (CommonResponse)
+}
+
+// 事件 API 组
+@server (
+	prefix:     /api/v1
+	group:      event
+	middleware: AuthMiddleware,RateLimitMiddleware,QuotaMiddleware
+)
+service chaininteractive-api {
+	@handler EventSubscribe
+	post /events/subscribe (EventSubscribeRequest) returns (CommonResponse)
+
+	@handler EventPoll
+	get /events/poll (EventPollRequest) returns (CommonResponse)
+
+	@handler EventUnsubscribe
+	delete /events/subscribe/:subscriptionId (EventUnsubscribeRequest) returns (CommonResponse)
+}
+
+// 管理 API 组 — 租户管理
+@server (
+	prefix:     /api/v1
+	group:      tenant
+	middleware: AuthMiddleware,RateLimitMiddleware,QuotaMiddleware
+)
+service chaininteractive-api {
+	@handler CreateTenant
+	post /tenants (CreateTenantRequest) returns (CommonResponse)
+
+	@handler GetTenant
+	get /tenants/:id (TenantIdPathRequest) returns (CommonResponse)
+
+	@handler ListTenants
+	get /tenants (ListTenantsRequest) returns (CommonResponse)
+
+	@handler DisableTenant
+	post /tenants/:id/disable (TenantIdPathRequest) returns (CommonResponse)
+
+	@handler EnableTenant
+	post /tenants/:id/enable (TenantIdPathRequest) returns (CommonResponse)
+}
+
+// 管理 API 组 — API Key 管理
+@server (
+	prefix:     /api/v1
+	group:      apikey
+	middleware: AuthMiddleware,RateLimitMiddleware,QuotaMiddleware
+)
+service chaininteractive-api {
+	@handler CreateAPIKey
+	post /api-keys (CreateAPIKeyRequest) returns (CommonResponse)
+
+	@handler ListAPIKeys
+	get /api-keys (ListAPIKeysRequest) returns (CommonResponse)
+}
+
+// 管理 API 组 — 链配置管理
+@server (
+	prefix:     /api/v1
+	group:      chainconfig
+	middleware: AuthMiddleware,RateLimitMiddleware,QuotaMiddleware
+)
+service chaininteractive-api {
+	@handler CreateChainConfig
+	post /chain-configs (CreateChainConfigRequest) returns (CommonResponse)
+
+	@handler ListChainConfigs
+	get /chain-configs returns (CommonResponse)
+
+	@handler GetChainConfigDetail
+	get /chain-configs/:id (ChainConfigIdPathRequest) returns (CommonResponse)
+
+	@handler UpdateChainConfig
+	put /chain-configs/:id (UpdateChainConfigRequest) returns (CommonResponse)
+
+	@handler DeleteChainConfig
+	delete /chain-configs/:id (ChainConfigIdPathRequest) returns (CommonResponse)
+
+	@handler TestChainConnection
+	post /chain-configs/:id/test-connection (ChainConfigIdPathRequest) returns (CommonResponse)
+}
+
+// 管理 API 组 — 合约配置管理
+@server (
+	prefix:     /api/v1
+	group:      contractconfig
+	middleware: AuthMiddleware,RateLimitMiddleware,QuotaMiddleware
+)
+service chaininteractive-api {
+	@handler CreateContractConfig
+	post /chain-configs/:chainConfigId/contracts (CreateContractConfigRequest) returns (CommonResponse)
+
+	@handler ListContractConfigs
+	get /chain-configs/:chainConfigId/contracts (ListContractConfigsRequest) returns (CommonResponse)
+
+	@handler GetContractConfig
+	get /chain-configs/:chainConfigId/contracts/:id (GetContractConfigRequest) returns (CommonResponse)
+
+	@handler UpdateContractConfig
+	put /chain-configs/:chainConfigId/contracts/:id (UpdateContractConfigRequest) returns (CommonResponse)
+
+	@handler DeleteContractConfig
+	delete /chain-configs/:chainConfigId/contracts/:id (DeleteContractConfigRequest) returns (CommonResponse)
+}
+
+// 管理 API 组 — 用户管理
+@server (
+	prefix:     /api/v1
+	group:      user
+	middleware: AuthMiddleware,RateLimitMiddleware,QuotaMiddleware
+)
+service chaininteractive-api {
+	@handler ListUsers
+	get /users (ListUsersRequest) returns (CommonResponse)
+}
+
+// Dashboard API 组
+@server (
+	prefix:     /api/v1
+	group:      dashboard
+	middleware: AuthMiddleware,RateLimitMiddleware,QuotaMiddleware
+)
+service chaininteractive-api {
+	@handler DashboardOverview
+	get /dashboard/overview returns (CommonResponse)
+
+	@handler ListCallLogs
+	get /dashboard/call-logs (ListCallLogsRequest) returns (CommonResponse)
+
+	@handler GetUsageStats
+	get /dashboard/usage-stats returns (CommonResponse)
+
+	@handler ListBills
+	get /dashboard/bills (ListBillsRequest) returns (CommonResponse)
+
+	@handler ListAuditLogs
+	get /dashboard/audit-logs (ListAuditLogsRequest) returns (CommonResponse)
+}

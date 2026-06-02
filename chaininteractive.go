@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
-	"github.com/jackz-jones/blockchain-interactive-service/internal/gateway"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/handler"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/middleware"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/sdk"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/server"
@@ -16,7 +16,9 @@ import (
 
 	commonGrpc "github.com/jackz-jones/common/grpc"
 	"github.com/zeromicro/go-zero/core/conf"
+	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/service"
+	"github.com/zeromicro/go-zero/rest"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -67,7 +69,24 @@ func main() {
 	s.AddUnaryInterceptors(quotaInterceptor.Unary())
 
 	// 启动 HTTP API Gateway
-	gateway.StartHTTPServer(c, ctx)
+	if c.GatewayConf.Enable {
+		httpServer := rest.MustNewServer(rest.RestConf{
+			Host: c.GatewayConf.Host,
+			Port: c.GatewayConf.Port,
+		})
+		defer httpServer.Stop()
+
+		handler.RegisterHandlers(httpServer, ctx)
+
+		go func() {
+			addr := fmt.Sprintf("%s:%d", c.GatewayConf.Host, c.GatewayConf.Port)
+			logx.Infof("[Gateway] HTTP API Gateway starting at %s", addr)
+			fmt.Printf("Starting HTTP API Gateway at %s...\n", addr)
+			httpServer.Start()
+		}()
+	} else {
+		logx.Info("[Gateway] HTTP gateway is disabled")
+	}
 
 	// 启动订阅（仅基于 DB 配置）
 	sdk.StartSubscribe(ctx.RootCtx, ctx.Logger, ctx.TenantSDKManager, ctx.Repo)

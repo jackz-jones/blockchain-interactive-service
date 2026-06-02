@@ -143,6 +143,38 @@ func GetAPIKeyIDFromHTTP(r *http.Request) uint {
 	return 0
 }
 
+// GetTenantIDFromContext 从 context 中获取租户 ID（HTTP 中间件注入）
+func GetTenantIDFromContext(ctx context.Context) uint {
+	if v, ok := ctx.Value(httpKeyTenantID).(uint); ok {
+		return v
+	}
+	return 0
+}
+
+// GetUserIDFromContext 从 context 中获取用户 ID（HTTP 中间件注入）
+func GetUserIDFromContext(ctx context.Context) uint {
+	if v, ok := ctx.Value(httpKeyUserID).(uint); ok {
+		return v
+	}
+	return 0
+}
+
+// GetUserRoleFromContext 从 context 中获取用户角色（HTTP 中间件注入）
+func GetUserRoleFromContext(ctx context.Context) store.UserRole {
+	if v, ok := ctx.Value(httpKeyUserRole).(store.UserRole); ok {
+		return v
+	}
+	return ""
+}
+
+// GetAPIKeyIDFromContext 从 context 中获取 API Key ID（HTTP 中间件注入）
+func GetAPIKeyIDFromContext(ctx context.Context) uint {
+	if v, ok := ctx.Value(httpKeyAPIKeyID).(uint); ok {
+		return v
+	}
+	return 0
+}
+
 // getHTTPClientIP 从 HTTP 请求中获取客户端 IP
 func getHTTPClientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {

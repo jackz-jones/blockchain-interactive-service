@@ -3,9 +3,11 @@ package svc
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/billing"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/middleware"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/plugin"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/sdk"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/service"
@@ -14,6 +16,7 @@ import (
 
 	commonEvent "github.com/jackz-jones/common/event"
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/rest"
 	"gorm.io/gorm"
 )
 
@@ -49,6 +52,11 @@ type ServiceContext struct {
 
 	// ChainClientFactory 链客户端工厂函数，通过它创建各链 SDK 客户端
 	ChainClientFactory sdk.ChainClientFactory
+
+	// HTTP 中间件（供 goctl 生成的路由使用）
+	AuthMiddleware      rest.Middleware
+	RateLimitMiddleware rest.Middleware
+	QuotaMiddleware     rest.Middleware
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -94,6 +102,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	// 初始化数据库
 	svc.initDatabase()
 
+	// 初始化 HTTP 中间件
+	svc.initHTTPMiddlewares()
+
 	return svc
 }
 
@@ -131,4 +142,27 @@ func (svc *ServiceContext) initRedisClient() {
 	}
 
 	svc.RedisClient = redisClient
+}
+
+// initHTTPMiddlewares 初始化 HTTP 中间件（适配 rest.Middleware 签名）
+func (svc *ServiceContext) initHTTPMiddlewares() {
+	// 认证中间件
+	authMw := middleware.HTTPAuthMiddleware(svc.Repo)
+	svc.AuthMiddleware = toRestMiddleware(authMw)
+
+	// 限流中间件
+	rateLimiter := middleware.NewRateLimiter(svc.Config.GatewayConf.RateLimit)
+	rateLimitMw := middleware.HTTPRateLimitMiddleware(rateLimiter)
+	svc.RateLimitMiddleware = toRestMiddleware(rateLimitMw)
+
+	// 配额中间件
+	quotaMw := middleware.HTTPQuotaMiddleware(svc.BillingService)
+	svc.QuotaMiddleware = toRestMiddleware(quotaMw)
+}
+
+// toRestMiddleware 将 func(http.Handler) http.Handler 适配为 rest.Middleware
+func toRestMiddleware(mw func(http.Handler) http.Handler) rest.Middleware {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return mw(next).ServeHTTP
+	}
 }

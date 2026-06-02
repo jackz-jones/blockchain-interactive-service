@@ -6,9 +6,9 @@ package server
 import (
 	"context"
 
-	"github.com/jackz-jones/blockchain-interactive-service/internal/logic"
+	grpclogic "github.com/jackz-jones/blockchain-interactive-service/internal/logic/grpc"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/svc"
-	"github.com/jackz-jones/blockchain-interactive-service/pb"
+	__ "github.com/jackz-jones/blockchain-interactive-service/pb"
 )
 
 type ChainInteractiveServer struct {
@@ -24,18 +24,18 @@ func NewChainInteractiveServer(svcCtx *svc.ServiceContext) *ChainInteractiveServ
 
 // GetTxByTxId 查询交易详情
 func (s *ChainInteractiveServer) GetTxByTxId(ctx context.Context, in *__.GetTxByTxIdRequest) (*__.TxResponse, error) {
-	l := logic.NewGetTxByTxIdLogic(ctx, s.svcCtx)
+	l := grpclogic.NewGetTxByTxIdLogic(ctx, s.svcCtx)
 	return l.GetTxByTxId(in)
 }
 
 // CallContract 调用指定链上的智能合约
 func (s *ChainInteractiveServer) CallContract(ctx context.Context, in *__.CallContractRequest) (*__.TxResponse, error) {
-	l := logic.NewCallContractLogic(ctx, s.svcCtx)
+	l := grpclogic.NewCallContractLogic(ctx, s.svcCtx)
 	return l.CallContract(in)
 }
 
 // GetAvailableChainAndContractNames 获取本地可访问的所有链名称，以及旗下的合约名称
 func (s *ChainInteractiveServer) GetAvailableChainAndContractNames(ctx context.Context, in *__.GetAvailableChainAndContractNamesRequest) (*__.GetAvailableChainAndContractNamesResponse, error) {
-	l := logic.NewGetAvailableChainAndContractNamesLogic(ctx, s.svcCtx)
+	l := grpclogic.NewGetAvailableChainAndContractNamesLogic(ctx, s.svcCtx)
 	return l.GetAvailableChainAndContractNames(in)
 }
