@@ -21,6 +21,7 @@ func NewDB(cfg *config.DatabaseConf) (*gorm.DB, error) {
 		&User{},
 		&APIKey{},
 		&TenantChainConfig{},
+		&TenantChainNode{},
 		&TenantContractConfig{},
 		&CallLog{},
 		&Bill{},

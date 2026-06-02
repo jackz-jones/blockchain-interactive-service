@@ -112,12 +112,6 @@ func CreateContractConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
-		// 连通性警告（不阻塞，但在响应中返回警告）
-		var warning string
-		if chainConfig.ConnectionStatus != connectionStatusConnected {
-			warning = "关联的链配置尚未通过连通性测试，合约配置可能无法正常工作"
-		}
-
 		// 解析请求体
 		var req ContractConfigRequest
 		if err := httpx.ParseJsonBody(r, &req); err != nil {
@@ -172,15 +166,7 @@ func CreateContractConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		// 记录审计日志
 		recordConfigAuditLog(svcCtx, r, tenantID, "create", "contract_config", config.ID, nil, config)
 
-		// 返回响应（包含可能的警告）
-		if warning != "" {
-			successResponse(w, map[string]interface{}{
-				"data":    toContractConfigResponse(config),
-				"warning": warning,
-			})
-		} else {
-			successResponse(w, toContractConfigResponse(config))
-		}
+		successResponse(w, toContractConfigResponse(config))
 	}
 }
 

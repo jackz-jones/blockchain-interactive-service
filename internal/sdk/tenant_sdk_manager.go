@@ -13,6 +13,58 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// buildSDKConfFromDB 从数据库结构化字段构建 SDKConf
+func buildSDKConfFromDB(chainConfig *store.TenantChainConfig, nodes []*store.TenantChainNode) SDKConf {
+	var sdkConf SDKConf
+
+	switch strings.ToLower(chainConfig.ChainType) {
+	case "chainmaker":
+		cmConf := ChainMakerConf{
+			ChainId:     chainConfig.ChainId,
+			AuthType:    chainConfig.AuthType,
+			OrgId:       chainConfig.OrgId,
+			HashType:    chainConfig.HashType,
+			SignKey:     chainConfig.SignKey,
+			SignCert:    chainConfig.SignCert,
+			UserTlsKey:  chainConfig.UserTlsKey,
+			UserTlsCert: chainConfig.UserTlsCert,
+			UserEncKey:  chainConfig.UserEncKey,
+			UserEncCert: chainConfig.UserEncCert,
+		}
+		// 构建节点配置
+		for _, n := range nodes {
+			cmConf.Nodes = append(cmConf.Nodes, ChainMakerNodeConf{
+				NodeAddr:    n.NodeAddr,
+				ConnCnt:     n.ConnCnt,
+				EnableTls:   n.EnableTls,
+				TlsHostName: n.TlsHostName,
+				CaCert:      n.CaCert,
+			})
+		}
+		sdkConf.ChainMakerConf = cmConf
+
+	case "ethereum":
+		sdkConf.EthConf = EthConf{
+			ChainId:      chainConfig.EthChainId,
+			HttpUrl:      chainConfig.HttpUrl,
+			WebsocketUrl: chainConfig.WebsocketUrl,
+			PrivateKey:   chainConfig.PrivateKey,
+			GasLimit:     uint64(chainConfig.GasLimit),
+		}
+
+	case "solana":
+		sdkConf.SolanaConf = SolanaConf{
+			RpcUrl:          chainConfig.SolRpcUrl,
+			PrivateKey:      chainConfig.SolPrivateKey,
+			CommitmentLevel: chainConfig.CommitmentLevel,
+			SkipPreflight:   chainConfig.SkipPreflight,
+			MaxRetries:      chainConfig.MaxRetries,
+		}
+	}
+
+	return sdkConf
+}
+
 // TenantSDKManager 租户级 SDK 客户端管理器
 // 支持按租户 ID + 链名称获取对应的 SDK 客户端，实现资源隔离
 type TenantSDKManager struct {
@@ -77,13 +129,14 @@ func (m *TenantSDKManager) GetTenantSDKClient(
 		return client.(ChainSdkInterface), nil
 	}
 
-	// 解析 SDK 配置 JSON
-	var sdkConf SDKConf
-	if chainConfig.SdkConf != "" {
-		if err := json.Unmarshal([]byte(chainConfig.SdkConf), &sdkConf); err != nil {
-			return nil, fmt.Errorf("parse sdk conf json: %w", err)
-		}
+	// 查询节点配置
+	nodes, err := m.repo.ListChainNodesByConfigID(ctx, chainConfig.ID)
+	if err != nil {
+		return nil, fmt.Errorf("query chain nodes: %w", err)
 	}
+
+	// 从数据库结构化字段构建 SDKConf
+	sdkConf := buildSDKConfFromDB(chainConfig, nodes)
 
 	// 加载合约配置
 	contractConfigs, err := m.repo.ListContractConfigsByChain(ctx, chainConfig.ID)

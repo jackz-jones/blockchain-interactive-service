@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -21,9 +20,6 @@ import (
 const (
 	// sourceDatabase 数据来源标识：数据库
 	sourceDatabase = "database"
-
-	// connectionStatusConnected 连通性状态：已连接
-	connectionStatusConnected = "connected"
 )
 
 // JSON 响应辅助函数
@@ -415,12 +411,49 @@ func ListAPIKeysHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 
 // ========== 链配置管理相关 Handler ==========
 
+// NodeRequest 节点配置请求体
+type NodeRequest struct {
+	NodeAddr    string `json:"node_addr"`
+	ConnCnt     int    `json:"conn_cnt"`
+	EnableTls   bool   `json:"enable_tls"`
+	TlsHostName string `json:"tls_host_name"`
+	CaCert      string `json:"ca_cert"`
+}
+
 // CreateChainConfigRequestBody 创建链配置请求体
 type CreateChainConfigRequestBody struct {
 	ChainName string `json:"chain_name"`
 	ChainType string `json:"chain_type"`
 	Enable    bool   `json:"enable"`
-	SdkConf   string `json:"sdk_conf"` // JSON 字符串
+
+	// ChainMaker 专属字段
+	ChainId     string `json:"chain_id"`
+	AuthType    string `json:"auth_type"`
+	OrgId       string `json:"org_id"`
+	HashType    string `json:"hash_type"`
+	SignKey     string `json:"sign_key"`
+	SignCert    string `json:"sign_cert"`
+	UserTlsKey  string `json:"user_tls_key"`
+	UserTlsCert string `json:"user_tls_cert"`
+	UserEncKey  string `json:"user_enc_key"`
+	UserEncCert string `json:"user_enc_cert"`
+
+	// Ethereum 专属字段
+	EthChainId   int64  `json:"eth_chain_id"`
+	HttpUrl      string `json:"http_url"`
+	WebsocketUrl string `json:"websocket_url"`
+	PrivateKey   string `json:"private_key"`
+	GasLimit     int64  `json:"gas_limit"`
+
+	// Solana 专属字段
+	SolRpcUrl       string `json:"sol_rpc_url"`
+	SolPrivateKey   string `json:"sol_private_key"`
+	CommitmentLevel string `json:"commitment_level"`
+	SkipPreflight   bool   `json:"skip_preflight"`
+	MaxRetries      int    `json:"max_retries"`
+
+	// 节点配置（ChainMaker 专用）
+	Nodes []NodeRequest `json:"nodes"`
 }
 
 // CreateChainConfigHandler 创建链配置 Handler
@@ -456,6 +489,12 @@ func CreateChainConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
+		// 校验链配置字段
+		if err := ValidateChainConfig(&req); err != nil {
+			errorResponse(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
 		// 校验链名称唯一性
 		unique, err := svcCtx.Repo.CheckChainNameUnique(r.Context(), tenantID, req.ChainName, 0)
 		if err != nil {
@@ -467,32 +506,22 @@ func CreateChainConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
-		config := &store.TenantChainConfig{
-			TenantID:         tenantID,
-			ChainName:        req.ChainName,
-			ChainType:        strings.ToLower(req.ChainType),
-			Enable:           req.Enable,
-			ConnectionStatus: "unknown",
-			SdkConf:          req.SdkConf,
-		}
+		// 构建链配置模型
+		config := buildChainConfigFromRequest(tenantID, &req)
 
 		if err := svcCtx.Repo.CreateChainConfig(r.Context(), config); err != nil {
 			errorResponse(w, http.StatusInternalServerError, "create chain config: "+err.Error())
 			return
 		}
 
-		// 自动触发连通性测试（异步，不阻塞响应）
-		go func(cfg *store.TenantChainConfig) {
-			_, testErr := svcCtx.TenantSDKManager.GetTenantSDKClient(context.Background(), cfg.TenantID, cfg.ChainName)
-			if testErr != nil {
-				cfg.ConnectionStatus = "failed"
-				cfg.ConnectionError = testErr.Error()
-			} else {
-				cfg.ConnectionStatus = connectionStatusConnected
-				cfg.ConnectionError = ""
+		// 创建节点配置
+		if len(req.Nodes) > 0 {
+			nodes := buildChainNodesFromRequest(config.ID, req.Nodes)
+			if err := svcCtx.Repo.CreateChainNodes(r.Context(), nodes); err != nil {
+				errorResponse(w, http.StatusInternalServerError, "create chain nodes: "+err.Error())
+				return
 			}
-			_ = svcCtx.Repo.UpdateChainConfig(context.Background(), cfg)
-		}(config)
+		}
 
 		// 记录审计日志
 		recordConfigAuditLog(svcCtx, r, tenantID, "create", "chain_config", config.ID, nil, config)
@@ -516,7 +545,13 @@ func ListChainConfigsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
-		successResponse(w, configs)
+		// 对敏感字段进行脱敏
+		maskedConfigs := make([]*store.TenantChainConfig, 0, len(configs))
+		for _, cfg := range configs {
+			maskedConfigs = append(maskedConfigs, MaskChainConfigSensitiveFields(cfg))
+		}
+
+		successResponse(w, maskedConfigs)
 	}
 }
 
@@ -558,6 +593,14 @@ func UpdateChainConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			}
 		}
 
+		// 校验链配置字段
+		if req.ChainType != "" {
+			if err := ValidateChainConfig(&req); err != nil {
+				errorResponse(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+
 		// 获取变更前快照
 		before, _ := svcCtx.Repo.GetChainConfigByID(r.Context(), uint(id))
 		if before != nil && before.TenantID != tenantID {
@@ -565,13 +608,8 @@ func UpdateChainConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
-		config := &store.TenantChainConfig{
-			TenantID:  tenantID,
-			ChainName: req.ChainName,
-			ChainType: strings.ToLower(req.ChainType),
-			Enable:    req.Enable,
-			SdkConf:   req.SdkConf,
-		}
+		// 构建链配置模型
+		config := buildChainConfigFromRequest(tenantID, &req)
 		config.ID = uint(id)
 
 		if err := svcCtx.Repo.UpdateChainConfig(r.Context(), config); err != nil {
@@ -579,8 +617,17 @@ func UpdateChainConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
+		// 全量替换节点列表
+		if req.Nodes != nil {
+			nodes := buildChainNodesFromRequest(config.ID, req.Nodes)
+			if err := svcCtx.Repo.ReplaceChainNodes(r.Context(), config.ID, nodes); err != nil {
+				errorResponse(w, http.StatusInternalServerError, "replace chain nodes: "+err.Error())
+				return
+			}
+		}
+
 		// 使缓存失效，下次请求时会重新加载
-		svcCtx.TenantSDKManager.InvalidateTenantCache(tenantID, req.ChainName)
+		svcCtx.TenantSDKManager.InvalidateTenantCacheByID(config.ID)
 
 		// 记录审计日志
 		recordConfigAuditLog(svcCtx, r, tenantID, "update", "chain_config", config.ID, before, config)
@@ -639,7 +686,7 @@ func DeleteChainConfigHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	}
 }
 
-// GetChainConfigDetailHandler 获取链配置详情（含关联合约配置列表）Handler
+// GetChainConfigDetailHandler 获取链配置详情（含关联节点和合约配置列表）Handler
 func GetChainConfigDetailHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID := middleware.GetTenantIDFromHTTP(r)
@@ -671,6 +718,13 @@ func GetChainConfigDetailHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
+		// 查询关联的节点配置
+		nodes, err := svcCtx.Repo.ListChainNodesByConfigID(r.Context(), chainConfig.ID)
+		if err != nil {
+			errorResponse(w, http.StatusInternalServerError, "list chain nodes: "+err.Error())
+			return
+		}
+
 		// 查询关联的合约配置
 		contractConfigs, err := svcCtx.Repo.ListContractConfigsByChain(r.Context(), chainConfig.ID)
 		if err != nil {
@@ -686,15 +740,12 @@ func GetChainConfigDetailHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		// 获取客户端状态
 		clientStatus := svcCtx.TenantSDKManager.GetClientStatus(tenantID, chainConfig.ChainName)
 
+		// 对敏感字段进行脱敏
+		maskedConfig := MaskChainConfigSensitiveFields(chainConfig)
+
 		successResponse(w, map[string]interface{}{
-			"id":            chainConfig.ID,
-			"tenant_id":     chainConfig.TenantID,
-			"chain_name":    chainConfig.ChainName,
-			"chain_type":    chainConfig.ChainType,
-			"enable":        chainConfig.Enable,
-			"sdk_conf":      chainConfig.SdkConf,
-			"created_at":    chainConfig.CreatedAt,
-			"updated_at":    chainConfig.UpdatedAt,
+			"config":        maskedConfig,
+			"nodes":         nodes,
 			"contracts":     contracts,
 			"client_status": clientStatus,
 		})
@@ -801,4 +852,62 @@ func getClientIPFromHTTP(r *http.Request) string {
 		return addr[:idx]
 	}
 	return addr
+}
+
+// buildChainConfigFromRequest 从请求体构建链配置模型
+func buildChainConfigFromRequest(tenantID uint, req *CreateChainConfigRequestBody) *store.TenantChainConfig {
+	config := &store.TenantChainConfig{
+		TenantID:  tenantID,
+		ChainName: req.ChainName,
+		ChainType: strings.ToLower(req.ChainType),
+		Enable:    req.Enable,
+	}
+
+	switch strings.ToLower(req.ChainType) {
+	case ChainTypeChainmaker:
+		config.ChainId = req.ChainId
+		config.AuthType = req.AuthType
+		config.OrgId = req.OrgId
+		config.HashType = req.HashType
+		config.SignKey = req.SignKey
+		config.SignCert = req.SignCert
+		config.UserTlsKey = req.UserTlsKey
+		config.UserTlsCert = req.UserTlsCert
+		config.UserEncKey = req.UserEncKey
+		config.UserEncCert = req.UserEncCert
+	case ChainTypeEthereum:
+		config.EthChainId = req.EthChainId
+		config.HttpUrl = req.HttpUrl
+		config.WebsocketUrl = req.WebsocketUrl
+		config.PrivateKey = req.PrivateKey
+		config.GasLimit = req.GasLimit
+	case ChainTypeSolana:
+		config.SolRpcUrl = req.SolRpcUrl
+		config.SolPrivateKey = req.SolPrivateKey
+		config.CommitmentLevel = req.CommitmentLevel
+		config.SkipPreflight = req.SkipPreflight
+		config.MaxRetries = req.MaxRetries
+	}
+
+	return config
+}
+
+// buildChainNodesFromRequest 从请求体构建节点配置列表
+func buildChainNodesFromRequest(chainConfigID uint, nodeReqs []NodeRequest) []*store.TenantChainNode {
+	nodes := make([]*store.TenantChainNode, 0, len(nodeReqs))
+	for _, n := range nodeReqs {
+		connCnt := n.ConnCnt
+		if connCnt <= 0 {
+			connCnt = 10 // 默认连接数
+		}
+		nodes = append(nodes, &store.TenantChainNode{
+			ChainConfigID: chainConfigID,
+			NodeAddr:      n.NodeAddr,
+			ConnCnt:       connCnt,
+			EnableTls:     n.EnableTls,
+			TlsHostName:   n.TlsHostName,
+			CaCert:        n.CaCert,
+		})
+	}
+	return nodes
 }

@@ -6,7 +6,17 @@ import (
 	"regexp"
 	"strings"
 
+	chainmakersdk "chainmaker.org/chainmaker/sdk-go/v2"
+
+	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
+)
+
+// 链类型常量，直接引用 pb 枚举定义
+var (
+	ChainTypeChainmaker = strings.ToLower(pb.ChainType_Chainmaker.String())
+	ChainTypeEthereum   = strings.ToLower(pb.ChainType_Ethereum.String())
+	ChainTypeSolana     = strings.ToLower(pb.ChainType_Solana.String())
 )
 
 // IsSupportedChainType 检查链类型是否在支持列表中（大小写不敏感）
@@ -24,11 +34,11 @@ func ValidateContractConfig(chainType string, req *ContractConfigRequest) error 
 	ct := strings.ToLower(chainType)
 
 	switch ct {
-	case "ethereum":
+	case ChainTypeEthereum:
 		return validateEthereumContract(req)
-	case "chainmaker":
+	case ChainTypeChainmaker:
 		return validateChainmakerContract(req)
-	case "solana":
+	case ChainTypeSolana:
 		return validateSolanaContract(req)
 	default:
 		// 未知链类型，只做基础校验
@@ -121,6 +131,93 @@ func validateABIJSON(abiStr string) error {
 	return nil
 }
 
+// ValidateChainConfig 根据链类型校验链配置请求体中的结构化字段
+func ValidateChainConfig(req *CreateChainConfigRequestBody) error {
+	ct := strings.ToLower(req.ChainType)
+
+	switch ct {
+	case ChainTypeChainmaker:
+		return validateChainMakerConfig(req)
+	case ChainTypeEthereum:
+		return validateEthereumConfig(req)
+	case ChainTypeSolana:
+		return validateSolanaConfig(req)
+	default:
+		return nil
+	}
+}
+
+// validateChainMakerConfig 校验 ChainMaker 链配置必填字段
+func validateChainMakerConfig(req *CreateChainConfigRequestBody) error {
+	if req.ChainId == "" {
+		return fmt.Errorf("chain_id is required for chainmaker")
+	}
+
+	if req.AuthType == "" {
+		return fmt.Errorf("auth_type is required for chainmaker")
+	}
+
+	// 校验 AuthType 枚举值，使用 chainmaker SDK 定义的合法值
+	if _, ok := chainmakersdk.StringToAuthTypeMap[req.AuthType]; !ok {
+		return fmt.Errorf("auth_type is invalid, got '%s'", req.AuthType)
+	}
+
+	if req.HashType == "" {
+		return fmt.Errorf("hash_type is required for chainmaker")
+	}
+
+	// 校验 HashType 枚举值
+	validHashTypes := map[string]bool{"SHA256": true, "SM3": true, "SHA3_256": true}
+	if !validHashTypes[req.HashType] {
+		return fmt.Errorf("hash_type must be 'SHA256', 'SM3' or 'SHA3_256', got '%s'", req.HashType)
+	}
+
+	// 至少一个节点配置
+	if len(req.Nodes) == 0 {
+		return fmt.Errorf("nodes must contain at least one node for chainmaker")
+	}
+
+	// 校验每个节点配置
+	for i, node := range req.Nodes {
+		if node.NodeAddr == "" {
+			return fmt.Errorf("nodes[%d].node_addr is required", i)
+		}
+	}
+
+	// 签名私钥必填（当前项目要求用户必须配置链账户私钥）
+	if req.SignKey == "" {
+		return fmt.Errorf("sign_key is required for chainmaker (signing key is needed for chain operations)")
+	}
+
+	// 证书模式下额外校验
+	if chainmakersdk.StringToAuthTypeMap[req.AuthType] == chainmakersdk.PermissionedWithCert {
+		if req.OrgId == "" {
+			return fmt.Errorf("org_id is required when auth_type is 'permissionedwithcert'")
+		}
+		if req.SignCert == "" {
+			return fmt.Errorf("sign_cert is required when auth_type is 'permissionedwithcert'")
+		}
+	}
+
+	return nil
+}
+
+// validateEthereumConfig 校验 Ethereum 链配置必填字段
+func validateEthereumConfig(req *CreateChainConfigRequestBody) error {
+	if req.HttpUrl == "" {
+		return fmt.Errorf("http_url is required for ethereum")
+	}
+	return nil
+}
+
+// validateSolanaConfig 校验 Solana 链配置必填字段
+func validateSolanaConfig(req *CreateChainConfigRequestBody) error {
+	if req.SolRpcUrl == "" {
+		return fmt.Errorf("sol_rpc_url is required for solana")
+	}
+	return nil
+}
+
 // ValidateChainType 校验链类型是否合法
 func ValidateChainType(chainType string) error {
 	if !IsSupportedChainType(chainType) {
@@ -133,4 +230,24 @@ func ValidateChainType(chainType string) error {
 			chainType, strings.Join(types, ", "))
 	}
 	return nil
+}
+
+// MaskChainConfigSensitiveFields 返回链配置的脱敏副本，不修改原始对象
+// 私钥不能出域，API 响应中直接清空私钥字段
+func MaskChainConfigSensitiveFields(config *store.TenantChainConfig) *store.TenantChainConfig {
+	if config == nil {
+		return nil
+	}
+
+	// 浅拷贝一份副本
+	masked := *config
+
+	// 私钥不出域，直接清空
+	masked.SignKey = ""
+	masked.UserTlsKey = ""
+	masked.UserEncKey = ""
+	masked.PrivateKey = ""
+	masked.SolPrivateKey = ""
+
+	return &masked
 }

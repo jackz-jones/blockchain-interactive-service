@@ -40,6 +40,12 @@ type Repository interface {
 	DeleteChainConfig(ctx context.Context, id uint) error
 	CheckChainNameUnique(ctx context.Context, tenantID uint, chainName string, excludeID uint) (bool, error)
 
+	// 租户链节点配置相关
+	CreateChainNodes(ctx context.Context, nodes []*TenantChainNode) error
+	ListChainNodesByConfigID(ctx context.Context, chainConfigID uint) ([]*TenantChainNode, error)
+	DeleteChainNodesByConfigID(ctx context.Context, chainConfigID uint) error
+	ReplaceChainNodes(ctx context.Context, chainConfigID uint, nodes []*TenantChainNode) error
+
 	// 租户合约配置相关
 	CreateContractConfig(ctx context.Context, config *TenantContractConfig) error
 	GetContractConfig(ctx context.Context, id uint) (*TenantContractConfig, error)
@@ -282,6 +288,46 @@ func (r *GormRepository) CheckChainNameUnique(
 		return false, err
 	}
 	return count == 0, nil
+}
+
+// ========== 租户链节点配置 ==========
+
+func (r *GormRepository) CreateChainNodes(ctx context.Context, nodes []*TenantChainNode) error {
+	if len(nodes) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Create(&nodes).Error
+}
+
+func (r *GormRepository) ListChainNodesByConfigID(ctx context.Context, chainConfigID uint) ([]*TenantChainNode, error) {
+	var nodes []*TenantChainNode
+	err := r.db.WithContext(ctx).Where("chain_config_id = ?", chainConfigID).Find(&nodes).Error
+	return nodes, err
+}
+
+func (r *GormRepository) DeleteChainNodesByConfigID(ctx context.Context, chainConfigID uint) error {
+	return r.db.WithContext(ctx).Where("chain_config_id = ?", chainConfigID).Delete(&TenantChainNode{}).Error
+}
+
+// ReplaceChainNodes 在事务中全量替换指定链配置的节点列表
+func (r *GormRepository) ReplaceChainNodes(ctx context.Context, chainConfigID uint, nodes []*TenantChainNode) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 删除旧节点
+		if err := tx.Where("chain_config_id = ?", chainConfigID).Delete(&TenantChainNode{}).Error; err != nil {
+			return err
+		}
+		// 插入新节点
+		if len(nodes) > 0 {
+			for i := range nodes {
+				nodes[i].ChainConfigID = chainConfigID
+				nodes[i].ID = 0 // 确保是新建
+			}
+			if err := tx.Create(&nodes).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // ========== 租户合约配置 ==========

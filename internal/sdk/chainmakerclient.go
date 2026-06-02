@@ -12,6 +12,7 @@ import (
 
 	"chainmaker.org/chainmaker/pb-go/v2/common"
 	chainmakersdk "chainmaker.org/chainmaker/sdk-go/v2"
+	commonChain "github.com/jackz-jones/common/chain"
 	commonEvent "github.com/jackz-jones/common/event"
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -34,17 +35,59 @@ type ChainMakerClient struct {
 	redisClient *commonEvent.RedisClient
 }
 
-// NewChainMakerClient 创建一个长安链客户端对象
-func NewChainMakerClient(ctx context.Context, chainConfName, sdkConfigPath string,
+// NewChainMakerClient 创建一个长安链客户端对象（使用结构化配置参数）
+// 复用 common/chain.CreateSDKClient 方法创建底层 SDK 客户端
+func NewChainMakerClient(ctx context.Context, chainConfName string, conf ChainMakerConf,
 	contractConfs map[string]*ContractConf, logConf logx.LogConf,
 	redisClient *commonEvent.RedisClient) (*ChainMakerClient, error) {
-	client, err := chainmakersdk.NewChainClient(chainmakersdk.WithConfPath(sdkConfigPath),
 
-		// 长安链的 sdk path 具体到文件名，所以这里需要拼接一下日志文件名称
-		chainmakersdk.WithChainClientLogger(GetDefaultSdkLogger(logConf.Path+
-			fmt.Sprintf("/sdk-%s.log", chainConfName), logConf.KeepDays)))
+	// 必须配置签名私钥（链账户）
+	if conf.SignKey == "" {
+		return nil, fmt.Errorf("sign_key is required: chainmaker client needs a signing key to operate")
+	}
+
+	// 证书模式下必须配置签名证书
+	if conf.AuthType == "permissionedwithcert" && conf.SignCert == "" {
+		return nil, fmt.Errorf("sign_cert is required when auth_type is 'permissionedwithcert'")
+	}
+
+	// 构建 common/chain.NodeConf 列表
+	nodeConfs := make([]commonChain.NodeConf, 0, len(conf.Nodes))
+	for _, n := range conf.Nodes {
+		nodeConfs = append(nodeConfs, commonChain.NodeConf{
+			Url:         n.NodeAddr,
+			EnableTls:   n.EnableTls,
+			TlsHostName: n.TlsHostName,
+			CaCert:      n.CaCert,
+		})
+	}
+
+	// 确定链模式
+	chainMode := conf.AuthType
+
+	// 日志路径
+	logPath := logConf.Path + fmt.Sprintf("/sdk-%s.log", chainConfName)
+
+	// 复用 common/chain.CreateSDKClient 创建底层 SDK 客户端
+	client, err := commonChain.CreateSDKClient(
+		nodeConfs,
+		conf.ChainId,
+		chainMode,
+		conf.SignKey,
+		conf.SignCert,
+		conf.HashType,
+		conf.OrgId,
+		conf.UserTlsCert,
+		conf.UserTlsKey,
+		conf.UserEncCert,
+		conf.UserEncKey,
+		logPath,
+		"",     // proxyUrl: 暂不支持代理
+		"info", // logLevel
+		logConf.KeepDays,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to new chainmaker chain httpClient: %v", err)
+		return nil, fmt.Errorf("failed to create chainmaker sdk client: %v", err)
 	}
 
 	// 解析配置的合约名称

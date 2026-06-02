@@ -10,10 +10,8 @@ import (
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
 
-	"chainmaker.org/chainmaker/common/v2/log"
 	commonEvent "github.com/jackz-jones/common/event"
 	"github.com/zeromicro/go-zero/core/logx"
-	"go.uber.org/zap"
 )
 
 // ChainClientFactory 链客户端工厂函数类型
@@ -174,19 +172,4 @@ func scheduleDBOnce(ctx context.Context, tenantMgr *TenantSDKManager, repo store
 		go runSubscribeOnce(sdkClient, cc, chainConfig.ChainName, contract.ContractName,
 			chainType, logger, chainConfig.ID, contract.ID, flagKey)
 	}
-}
-
-func GetDefaultSdkLogger(logPath string, maxAge int) *zap.SugaredLogger {
-	logConfig := log.LogConfig{
-		Module:       "[ChainMaker SDK]",
-		LogPath:      logPath,
-		LogLevel:     log.LEVEL_INFO,
-		MaxAge:       maxAge,
-		JsonFormat:   false,
-		ShowLine:     true,
-		LogInConsole: false,
-	}
-
-	logger, _ := log.InitSugarLogger(&logConfig)
-	return logger
 }

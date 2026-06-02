@@ -66,15 +66,51 @@ type APIKey struct {
 // TenantChainConfig 租户链配置表
 type TenantChainConfig struct {
 	gorm.Model
-	TenantID         uint   `gorm:"not null;index:idx_tenant_chain,unique" json:"tenant_id"`          // 所属租户
-	ChainName        string `gorm:"size:64;not null;index:idx_tenant_chain,unique" json:"chain_name"` // 链名称
-	ChainType        string `gorm:"size:32;not null" json:"chain_type"`
-	Enable           bool   `gorm:"not null;default:true" json:"enable"`
-	ConnectionStatus string `gorm:"size:16;not null;default:unknown" json:"connection_status"`
-	ConnectionError  string `gorm:"size:1024" json:"connection_error"`
-	SdkConf          string `gorm:"type:text" json:"sdk_conf"`
+	TenantID  uint   `gorm:"not null;index:idx_tenant_chain,unique" json:"tenant_id"`          // 所属租户
+	ChainName string `gorm:"size:64;not null;index:idx_tenant_chain,unique" json:"chain_name"` // 链名称
+	ChainType string `gorm:"size:32;not null" json:"chain_type"`                               // 链类型
+	Enable    bool   `gorm:"not null;default:true" json:"enable"`                              // 是否启用
+
+	// ========== ChainMaker 专属字段 ==========
+	ChainId     string `gorm:"size:128" json:"chain_id"`       // 区块链 ID
+	AuthType    string `gorm:"size:32" json:"auth_type"`       // 认证模式：public / permissionedwithcert
+	OrgId       string `gorm:"size:128" json:"org_id"`         // 组织 ID（证书模式下必填）
+	HashType    string `gorm:"size:32" json:"hash_type"`       // 哈希算法：SHA256 / SM3 / SHA3_256
+	SignKey     string `gorm:"type:text" json:"sign_key"`      // 签名私钥密文（base64 编码）
+	SignCert    string `gorm:"type:text" json:"sign_cert"`     // 签名证书密文（base64 编码，证书模式下必填）
+	UserTlsKey  string `gorm:"type:text" json:"user_tls_key"`  // TLS 私钥密文（base64 编码）
+	UserTlsCert string `gorm:"type:text" json:"user_tls_cert"` // TLS 证书密文（base64 编码）
+	UserEncKey  string `gorm:"type:text" json:"user_enc_key"`  // 国密加密私钥密文（可选）
+	UserEncCert string `gorm:"type:text" json:"user_enc_cert"` // 国密加密证书密文（可选）
+
+	// ========== Ethereum 专属字段 ==========
+	EthChainId   int64  `gorm:"default:0" json:"eth_chain_id"` // 以太坊链 ID
+	HttpUrl      string `gorm:"size:512" json:"http_url"`      // 节点 HTTP URL
+	WebsocketUrl string `gorm:"size:512" json:"websocket_url"` // 节点 WebSocket URL
+	PrivateKey   string `gorm:"type:text" json:"private_key"`  // 私钥 hex 字符串
+	GasLimit     int64  `gorm:"default:0" json:"gas_limit"`    // Gas 上限
+
+	// ========== Solana 专属字段 ==========
+	SolRpcUrl       string `gorm:"size:512" json:"sol_rpc_url"`         // Solana RPC URL
+	SolPrivateKey   string `gorm:"type:text" json:"sol_private_key"`    // 私钥 base58 字符串
+	CommitmentLevel string `gorm:"size:32" json:"commitment_level"`     // 确认级别
+	SkipPreflight   bool   `gorm:"default:false" json:"skip_preflight"` // 是否跳过预检
+	MaxRetries      int    `gorm:"default:0" json:"max_retries"`        // 最大重试次数
 
 	Tenant Tenant `gorm:"foreignKey:TenantID" json:"-"`
+}
+
+// TenantChainNode 租户链节点配置表（ChainMaker 专用）
+type TenantChainNode struct {
+	gorm.Model
+	ChainConfigID uint   `gorm:"not null;index" json:"chain_config_id"`    // 关联的链配置 ID
+	NodeAddr      string `gorm:"size:256;not null" json:"node_addr"`       // 节点 gRPC 地址
+	ConnCnt       int    `gorm:"not null;default:10" json:"conn_cnt"`      // 连接数
+	EnableTls     bool   `gorm:"not null;default:false" json:"enable_tls"` // 是否开启 TLS
+	TlsHostName   string `gorm:"size:256" json:"tls_host_name"`            // TLS 主机名
+	CaCert        string `gorm:"type:text" json:"ca_cert"`                 // CA 证书密文（base64 编码，开启 TLS 时必填）
+
+	ChainConfig TenantChainConfig `gorm:"foreignKey:ChainConfigID" json:"-"`
 }
 
 // TenantContractConfig 租户合约配置表

@@ -19,14 +19,68 @@ type ChainConf struct {
 //
 //nolint:revive // SDKConf 语义明确，改为 Conf 过于通用
 type SDKConf struct {
-	// ConfFilePath sdk 具体配置文件路径，长安链需要指定
-	ConfFilePath string `json:"ConfFilePath,omitempty"`
-
 	// EthConf 以太坊链需要的配置信息
 	EthConf EthConf `json:"EthConf,omitempty"`
 
 	// SolanaConf Solana链需要的配置信息
 	SolanaConf SolanaConf `json:"SolanaConf,omitempty"`
+
+	// ChainMakerConf 长安链结构化配置信息
+	ChainMakerConf ChainMakerConf `json:"ChainMakerConf,omitempty"`
+}
+
+// ChainMakerConf 长安链 SDK 连接配置（结构化方式，替代 YAML 配置文件）
+type ChainMakerConf struct {
+	// ChainId 链 ID
+	ChainId string `json:"ChainId,omitempty"`
+
+	// AuthType 认证模式：public（公钥模式）/ permissionedwithcert（证书模式）
+	AuthType string `json:"AuthType,omitempty"`
+
+	// OrgId 组织 ID（证书模式下必填）
+	OrgId string `json:"OrgId,omitempty"`
+
+	// HashType 哈希算法：SHA256 / SM3 / SHA3_256
+	HashType string `json:"HashType,omitempty"`
+
+	// SignKey 签名私钥（base64 编码字符串）
+	SignKey string `json:"SignKey,omitempty"`
+
+	// SignCert 签名证书（base64 编码字符串，证书模式下必填）
+	SignCert string `json:"SignCert,omitempty"`
+
+	// UserTlsKey TLS 私钥（base64 编码字符串，开启 TLS 时需要）
+	UserTlsKey string `json:"UserTlsKey,omitempty"`
+
+	// UserTlsCert TLS 证书（base64 编码字符串，开启 TLS 时需要）
+	UserTlsCert string `json:"UserTlsCert,omitempty"`
+
+	// UserEncKey 国密加密私钥（base64 编码字符串，可选）
+	UserEncKey string `json:"UserEncKey,omitempty"`
+
+	// UserEncCert 国密加密证书（base64 编码字符串，可选）
+	UserEncCert string `json:"UserEncCert,omitempty"`
+
+	// Nodes 节点配置列表
+	Nodes []ChainMakerNodeConf `json:"Nodes,omitempty"`
+}
+
+// ChainMakerNodeConf 长安链节点配置
+type ChainMakerNodeConf struct {
+	// NodeAddr 节点地址（格式 IP:Port）
+	NodeAddr string `json:"NodeAddr,omitempty"`
+
+	// ConnCnt 连接数（默认 10）
+	ConnCnt int `json:"ConnCnt,omitempty"`
+
+	// EnableTls 是否开启 TLS
+	EnableTls bool `json:"EnableTls,omitempty"`
+
+	// TlsHostName TLS 主机名
+	TlsHostName string `json:"TlsHostName,omitempty"`
+
+	// CaCert 节点 CA 证书（base64 编码字符串，开启 TLS 时必填）
+	CaCert string `json:"CaCert,omitempty"`
 }
 
 // EthConf 以太坊链连接配置

@@ -90,8 +90,12 @@ func (p *ChainMakerPlugin) Init(ctx context.Context, conf interface{}) error {
 	}
 	p.name = c.ChainName
 
-	// 插件自己负责创建底层 SDK 客户端
-	client, err := sdk.NewChainMakerClient(ctx, c.ChainName, c.ChainConf.SDKConf.ConfFilePath,
+	if c.ChainConf.SDKConf.ChainMakerConf.ChainId == "" {
+		return fmt.Errorf("chainmaker config missing: ChainMakerConf.ChainId is required")
+	}
+
+	// 使用结构化配置创建客户端
+	client, err := sdk.NewChainMakerClient(ctx, c.ChainName, c.ChainConf.SDKConf.ChainMakerConf,
 		c.ChainConf.ContractConfs, c.LogConf, c.RedisClient)
 	if err != nil {
 		return fmt.Errorf("create chainmaker client: %w", err)
