@@ -1,16 +1,20 @@
 import { useState } from 'react'
-import { Card, Input, Button, Typography, Space, message, Alert } from 'antd'
-import { KeyOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { Card, Input, Button, Typography, Space, message, Alert, Divider, Form } from 'antd'
+import { KeyOutlined, CheckCircleOutlined, UserAddOutlined } from '@ant-design/icons'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
 
-const { Title, Paragraph } = Typography
+const { Title, Paragraph, Text } = Typography
 
 export default function Settings() {
   const { apiKey, setApiKey, setTenant } = useAuthStore()
   const [inputKey, setInputKey] = useState(apiKey || '')
   const [loading, setLoading] = useState(false)
+  const [registerMode, setRegisterMode] = useState(false)
+  const [registerLoading, setRegisterLoading] = useState(false)
+  const [registerForm] = Form.useForm()
 
+  // 验证并保存 API Key
   const handleSave = async () => {
     if (!inputKey.trim()) {
       message.warning('请输入 API Key')
@@ -19,25 +23,53 @@ export default function Settings() {
 
     setLoading(true)
     try {
-      // 验证 API Key 有效性
-      const response = await api.get('/api-keys/validate', {
-        headers: { 'X-API-Key': inputKey.trim() },
+      const response = await api.post('/auth/validate', {
+        api_key: inputKey.trim(),
       })
-      const data = response.data as { tenant_id: string; tenant_name: string; role: string }
+      const data = response.data as { data: { tenant_id: string; tenant_name: string; role: string } }
+      const info = data.data
       setApiKey(inputKey.trim())
       setTenant({
-        id: data.tenant_id,
-        name: data.tenant_name,
-        role: data.role as 'admin' | 'user',
+        id: String(info.tenant_id),
+        name: info.tenant_name,
+        role: (info.role as 'admin' | 'user') || 'admin',
       })
       message.success('API Key 验证成功')
     } catch {
-      // 如果验证接口不存在，直接保存
-      setApiKey(inputKey.trim())
-      setTenant({ id: 'default', name: '默认租户', role: 'admin' })
-      message.success('API Key 已保存')
+      message.error('API Key 验证失败，请检查输入')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 注册新租户
+  const handleRegister = async (values: { name: string; email: string; password: string; phone?: string }) => {
+    setRegisterLoading(true)
+    try {
+      const response = await api.post('/auth/register', {
+        name: values.name,
+        email: values.email,
+        password: values.password,
+        phone: values.phone,
+      })
+      const data = response.data as { data: { api_key: string; tenant_id: string; tenant_name: string; username: string } }
+      const info = data.data
+
+      // 注册成功后自动填充 API Key
+      setInputKey(info.api_key)
+      setApiKey(info.api_key)
+      setTenant({
+        id: String(info.tenant_id),
+        name: info.tenant_name,
+        role: 'admin',
+      })
+      message.success('注册成功！API Key 已自动配置')
+      setRegisterMode(false)
+      registerForm.resetFields()
+    } catch {
+      // 错误已由拦截器处理
+    } finally {
+      setRegisterLoading(false)
     }
   }
 
@@ -53,7 +85,7 @@ export default function Settings() {
       {!apiKey && (
         <Alert
           message="首次使用"
-          description="你还没有配置 API Key。请在下方输入已有 Key，或点击「创建 API Key」生成一个新的。"
+          description="你还没有配置 API Key。请在下方输入已有 Key，或点击「注册新租户」创建一个新账号。"
           type="info"
           showIcon
           style={{ marginBottom: 24 }}
@@ -63,7 +95,7 @@ export default function Settings() {
       {apiKey && (
         <Alert
           message="已连接"
-          description="API Key 已配置，服务连接正常。"
+          description={`API Key 已配置，当前租户：${useAuthStore.getState().tenant?.name || '未知'}`}
           type="success"
           icon={<CheckCircleOutlined />}
           showIcon
@@ -71,15 +103,16 @@ export default function Settings() {
         />
       )}
 
-      <Card>
+      {/* 输入已有 API Key */}
+      <Card title={<><KeyOutlined style={{ marginRight: 8 }} />使用已有 API Key</>}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <div>
-            <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>
               API Key
-            </Typography.Text>
+            </Text>
             <Input.Password
               prefix={<KeyOutlined style={{ color: 'var(--color-muted)' }} />}
-              placeholder="输入你的 API Key"
+              placeholder="输入你的 API Key（以 cis_ 开头）"
               value={inputKey}
               onChange={(e) => setInputKey(e.target.value)}
               onPressEnter={handleSave}
@@ -96,18 +129,80 @@ export default function Settings() {
           >
             验证并保存
           </Button>
-
-          <Button
-            type="link"
-            onClick={() => window.location.href = '/api-keys'}
-            block
-            size="large"
-            style={{ marginTop: 8 }}
-          >
-            还没有 API Key？去创建一个 →
-          </Button>
         </Space>
       </Card>
+
+      <Divider style={{ margin: '24px 0' }}>或</Divider>
+
+      {/* 注册新租户 */}
+      {!registerMode ? (
+        <Card>
+          <Space direction="vertical" size="middle" style={{ width: '100%', alignItems: 'center' }}>
+            <UserAddOutlined style={{ fontSize: 32, color: 'var(--color-primary)' }} />
+            <Text type="secondary">还没有 API Key？创建一个新租户，系统将自动为你生成初始 API Key。</Text>
+            <Button
+              type="default"
+              onClick={() => setRegisterMode(true)}
+              block
+              size="large"
+            >
+              注册新租户
+            </Button>
+          </Space>
+        </Card>
+      ) : (
+        <Card title={<><UserAddOutlined style={{ marginRight: 8 }} />注册新租户</>}>
+          <Form
+            form={registerForm}
+            layout="vertical"
+            onFinish={handleRegister}
+            initialValues={{ name: '', email: '', password: '' }}
+          >
+            <Form.Item
+              name="name"
+              label="租户名称"
+              rules={[{ required: true, message: '请输入租户名称' }]}
+            >
+              <Input placeholder="例如：MyCompany" size="large" />
+            </Form.Item>
+
+            <Form.Item
+              name="email"
+              label="邮箱"
+              rules={[
+                { required: true, message: '请输入邮箱' },
+                { type: 'email', message: '请输入有效的邮箱地址' },
+              ]}
+            >
+              <Input placeholder="admin@example.com" size="large" />
+            </Form.Item>
+
+            <Form.Item name="phone" label="手机号（可选）">
+              <Input placeholder="138xxxxxxxx" size="large" />
+            </Form.Item>
+
+            <Form.Item
+              name="password"
+              label="管理员密码"
+              rules={[
+                { required: true, message: '请输入密码' },
+                { min: 6, message: '密码至少 6 位' },
+              ]}
+            >
+              <Input.Password placeholder="至少 6 位" size="large" />
+            </Form.Item>
+
+            <Space style={{ width: '100%' }}>
+              <Button type="primary" htmlType="submit" loading={registerLoading} size="large">
+                注册并获取 API Key
+              </Button>
+              <Button onClick={() => { setRegisterMode(false); registerForm.resetFields() }} size="large">
+                取消
+              </Button>
+            </Space>
+          </Form>
+        </Card>
+      )}
     </div>
   )
 }

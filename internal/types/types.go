@@ -7,6 +7,40 @@ type CommonResponse struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
+// BizError 业务错误，可被 NewCommonResponse 识别并转为 CommonResponse
+type BizError struct {
+	Code    int
+	Message string
+}
+
+func (e *BizError) Error() string {
+	return e.Message
+}
+
+// NewCommonResponse 将业务返回值或错误统一转换为 CommonResponse
+func NewCommonResponse(data interface{}, err error) *CommonResponse {
+	if err != nil {
+		if biz, ok := err.(*BizError); ok {
+			return &CommonResponse{Code: biz.Code, Message: biz.Message}
+		}
+		return &CommonResponse{Code: 500, Message: err.Error()}
+	}
+	return &CommonResponse{Code: 0, Message: "success", Data: data}
+}
+
+// RegisterRequest 公开注册请求（无需认证）
+type RegisterRequest struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Phone    string `json:"phone,optional"`
+	Password string `json:"password"`
+}
+
+// ValidateAPIKeyRequest 验证 API Key 请求（无需认证）
+type ValidateAPIKeyRequest struct {
+	APIKey string `json:"api_key"`
+}
+
 type CallContractRequest struct {
 	ChainName    string            `json:"chain_name"`
 	ContractName string            `json:"contract_name"`

@@ -33,9 +33,13 @@ api.interceptors.response.use(
 
       switch (status) {
         case 401:
-          message.error('认证失败，请检查 API Key 配置')
-          useAuthStore.getState().logout()
-          window.location.href = '/settings'
+          message.error(msg || '认证失败，请检查 API Key 配置')
+          // 仅对非公开接口触发 logout 和跳转
+          const url = error.config?.url || ''
+          if (!url.includes('/auth/')) {
+            useAuthStore.getState().logout()
+            window.location.href = '/settings'
+          }
           break
         case 403:
           message.error('权限不足')

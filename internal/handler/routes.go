@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apikey "github.com/jackz-jones/blockchain-interactive-service/internal/handler/apikey"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/handler/auth"
 	chain "github.com/jackz-jones/blockchain-interactive-service/internal/handler/chain"
 	chainconfig "github.com/jackz-jones/blockchain-interactive-service/internal/handler/chainconfig"
 	contractconfig "github.com/jackz-jones/blockchain-interactive-service/internal/handler/contractconfig"
@@ -18,6 +19,23 @@ import (
 )
 
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
+	// 公开路由（无需认证）
+	server.AddRoutes(
+		[]rest.Route{
+			{
+				Method:  http.MethodPost,
+				Path:    "/auth/register",
+				Handler: auth.RegisterHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/auth/validate",
+				Handler: auth.ValidateHandler(serverCtx),
+			},
+		},
+		rest.WithPrefix("/api/v1"),
+	)
+
 	server.AddRoutes(
 		rest.WithMiddlewares(
 			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
