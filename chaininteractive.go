@@ -69,6 +69,8 @@ func main() {
 
 	// 使用 ServiceGroup 统一管理 gRPC 和 HTTP 服务
 	group := service.NewServiceGroup()
+	// defer 兜底：panic 退出时确保服务被关闭（stopOnce 幂等，信号退出时重复调用无副作用）
+	defer group.Stop()
 
 	// 添加 gRPC 服务（先添加，后关闭）
 	group.Add(s)
@@ -76,17 +78,27 @@ func main() {
 	// 启动订阅（仅基于 DB 配置）
 	sdk.StartSubscribe(ctx.RootCtx, ctx.Logger, ctx.TenantSDKManager, ctx.Repo)
 
-	// 注册服务退出时的资源释放回调
-	// 注意顺序：wrapUp 先于 shutdown 执行，shutdown 中 ServiceGroup 先关闭服务，再执行后续 shutdownListener
+	// ========== 注册退出回调 ==========
+	// 信号退出（SIGTERM/SIGINT）走 proc 机制：wrapUp → shutdown，有超时强杀保障
+	// panic 退出走 defer 机制：按 LIFO 顺序执行兜底释放
 
-	// 1. wrapUp 阶段：取消根 ctx，通知订阅 goroutine 等退出（在服务关闭之前）
+	// defer 兜底：panic 时取消根 ctx
+	defer ctx.Cancel()
+	// defer 兜底：panic 时释放 SDK 客户端
+	defer func() {
+		if ctx.TenantSDKManager != nil {
+			ctx.TenantSDKManager.StopAll()
+		}
+	}()
+
+	// 信号退出 - wrapUp 阶段：取消根 ctx，通知订阅 goroutine 等退出（在服务关闭之前 1s 执行）
 	proc.AddWrapUpListener(func() {
 		logx.Info("Wrapping up, cancelling root context")
 		ctx.Cancel()
 	})
 
-	// 2. shutdown 阶段：ServiceGroup 内部注册的 stopOnce 会先执行（关闭 gRPC 和 HTTP 服务）
-	//    然后执行以下 shutdownListener：停止所有租户级 SDK 客户端
+	// 信号退出 - shutdown 阶段：ServiceGroup.Start() 内部已注册 stopOnce（关闭 gRPC 和 HTTP 服务）
+	//   以下 listener 用于释放 ServiceGroup 管不到的资源：租户级 SDK 客户端
 	proc.AddShutdownListener(func() {
 		logx.Info("Shutting down, releasing SDK clients")
 		if ctx.TenantSDKManager != nil {
