@@ -4,13 +4,15 @@
 
 A universal blockchain interaction service platform (BaaS - Blockchain as a Service) that provides unified gRPC and RESTful HTTP interfaces to interact with multiple blockchains (Ethereum, ChainMaker, Solana), abstracting away the underlying chain differences so that upper-layer services don't need to care about chain-specific implementation details.
 
+**🌐 Web Dashboard**: A modern, clean web UI built with React + Ant Design for visual management of chain configurations, contract calls, event subscriptions, usage monitoring, and more — no CLI or API knowledge required.
+
 ## ✨ Features
 
 ### Core Capabilities
 - 🔗 **Multi-Chain Support**: Unified interface for Ethereum, ChainMaker, and Solana, with plugin architecture for easy expansion
 - 📝 **Contract Invocation**: Supports both Invoke (write) and Query (read) call modes
 - 🔍 **Transaction Query**: Query transaction details and on-chain status by transaction ID
-- 📡 **Event Subscription**: Subscribe to contract events with automatic resubscription on failure
+- 📡 **Event Subscription**: Subscribe to contract events via HTTP API with polling mechanism
 - ⚡ **Sync/Async**: Contract calls support both synchronous waiting and asynchronous return
 
 ### Commercial Features (BaaS Platform)
@@ -18,11 +20,12 @@ A universal blockchain interaction service platform (BaaS - Blockchain as a Serv
 - 🔑 **Authentication & Authorization**: API Key authentication + RBAC role-based access control
 - 💰 **Billing & Quotas**: Usage metering, quota management, bill generation, overage policies
 - 🌐 **HTTP API Gateway**: RESTful API with rate limiting, making integration easy without gRPC knowledge
-- 🛡️ **Security**: IP whitelist, audit logging, anomaly detection with auto-banning, sensitive data masking
+- 🛡️ **Security**: IP whitelist, audit logging, anomaly detection with auto-banning
 - 🔌 **Plugin Architecture**: Standardized chain plugin interface for rapid integration of new chains
 - 📊 **Admin Dashboard API**: Usage statistics, call logs, billing, audit log queries
 
 ### Infrastructure
+- 🌐 **Web Dashboard**: Modern React + Ant Design 5.x UI with dark sidebar, ECharts monitoring, Monaco editor
 - 🔒 **gRPC Security**: Supports TLS mutual authentication
 - 📊 **Monitoring & Tracing**: Prometheus metrics + OpenTelemetry distributed tracing
 - ☸️ **Kubernetes Ready**: Helm Chart with HPA auto-scaling, PDB, leader election
@@ -43,14 +46,14 @@ A universal blockchain interaction service platform (BaaS - Blockchain as a Serv
 ```mermaid
 graph TB
     subgraph "Client Layer"
-        Dashboard[Web Dashboard]
+        Dashboard[Web Dashboard :5173]
         SDK[SDK Clients]
         GRPC[gRPC Clients]
     end
 
     subgraph "Access Layer"
         GW[HTTP API Gateway :8080]
-        GS[gRPC Server :9000]
+        GS[gRPC Server :8085]
     end
 
     subgraph "Middleware Chain"
@@ -71,11 +74,11 @@ graph TB
     end
 
     subgraph "Infrastructure"
-        PG[(PostgreSQL)]
+        DB[(MySQL / PostgreSQL)]
         RD[(Redis)]
     end
 
-    Dashboard --> GW
+    Dashboard -->|REST API| GW
     SDK --> GW
     GRPC --> GS
     GW --> AUTH
@@ -87,8 +90,8 @@ graph TB
     PR --> EP
     PR --> CP
     PR --> SP
-    TS --> PG
-    BS --> PG
+    TS --> DB
+    BS --> DB
     EP --> RD
     CP --> RD
     SP --> RD
@@ -100,20 +103,55 @@ graph TB
 
 ```
 .
-├── chaininteractive.go           # Service entry point
+├── chaininteractive.go           # Service entry point (gRPC + HTTP Gateway)
+├── api/
+│   └── chaininteractive.api      # go-zero API definition (goctl generated)
 ├── internal/
-│   ├── config/                   # Configuration definitions & validation
-│   ├── logic/                    # gRPC business logic
+│   ├── config/                   # Configuration definitions
+│   ├── handler/                  # HTTP route handlers (goctl generated)
+│   │   ├── routes.go            # Route registration
+│   │   ├── chain/               # Contract call & tx query handlers
+│   │   ├── chainconfig/         # Chain config CRUD handlers
+│   │   ├── contractconfig/      # Contract config CRUD handlers
+│   │   ├── event/               # Event subscription handlers
+│   │   ├── tenant/              # Tenant management handlers
+│   │   ├── apikey/              # API Key handlers
+│   │   ├── user/                # User management handlers
+│   │   └── dashboard/           # Dashboard & analytics handlers
+│   ├── logic/
+│   │   ├── grpc/                # gRPC business logic
+│   │   └── http/                # HTTP business logic (by module)
+│   │       ├── chain/
+│   │       ├── chainconfig/
+│   │       ├── contractconfig/
+│   │       ├── event/
+│   │       ├── tenant/
+│   │       ├── apikey/
+│   │       ├── user/
+│   │       └── dashboard/
+│   ├── types/                    # HTTP request/response type definitions
 │   ├── sdk/                      # Chain SDK clients & tenant SDK manager
 │   ├── store/                    # Data models, DB connection, repository
-│   ├── gateway/                  # HTTP API Gateway (routes, handlers)
+│   ├── service/                  # Config resolver (DB → runtime config)
 │   ├── middleware/               # Auth, RBAC, rate limit, quota, audit, anomaly
 │   ├── billing/                  # Billing & quota service
 │   ├── tenant/                   # Tenant management service
 │   ├── plugin/                   # Plugin registry & built-in adapters
-│   ├── deploy/                   # Leader election for HA
+│   ├── deploy/                   # Leader election (HA)
 │   ├── server/                   # gRPC server registration
-│   └── svc/                      # Service context (DI container)
+│   ├── svc/                      # Service context (DI container)
+│   └── validator/                # Configuration validation
+├── web/                          # Web Dashboard (React + Vite + Ant Design)
+│   ├── src/
+│   │   ├── pages/               # Page components (dashboard, chain-config, etc.)
+│   │   ├── components/          # Shared layout & common components
+│   │   ├── services/            # API client (axios)
+│   │   ├── stores/              # State management (zustand)
+│   │   ├── router/              # React Router configuration
+│   │   ├── hooks/               # Custom hooks
+│   │   └── styles/              # Global CSS & theme tokens
+│   ├── package.json
+│   └── vite.config.ts
 ├── proto/                        # Protobuf service definitions
 ├── pb/                           # Generated Protobuf Go code
 ├── deploy/helm/                  # Kubernetes Helm Chart
@@ -121,10 +159,6 @@ graph TB
 ├── etc/                          # Configuration files
 ├── scripts/                      # Utility scripts
 └── doc/                          # Documentation
-    ├── architecture_en.md        # Architecture document (English)
-    ├── architecture_cn.md        # Architecture document (Chinese)
-    ├── USAGE.md                  # Usage guide (English)
-    └── USAGE_CN.md               # Usage guide (Chinese)
 ```
 
 ## Quick Start
@@ -132,16 +166,17 @@ graph TB
 ### Prerequisites
 
 - Go 1.22+
-- PostgreSQL (for multi-tenant data)
-- Redis (for event subscription & caching)
+- Node.js 18+ (for Web Dashboard)
+- MySQL or PostgreSQL (multi-tenant data)
+- Redis (event subscription & caching)
 
 ### Build & Run
 
 ```bash
-# Build
+# Build backend
 make build
 
-# Run
+# Run backend service (gRPC :8085 + HTTP Gateway :8080)
 ./chain-interactive-service -f etc/chaininteractive.yaml
 
 # Or run directly
@@ -151,6 +186,23 @@ make start-service
 ./chain-interactive-service version
 ```
 
+### Web Dashboard
+
+```bash
+cd web
+
+# Install dependencies
+npm install
+
+# Development mode (default: http://localhost:5173)
+npm run dev
+
+# Production build
+npm run build
+```
+
+The Web Dashboard connects to the HTTP API Gateway at `http://localhost:8080/api/v1`.
+
 ### Configuration
 
 The configuration file is located at `etc/chaininteractive.yaml`. Key sections:
@@ -158,40 +210,31 @@ The configuration file is located at `etc/chaininteractive.yaml`. Key sections:
 ```yaml
 # Service base config
 Name: chaininteractive.rpc
-ListenOn: 0.0.0.0:9000
+ListenOn: 0.0.0.0:8085
 
 # HTTP Gateway
 GatewayConf:
   Enable: true
+  Host: 0.0.0.0
   Port: 8080
   RateLimit: 10
 
 # Database (multi-tenant storage)
 DatabaseConf:
-  Driver: postgres
-  Host: localhost
-  Port: 5432
-  DBName: chain_interactive
-  AutoMigrate: true
+  Type: mysql    # mysql / postgres / kingbase_mysql / kingbase_pgsql
+  DSN: root:password@tcp(localhost:3306)/chainservice?charset=utf8&parseTime=true
 
 # Redis (event subscription)
 SubscribeConf:
   ConfType: node
   RedisAddr: "127.0.0.1:6379"
-
-# Chain configurations
-ChainConfs:
-  ethereum01:
-    Enable: true
-    ChainType: "ethereum"
-    # ...
 ```
 
 > 📖 For complete configuration reference, see **[Usage Guide](doc/USAGE.md)**
 
 ## API Overview
 
-### gRPC Interfaces
+### gRPC Interfaces (port 8085)
 
 | Method | Description |
 |--------|-------------|
@@ -199,15 +242,20 @@ ChainConfs:
 | `GetTxByTxId` | Query transaction by TX ID |
 | `GetAvailableChainAndContractNames` | Get available chains and contracts |
 
-### RESTful HTTP API
+### RESTful HTTP API (port 8080)
 
 | Category | Endpoints | Description |
 |----------|-----------|-------------|
-| **Contract** | `POST /api/v1/contract/call`, `GET /api/v1/transaction/:txId` | Contract operations |
+| **Contract** | `POST /api/v1/contract/call` | Call/query contracts |
+| **Transaction** | `GET /api/v1/tx/:txId` | Query transaction by ID |
+| **Chain** | `GET /api/v1/chains`, `GET /api/v1/chains/:chainName/status` | List chains, check status |
+| **Event** | `POST /api/v1/events/subscribe`, `GET /api/v1/events/poll`, `DELETE /api/v1/events/subscribe/:subscriptionId` | Event subscription |
 | **Tenant** | `POST/GET /api/v1/tenants`, `POST .../disable\|enable` | Tenant management |
 | **API Key** | `POST/GET /api/v1/api-keys` | API Key management |
-| **Chain Config** | `CRUD /api/v1/chain-configs` | Chain configuration |
-| **Dashboard** | `GET /api/v1/dashboard/*` | Overview, logs, stats, bills, audit |
+| **Chain Config** | `CRUD /api/v1/chain-configs`, `POST .../test-connection` | Chain configuration |
+| **Contract Config** | `CRUD /api/v1/chain-configs/:chainConfigId/contracts` | Contract configuration |
+| **User** | `GET /api/v1/users` | User management |
+| **Dashboard** | `GET /api/v1/dashboard/overview\|call-logs\|usage-stats\|bills\|audit-logs` | Analytics & monitoring |
 
 > 📖 For complete API reference, see **[Usage Guide](doc/USAGE.md)**
 
@@ -217,6 +265,14 @@ ChainConfs:
 
 ```bash
 make gen-code
+```
+
+### Generate HTTP Handlers (goctl)
+
+The HTTP API is defined in `api/chaininteractive.api` and handlers are generated via `goctl`:
+
+```bash
+goctl api go -api api/chaininteractive.api -dir . -style goZero
 ```
 
 ### Run Tests
@@ -229,6 +285,12 @@ make ut
 
 ```bash
 make lint
+```
+
+### Pre-commit Check
+
+```bash
+make pre-commit   # lint + ut + comment coverage
 ```
 
 ### Adding a New Chain (Plugin)
@@ -250,7 +312,7 @@ make build-docker
 ```bash
 # Install with Helm
 helm install chain-interactive ./deploy/helm \
-  --set database.host=your-pg-host \
+  --set database.host=your-db-host \
   --set redis.addr=your-redis:6379
 
 # Upgrade
@@ -262,12 +324,35 @@ helm upgrade chain-interactive ./deploy/helm -f custom-values.yaml
 | Category | Technology | Version |
 |----------|-----------|---------|
 | **Framework** | [go-zero](https://github.com/zeromicro/go-zero) | v1.6.2 |
+| **API Generation** | [goctl](https://go-zero.dev/docs/tasks/cli/api-format) | - |
 | **Communication** | gRPC + Protobuf | - |
-| **Database** | PostgreSQL / MySQL (GORM) | - |
+| **Database** | MySQL / PostgreSQL (GORM) | - |
 | **Cache** | Redis | - |
 | **Chain SDKs** | go-ethereum, chainmaker-sdk-go, solana-go | v1.14.11, v2.3.8, v1.8.3 |
 | **Monitoring** | Prometheus + OpenTelemetry | - |
 | **Deployment** | Kubernetes + Helm + Docker | - |
+| **Frontend** | React 19 + Vite + Ant Design 5.x + ECharts | - |
+| **State** | Zustand | v5 |
+| **Routing** | React Router | v7 |
+
+## Web Dashboard Pages
+
+| Page | Description |
+|------|-------------|
+| **Dashboard** | Overview with key metrics, call trend charts |
+| **Chain Config** | CRUD chain configurations with connection testing |
+| **Contract Config** | Manage contracts per chain (ABI, subscription settings) |
+| **Contract Call** | Interactive contract invocation with Monaco editor |
+| **Transaction Query** | Query and inspect transaction details |
+| **Event Subscription** | Subscribe/unsubscribe to contract events, poll results |
+| **Tenant Management** | Create/disable/enable tenants |
+| **API Key** | Generate and manage API keys |
+| **User Management** | View and manage users |
+| **Call Logs** | Filterable call history |
+| **Usage Stats** | Usage analytics with charts |
+| **Bills** | Billing records |
+| **Audit Logs** | Security audit trail |
+| **Settings** | System settings |
 
 ## Documentation
 

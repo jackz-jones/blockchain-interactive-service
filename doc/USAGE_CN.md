@@ -1,6 +1,6 @@
 # 使用指南（中文）
 
-本文档提供 Chain Interactive Service 的详细使用说明，包括 gRPC 客户端集成、各链特定配置和高级功能。
+本文档提供 Chain Interactive Service 的详细使用说明，包括 gRPC 客户端集成、HTTP API 参考、各链特定配置和高级功能。
 
 ## 目录
 
@@ -15,6 +15,8 @@
   - [ChainMaker](#chainmaker)
   - [Solana](#solana)
 - [事件订阅](#事件订阅)
+- [多租户 HTTP API](#多租户-http-api)
+- [Web 管理控制台](#web-管理控制台)
 - [TLS 配置](#tls-配置)
 - [监控](#监控)
 - [错误处理](#错误处理)
@@ -661,6 +663,8 @@ sync to get tx receipt timeout, maybe try it later
 
 服务提供 RESTful HTTP API Gateway（默认端口：8080），用于多租户管理和合约操作。
 
+所有 HTTP Handler 通过 `goctl` 从 API 定义文件 `api/chaininteractive.api` 生成。
+
 ### 认证方式
 
 所有 HTTP API 请求需要在请求头中携带 `X-API-Key`：
@@ -669,6 +673,42 @@ sync to get tx receipt timeout, maybe try it later
 curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains
 ```
 
+### 完整 API 路由表
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/api/v1/contract/call` | 调用/查询合约 |
+| GET | `/api/v1/tx/:txId` | 根据 ID 查询交易 |
+| GET | `/api/v1/chains` | 获取可用链列表 |
+| GET | `/api/v1/chains/:chainName/status` | 获取链连接状态 |
+| POST | `/api/v1/events/subscribe` | 订阅合约事件 |
+| GET | `/api/v1/events/poll` | 轮询已订阅事件 |
+| DELETE | `/api/v1/events/subscribe/:subscriptionId` | 取消订阅 |
+| POST | `/api/v1/tenants` | 创建租户 |
+| GET | `/api/v1/tenants/:id` | 获取租户详情 |
+| GET | `/api/v1/tenants` | 租户列表 |
+| POST | `/api/v1/tenants/:id/disable` | 禁用租户 |
+| POST | `/api/v1/tenants/:id/enable` | 启用租户 |
+| POST | `/api/v1/api-keys` | 创建 API Key |
+| GET | `/api/v1/api-keys` | API Key 列表 |
+| POST | `/api/v1/chain-configs` | 创建链配置 |
+| GET | `/api/v1/chain-configs` | 链配置列表 |
+| GET | `/api/v1/chain-configs/:id` | 获取链配置详情 |
+| PUT | `/api/v1/chain-configs/:id` | 更新链配置 |
+| DELETE | `/api/v1/chain-configs/:id` | 删除链配置 |
+| POST | `/api/v1/chain-configs/:id/test-connection` | 测试链连接 |
+| POST | `/api/v1/chain-configs/:chainConfigId/contracts` | 创建合约配置 |
+| GET | `/api/v1/chain-configs/:chainConfigId/contracts` | 合约配置列表 |
+| GET | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | 获取合约配置 |
+| PUT | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | 更新合约配置 |
+| DELETE | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | 删除合约配置 |
+| GET | `/api/v1/users` | 用户列表 |
+| GET | `/api/v1/dashboard/overview` | 仪表盘概览 |
+| GET | `/api/v1/dashboard/call-logs` | 调用日志（可筛选） |
+| GET | `/api/v1/dashboard/usage-stats` | 用量统计 |
+| GET | `/api/v1/dashboard/bills` | 账单记录 |
+| GET | `/api/v1/dashboard/audit-logs` | 审计日志 |
+
 ### 租户管理
 
 ```bash
@@ -676,10 +716,13 @@ curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains
 curl -X POST http://localhost:8080/api/v1/tenants \
   -H "Content-Type: application/json" \
   -H "X-API-Key: admin-api-key" \
-  -d '{"name": "my-company", "email": "admin@company.com", "plan": "developer"}'
+  -d '{"name": "my-company", "email": "admin@company.com", "phone": "13800138000", "password": "secure-pass", "plan": "developer"}'
 
 # 租户列表
-curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/tenants
+curl -H "X-API-Key: admin-api-key" "http://localhost:8080/api/v1/tenants?page=1&page_size=10"
+
+# 获取租户详情
+curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/tenants/1
 
 # 禁用租户
 curl -X POST http://localhost:8080/api/v1/tenants/1/disable \
@@ -697,59 +740,165 @@ curl -X POST http://localhost:8080/api/v1/tenants/1/enable \
 curl -X POST http://localhost:8080/api/v1/api-keys \
   -H "Content-Type: application/json" \
   -H "X-API-Key: admin-api-key" \
-  -d '{"name": "production-key", "permissions": ["contract:call", "tx:query"]}'
+  -d '{"name": "production-key", "permissions": "contract:call,tx:query", "ip_whitelist": "10.0.0.0/8", "expires_in": 86400}'
 
 # API Key 列表
-curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/api-keys
+curl -H "X-API-Key: admin-api-key" "http://localhost:8080/api/v1/api-keys?page=1&page_size=10"
 ```
 
 ### 链配置管理
 
 ```bash
-# 创建链配置
+# 创建 Ethereum 链配置
 curl -X POST http://localhost:8080/api/v1/chain-configs \
   -H "Content-Type: application/json" \
   -H "X-API-Key: admin-api-key" \
   -d '{
     "chain_name": "eth-mainnet",
     "chain_type": "ethereum",
-    "sdk_conf": "{\"chain_id\":1,\"http_url\":\"https://mainnet.infura.io/v3/KEY\"}"
+    "enable": true,
+    "eth_chain_id": 1,
+    "http_url": "https://mainnet.infura.io/v3/YOUR_KEY",
+    "websocket_url": "wss://mainnet.infura.io/ws/v3/YOUR_KEY",
+    "private_key": "hex-私钥",
+    "gas_limit": 1000000
+  }'
+
+# 创建 ChainMaker 链配置
+curl -X POST http://localhost:8080/api/v1/chain-configs \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: admin-api-key" \
+  -d '{
+    "chain_name": "chainmaker01",
+    "chain_type": "chainmaker",
+    "enable": true,
+    "chain_id": "chain1",
+    "auth_type": "permissionedWithCert",
+    "org_id": "wx-org1.chainmaker.org",
+    "sign_key": "-----BEGIN EC PRIVATE KEY-----...",
+    "sign_cert": "-----BEGIN CERTIFICATE-----...",
+    "nodes": [{"node_addr": "127.0.0.1:12301", "conn_cnt": 10}]
+  }'
+
+# 创建 Solana 链配置
+curl -X POST http://localhost:8080/api/v1/chain-configs \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: admin-api-key" \
+  -d '{
+    "chain_name": "solana-devnet",
+    "chain_type": "solana",
+    "enable": true,
+    "sol_rpc_url": "https://api.devnet.solana.com",
+    "sol_private_key": "base58-私钥",
+    "commitment_level": "confirmed",
+    "max_retries": 3
   }'
 
 # 链配置列表
 curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/chain-configs
 
+# 获取链配置详情
+curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/chain-configs/1
+
 # 更新链配置
 curl -X PUT http://localhost:8080/api/v1/chain-configs/1 \
   -H "Content-Type: application/json" \
   -H "X-API-Key: admin-api-key" \
-  -d '{"enable": false}'
+  -d '{"enable": false, "chain_name": "eth-mainnet", "chain_type": "ethereum"}'
+
+# 测试链连接
+curl -X POST http://localhost:8080/api/v1/chain-configs/1/test-connection \
+  -H "X-API-Key: admin-api-key"
 
 # 删除链配置
 curl -X DELETE http://localhost:8080/api/v1/chain-configs/1 \
   -H "X-API-Key: admin-api-key"
 ```
 
+### 合约配置管理
+
+```bash
+# 创建合约配置（在链配置 ID 1 下）
+curl -X POST http://localhost:8080/api/v1/chain-configs/1/contracts \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: admin-api-key" \
+  -d '{
+    "contract_name": "notification",
+    "contract_addr": "0x1234...",
+    "abi_json": "[{...}]",
+    "enable_subscribe": true,
+    "extra_conf": "{\"deploy_block_height\": 0}"
+  }'
+
+# 合约配置列表
+curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/chain-configs/1/contracts
+
+# 获取合约配置详情
+curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/chain-configs/1/contracts/1
+
+# 更新合约配置
+curl -X PUT http://localhost:8080/api/v1/chain-configs/1/contracts/1 \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: admin-api-key" \
+  -d '{"contract_name": "notification", "enable_subscribe": false}'
+
+# 删除合约配置
+curl -X DELETE http://localhost:8080/api/v1/chain-configs/1/contracts/1 \
+  -H "X-API-Key: admin-api-key"
+```
+
 ### 通过 HTTP 调用合约
 
 ```bash
-# 调用合约
+# 调用合约（Invoke）
 curl -X POST http://localhost:8080/api/v1/contract/call \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
     "chain_name": "ethereum01",
     "contract_name": "notification",
-    "contract_method": "sendMessage",
-    "kv_pairs": [{"key": "message", "value": "SGVsbG8="}],
-    "method_type": 1,
-    "with_sync_result": true,
-    "tx_timeout": 30
+    "method": "sendMessage",
+    "params": {"message": "Hello, Blockchain!"}
   }'
 
 # 查询交易
 curl -H "X-API-Key: your-api-key" \
-  http://localhost:8080/api/v1/transaction/0xabc123...?chain_name=ethereum01
+  "http://localhost:8080/api/v1/tx/0xabc123...?chain_name=ethereum01"
+
+# 获取可用链列表
+curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains
+
+# 获取链状态
+curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains/ethereum01/status
+```
+
+### 通过 HTTP 订阅事件
+
+```bash
+# 订阅合约事件
+curl -X POST http://localhost:8080/api/v1/events/subscribe \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{
+    "chain_name": "ethereum01",
+    "contract_name": "notification",
+    "contract_addr": "0x1234..."
+  }'
+
+# 轮询事件（返回缓冲的事件）
+curl -H "X-API-Key: your-api-key" \
+  "http://localhost:8080/api/v1/events/poll?subscription_id=sub-123&count=10"
+
+# 取消订阅
+curl -X DELETE http://localhost:8080/api/v1/events/subscribe/sub-123 \
+  -H "X-API-Key: your-api-key"
+```
+
+### 用户管理
+
+```bash
+# 用户列表
+curl -H "X-API-Key: admin-api-key" "http://localhost:8080/api/v1/users?page=1&page_size=10"
 ```
 
 ### 管理后台 API
@@ -760,7 +909,7 @@ curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/dashboard/overvi
 
 # 查询调用日志（支持筛选）
 curl -H "X-API-Key: admin-api-key" \
-  "http://localhost:8080/api/v1/dashboard/call-logs?page=1&page_size=20&chain_name=ethereum01&status=success"
+  "http://localhost:8080/api/v1/dashboard/call-logs?page=1&page_size=20&chain_name=ethereum01&status=success&start_time=2026-01-01&end_time=2026-12-31"
 
 # 获取用量统计
 curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/dashboard/usage-stats
@@ -771,8 +920,53 @@ curl -H "X-API-Key: admin-api-key" \
 
 # 查询审计日志
 curl -H "X-API-Key: admin-api-key" \
-  "http://localhost:8080/api/v1/dashboard/audit-logs?page=1&page_size=20&action=CallContract"
+  "http://localhost:8080/api/v1/dashboard/audit-logs?page=1&page_size=20&action=CallContract&start_time=2026-01-01"
 ```
+
+---
+
+## Web 管理控制台
+
+服务内置了基于 React 19 + Vite + Ant Design 5.x 构建的现代化 Web 管理控制台。
+
+### 启动控制台
+
+```bash
+cd web
+npm install
+npm run dev    # 开发模式：http://localhost:5173
+npm run build  # 生产构建
+```
+
+### 功能页面
+
+- **仪表盘概览**：关键指标卡片、调用趋势图表（ECharts）
+- **链配置管理**：可视化 CRUD Ethereum/ChainMaker/Solana 配置，支持连接测试
+- **合约配置管理**：按链管理合约，ABI 编辑器，订阅开关
+- **合约调用**：交互式调用，内置 Monaco JSON 编辑器编辑参数
+- **交易查询**：搜索和检视交易详情
+- **事件订阅**：订阅/轮询/取消订阅，实时事件展示
+- **租户管理**：创建、启用/禁用租户
+- **API Key 管理**：生成带权限和 IP 白名单的密钥
+- **用户管理**：查看用户列表
+- **调用日志**：可筛选的调用历史，状态指示器
+- **用量统计**：时间序列用量分析图表
+- **账单**：计费记录表格
+- **审计日志**：安全审计追踪，支持操作类型筛选
+- **系统设置**：系统配置页面
+
+### 技术栈
+
+| 技术 | 用途 |
+|------|------|
+| React 19 | UI 框架 |
+| Vite 8 | 构建工具 |
+| Ant Design 5.x | 组件库 |
+| ECharts | 数据可视化 |
+| Monaco Editor | JSON/代码编辑 |
+| Zustand | 状态管理 |
+| React Router 7 | 客户端路由 |
+| Axios | HTTP 客户端 |
 
 ---
 

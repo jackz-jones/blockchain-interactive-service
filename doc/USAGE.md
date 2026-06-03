@@ -1,6 +1,6 @@
 # Usage Guide (English)
 
-This document provides detailed usage instructions for the Chain Interactive Service, including gRPC client integration, chain-specific configurations, and advanced features.
+This document provides detailed usage instructions for the Chain Interactive Service, including gRPC client integration, HTTP API reference, chain-specific configurations, and advanced features.
 
 ## Table of Contents
 
@@ -15,6 +15,8 @@ This document provides detailed usage instructions for the Chain Interactive Ser
   - [ChainMaker](#chainmaker)
   - [Solana](#solana)
 - [Event Subscription](#event-subscription)
+- [Multi-Tenant HTTP API](#multi-tenant-http-api)
+- [Web Dashboard](#web-dashboard)
 - [TLS Configuration](#tls-configuration)
 - [Monitoring](#monitoring)
 - [Error Handling](#error-handling)
@@ -661,6 +663,8 @@ In this case, the transaction **was successfully submitted** to the node. The `t
 
 The service provides a RESTful HTTP API Gateway (default port: 8080) for multi-tenant management and contract operations.
 
+All HTTP handlers are generated via `goctl` from the API definition file `api/chaininteractive.api`.
+
 ### Authentication
 
 All HTTP API requests require an `X-API-Key` header:
@@ -669,6 +673,42 @@ All HTTP API requests require an `X-API-Key` header:
 curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains
 ```
 
+### Complete API Route Table
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/contract/call` | Call/query contract |
+| GET | `/api/v1/tx/:txId` | Query transaction by ID |
+| GET | `/api/v1/chains` | List available chains |
+| GET | `/api/v1/chains/:chainName/status` | Get chain connection status |
+| POST | `/api/v1/events/subscribe` | Subscribe to contract events |
+| GET | `/api/v1/events/poll` | Poll subscribed events |
+| DELETE | `/api/v1/events/subscribe/:subscriptionId` | Unsubscribe |
+| POST | `/api/v1/tenants` | Create tenant |
+| GET | `/api/v1/tenants/:id` | Get tenant detail |
+| GET | `/api/v1/tenants` | List tenants |
+| POST | `/api/v1/tenants/:id/disable` | Disable tenant |
+| POST | `/api/v1/tenants/:id/enable` | Enable tenant |
+| POST | `/api/v1/api-keys` | Create API Key |
+| GET | `/api/v1/api-keys` | List API Keys |
+| POST | `/api/v1/chain-configs` | Create chain config |
+| GET | `/api/v1/chain-configs` | List chain configs |
+| GET | `/api/v1/chain-configs/:id` | Get chain config detail |
+| PUT | `/api/v1/chain-configs/:id` | Update chain config |
+| DELETE | `/api/v1/chain-configs/:id` | Delete chain config |
+| POST | `/api/v1/chain-configs/:id/test-connection` | Test chain connection |
+| POST | `/api/v1/chain-configs/:chainConfigId/contracts` | Create contract config |
+| GET | `/api/v1/chain-configs/:chainConfigId/contracts` | List contract configs |
+| GET | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | Get contract config |
+| PUT | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | Update contract config |
+| DELETE | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | Delete contract config |
+| GET | `/api/v1/users` | List users |
+| GET | `/api/v1/dashboard/overview` | Dashboard overview |
+| GET | `/api/v1/dashboard/call-logs` | Call logs (filterable) |
+| GET | `/api/v1/dashboard/usage-stats` | Usage statistics |
+| GET | `/api/v1/dashboard/bills` | Billing records |
+| GET | `/api/v1/dashboard/audit-logs` | Audit logs |
+
 ### Tenant Management
 
 ```bash
@@ -676,10 +716,13 @@ curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains
 curl -X POST http://localhost:8080/api/v1/tenants \
   -H "Content-Type: application/json" \
   -H "X-API-Key: admin-api-key" \
-  -d '{"name": "my-company", "email": "admin@company.com", "plan": "developer"}'
+  -d '{"name": "my-company", "email": "admin@company.com", "phone": "13800138000", "password": "secure-pass", "plan": "developer"}'
 
 # List tenants
-curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/tenants
+curl -H "X-API-Key: admin-api-key" "http://localhost:8080/api/v1/tenants?page=1&page_size=10"
+
+# Get tenant detail
+curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/tenants/1
 
 # Disable tenant
 curl -X POST http://localhost:8080/api/v1/tenants/1/disable \
@@ -697,59 +740,165 @@ curl -X POST http://localhost:8080/api/v1/tenants/1/enable \
 curl -X POST http://localhost:8080/api/v1/api-keys \
   -H "Content-Type: application/json" \
   -H "X-API-Key: admin-api-key" \
-  -d '{"name": "production-key", "permissions": ["contract:call", "tx:query"]}'
+  -d '{"name": "production-key", "permissions": "contract:call,tx:query", "ip_whitelist": "10.0.0.0/8", "expires_in": 86400}'
 
 # List API Keys
-curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/api-keys
+curl -H "X-API-Key: admin-api-key" "http://localhost:8080/api/v1/api-keys?page=1&page_size=10"
 ```
 
 ### Chain Configuration Management
 
 ```bash
-# Create chain config
+# Create Ethereum chain config
 curl -X POST http://localhost:8080/api/v1/chain-configs \
   -H "Content-Type: application/json" \
   -H "X-API-Key: admin-api-key" \
   -d '{
     "chain_name": "eth-mainnet",
     "chain_type": "ethereum",
-    "sdk_conf": "{\"chain_id\":1,\"http_url\":\"https://mainnet.infura.io/v3/KEY\"}"
+    "enable": true,
+    "eth_chain_id": 1,
+    "http_url": "https://mainnet.infura.io/v3/YOUR_KEY",
+    "websocket_url": "wss://mainnet.infura.io/ws/v3/YOUR_KEY",
+    "private_key": "hex-private-key",
+    "gas_limit": 1000000
+  }'
+
+# Create ChainMaker chain config
+curl -X POST http://localhost:8080/api/v1/chain-configs \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: admin-api-key" \
+  -d '{
+    "chain_name": "chainmaker01",
+    "chain_type": "chainmaker",
+    "enable": true,
+    "chain_id": "chain1",
+    "auth_type": "permissionedWithCert",
+    "org_id": "wx-org1.chainmaker.org",
+    "sign_key": "-----BEGIN EC PRIVATE KEY-----...",
+    "sign_cert": "-----BEGIN CERTIFICATE-----...",
+    "nodes": [{"node_addr": "127.0.0.1:12301", "conn_cnt": 10}]
+  }'
+
+# Create Solana chain config
+curl -X POST http://localhost:8080/api/v1/chain-configs \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: admin-api-key" \
+  -d '{
+    "chain_name": "solana-devnet",
+    "chain_type": "solana",
+    "enable": true,
+    "sol_rpc_url": "https://api.devnet.solana.com",
+    "sol_private_key": "base58-private-key",
+    "commitment_level": "confirmed",
+    "max_retries": 3
   }'
 
 # List chain configs
 curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/chain-configs
 
+# Get chain config detail
+curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/chain-configs/1
+
 # Update chain config
 curl -X PUT http://localhost:8080/api/v1/chain-configs/1 \
   -H "Content-Type: application/json" \
   -H "X-API-Key: admin-api-key" \
-  -d '{"enable": false}'
+  -d '{"enable": false, "chain_name": "eth-mainnet", "chain_type": "ethereum"}'
+
+# Test chain connection
+curl -X POST http://localhost:8080/api/v1/chain-configs/1/test-connection \
+  -H "X-API-Key: admin-api-key"
 
 # Delete chain config
 curl -X DELETE http://localhost:8080/api/v1/chain-configs/1 \
   -H "X-API-Key: admin-api-key"
 ```
 
+### Contract Configuration Management
+
+```bash
+# Create contract config (under chain config ID 1)
+curl -X POST http://localhost:8080/api/v1/chain-configs/1/contracts \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: admin-api-key" \
+  -d '{
+    "contract_name": "notification",
+    "contract_addr": "0x1234...",
+    "abi_json": "[{...}]",
+    "enable_subscribe": true,
+    "extra_conf": "{\"deploy_block_height\": 0}"
+  }'
+
+# List contract configs
+curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/chain-configs/1/contracts
+
+# Get contract config detail
+curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/chain-configs/1/contracts/1
+
+# Update contract config
+curl -X PUT http://localhost:8080/api/v1/chain-configs/1/contracts/1 \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: admin-api-key" \
+  -d '{"contract_name": "notification", "enable_subscribe": false}'
+
+# Delete contract config
+curl -X DELETE http://localhost:8080/api/v1/chain-configs/1/contracts/1 \
+  -H "X-API-Key: admin-api-key"
+```
+
 ### Contract Operations via HTTP
 
 ```bash
-# Call contract
+# Call contract (Invoke)
 curl -X POST http://localhost:8080/api/v1/contract/call \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
     "chain_name": "ethereum01",
     "contract_name": "notification",
-    "contract_method": "sendMessage",
-    "kv_pairs": [{"key": "message", "value": "SGVsbG8="}],
-    "method_type": 1,
-    "with_sync_result": true,
-    "tx_timeout": 30
+    "method": "sendMessage",
+    "params": {"message": "Hello, Blockchain!"}
   }'
 
 # Query transaction
 curl -H "X-API-Key: your-api-key" \
-  http://localhost:8080/api/v1/transaction/0xabc123...?chain_name=ethereum01
+  "http://localhost:8080/api/v1/tx/0xabc123...?chain_name=ethereum01"
+
+# Get available chains
+curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains
+
+# Get chain status
+curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains/ethereum01/status
+```
+
+### Event Subscription via HTTP
+
+```bash
+# Subscribe to contract events
+curl -X POST http://localhost:8080/api/v1/events/subscribe \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{
+    "chain_name": "ethereum01",
+    "contract_name": "notification",
+    "contract_addr": "0x1234..."
+  }'
+
+# Poll events (returns buffered events)
+curl -H "X-API-Key: your-api-key" \
+  "http://localhost:8080/api/v1/events/poll?subscription_id=sub-123&count=10"
+
+# Unsubscribe
+curl -X DELETE http://localhost:8080/api/v1/events/subscribe/sub-123 \
+  -H "X-API-Key: your-api-key"
+```
+
+### User Management
+
+```bash
+# List users
+curl -H "X-API-Key: admin-api-key" "http://localhost:8080/api/v1/users?page=1&page_size=10"
 ```
 
 ### Dashboard API
@@ -760,7 +909,7 @@ curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/dashboard/overvi
 
 # Query call logs (with filters)
 curl -H "X-API-Key: admin-api-key" \
-  "http://localhost:8080/api/v1/dashboard/call-logs?page=1&page_size=20&chain_name=ethereum01&status=success"
+  "http://localhost:8080/api/v1/dashboard/call-logs?page=1&page_size=20&chain_name=ethereum01&status=success&start_time=2026-01-01&end_time=2026-12-31"
 
 # Get usage statistics
 curl -H "X-API-Key: admin-api-key" http://localhost:8080/api/v1/dashboard/usage-stats
@@ -771,8 +920,53 @@ curl -H "X-API-Key: admin-api-key" \
 
 # Query audit logs
 curl -H "X-API-Key: admin-api-key" \
-  "http://localhost:8080/api/v1/dashboard/audit-logs?page=1&page_size=20&action=CallContract"
+  "http://localhost:8080/api/v1/dashboard/audit-logs?page=1&page_size=20&action=CallContract&start_time=2026-01-01"
 ```
+
+---
+
+## Web Dashboard
+
+The service includes a modern Web Dashboard built with React 19 + Vite + Ant Design 5.x.
+
+### Running the Dashboard
+
+```bash
+cd web
+npm install
+npm run dev    # Development: http://localhost:5173
+npm run build  # Production build
+```
+
+### Features
+
+- **Dashboard Overview**: Key metrics cards, call trend charts (ECharts)
+- **Chain Configuration**: Visual CRUD for Ethereum/ChainMaker/Solana configs with connection testing
+- **Contract Configuration**: Manage contracts per chain, ABI editor, subscription toggle
+- **Contract Call**: Interactive invocation with Monaco JSON editor for parameters
+- **Transaction Query**: Search and inspect transaction details
+- **Event Subscription**: Subscribe/poll/unsubscribe with real-time event display
+- **Tenant Management**: Create, enable/disable tenants
+- **API Key Management**: Generate keys with permissions and IP whitelist
+- **User Management**: View user list
+- **Call Logs**: Filterable call history with status indicators
+- **Usage Statistics**: Usage analytics with time-series charts
+- **Bills**: Billing records table
+- **Audit Logs**: Security audit trail with action filtering
+- **Settings**: System configuration page
+
+### Tech Stack
+
+| Technology | Purpose |
+|---|---|
+| React 19 | UI framework |
+| Vite 8 | Build tool |
+| Ant Design 5.x | Component library |
+| ECharts | Data visualization |
+| Monaco Editor | JSON/code editing |
+| Zustand | State management |
+| React Router 7 | Client-side routing |
+| Axios | HTTP client |
 
 ---
 

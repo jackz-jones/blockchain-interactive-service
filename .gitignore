@@ -8,3 +8,8 @@ cover.out
 vendor
 client
 .codebuddy/
+
+# Frontend
+web/node_modules
+web/dist
+web/.vite
