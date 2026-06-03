@@ -3,16 +3,14 @@ module github.com/jackz-jones/blockchain-interactive-service
 go 1.22.7
 
 require (
-	chainmaker.org/chainmaker/common/v2 v2.3.8
 	chainmaker.org/chainmaker/pb-go/v2 v2.3.7
 	chainmaker.org/chainmaker/sdk-go/v2 v2.3.8
 	github.com/ethereum/go-ethereum v1.14.11
 	github.com/gagliardetto/solana-go v1.8.3
-	github.com/jackz-jones/common v0.0.0-20260602055554-1720cf36ec5f
+	github.com/jackz-jones/common v0.0.0-20260603111924-dc427d9a38c7
 	github.com/mr-tron/base58 v1.2.0
 	github.com/stretchr/testify v1.9.0
 	github.com/zeromicro/go-zero v1.6.2
-	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.31.0
 	google.golang.org/grpc v1.65.0
 	google.golang.org/protobuf v1.34.2
@@ -22,6 +20,7 @@ require (
 )
 
 require (
+	chainmaker.org/chainmaker/common/v2 v2.3.8 // indirect
 	chainmaker.org/chainmaker/contract-sdk-go/v2 v2.3.9 // indirect
 	chainmaker.org/chainmaker/protocol/v2 v2.3.9 // indirect
 	chainmaker.org/chainmaker/utils/v2 v2.3.6 // indirect
@@ -167,6 +166,7 @@ require (
 	go.uber.org/automaxprocs v1.5.3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/ratelimit v0.2.0 // indirect
+	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
 	golang.org/x/net v0.28.0 // indirect
 	golang.org/x/oauth2 v0.20.0 // indirect

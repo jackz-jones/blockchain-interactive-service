@@ -10,13 +10,13 @@ import (
 )
 
 // NewDB 创建数据库连接并自动迁移表结构
-// 复用 common 包 InitGormDB 方法，统一连接池配置和初始化逻辑
 func NewDB(cfg *config.DatabaseConf) (*gorm.DB, error) {
 	if cfg.DSN == "" {
 		return nil, fmt.Errorf("database DSN is required")
 	}
 
-	db, err := commonDB.InitGormDB(cfg.Type, cfg.DSN,
+	// 需要迁移的表模型列表
+	models := []interface{}{
 		&Tenant{},
 		&User{},
 		&APIKey{},
@@ -27,22 +27,17 @@ func NewDB(cfg *config.DatabaseConf) (*gorm.DB, error) {
 		&Bill{},
 		&Quota{},
 		&AuditLog{},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to init database via common.InitGormDB: %w", err)
 	}
 
-	// 如果用户配置了自定义连接池参数，覆盖 common 包的默认值
-	if cfg.MaxIdleConns > 0 || cfg.MaxOpenConns > 0 {
-		sqlDB, sqlErr := db.DB()
-		if sqlErr == nil {
-			if cfg.MaxIdleConns > 0 {
-				sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
-			}
-			if cfg.MaxOpenConns > 0 {
-				sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
-			}
-		}
+	// 自定义 gorm 配置：禁止 AutoMigrate 时使用外键约束操作来处理索引变更，
+	// 避免 MySQL 报 Error 1091: Can't DROP ... check that column/key exists
+	gormConf := &gorm.Config{
+		DisableForeignKeyConstraintWhenMigrating: true,
+	}
+
+	db, err := commonDB.InitGormDB(cfg.Type, cfg.DSN, models, gormConf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
 	logx.Infof("[Store] database connected successfully, type=%s", cfg.Type)
