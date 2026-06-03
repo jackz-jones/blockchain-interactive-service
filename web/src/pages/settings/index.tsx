@@ -50,6 +50,16 @@ export default function Settings() {
         配置 API Key 以连接到 Chain Interactive Service 后端服务。
       </Paragraph>
 
+      {!apiKey && (
+        <Alert
+          message="首次使用"
+          description="你还没有配置 API Key。请在下方输入已有 Key，或点击「创建 API Key」生成一个新的。"
+          type="info"
+          showIcon
+          style={{ marginBottom: 24 }}
+        />
+      )}
+
       {apiKey && (
         <Alert
           message="已连接"
@@ -85,6 +95,16 @@ export default function Settings() {
             size="large"
           >
             验证并保存
+          </Button>
+
+          <Button
+            type="link"
+            onClick={() => window.location.href = '/api-keys'}
+            block
+            size="large"
+            style={{ marginTop: 8 }}
+          >
+            还没有 API Key？去创建一个 →
           </Button>
         </Space>
       </Card>
