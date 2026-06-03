@@ -77,13 +77,18 @@ func main() {
 	sdk.StartSubscribe(ctx.RootCtx, ctx.Logger, ctx.TenantSDKManager, ctx.Repo)
 
 	// 注册服务退出时的资源释放回调
-	proc.AddShutdownListener(func() {
-		logx.Info("Shutting down, releasing SDK clients and cancelling context")
+	// 注意顺序：wrapUp 先于 shutdown 执行，shutdown 中 ServiceGroup 先关闭服务，再执行后续 shutdownListener
 
-		// 先取消根 ctx，通知订阅 goroutine 等退出
+	// 1. wrapUp 阶段：取消根 ctx，通知订阅 goroutine 等退出（在服务关闭之前）
+	proc.AddWrapUpListener(func() {
+		logx.Info("Wrapping up, cancelling root context")
 		ctx.Cancel()
+	})
 
-		// 停止所有租户级 SDK 客户端
+	// 2. shutdown 阶段：ServiceGroup 内部注册的 stopOnce 会先执行（关闭 gRPC 和 HTTP 服务）
+	//    然后执行以下 shutdownListener：停止所有租户级 SDK 客户端
+	proc.AddShutdownListener(func() {
+		logx.Info("Shutting down, releasing SDK clients")
 		if ctx.TenantSDKManager != nil {
 			ctx.TenantSDKManager.StopAll()
 		}
