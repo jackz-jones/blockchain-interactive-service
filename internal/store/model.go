@@ -9,11 +9,11 @@ import (
 // Tenant 租户表
 type Tenant struct {
 	gorm.Model
-	Name   string       `gorm:"size:128;not null;uniqueIndex" json:"name"`     // 租户名称
-	Email  string       `gorm:"size:256;not null;uniqueIndex" json:"email"`    // 联系邮箱
-	Phone  string       `gorm:"size:32" json:"phone"`                          // 联系电话
-	Status TenantStatus `gorm:"size:16;not null;default:active" json:"status"` // 状态：active、disabled、suspended
-	Plan   string       `gorm:"size:32;not null;default:free" json:"plan"`     // 套餐：free、developer、enterprise
+	Name   string       `gorm:"size:128;not null;uniqueIndex:idx_tenants_name" json:"name"`   // 租户名称
+	Email  string       `gorm:"size:256;not null;uniqueIndex:idx_tenants_email" json:"email"` // 联系邮箱
+	Phone  string       `gorm:"size:32" json:"phone"`                                         // 联系电话
+	Status TenantStatus `gorm:"size:16;not null;default:active" json:"status"`                // 状态：active、disabled、suspended
+	Plan   string       `gorm:"size:32;not null;default:free" json:"plan"`                    // 套餐：free、developer、enterprise
 }
 
 // TenantStatus 租户状态枚举
@@ -28,11 +28,11 @@ const (
 // User 用户表（租户下的子账号）
 type User struct {
 	gorm.Model
-	TenantID uint     `gorm:"not null;index" json:"tenant_id"`                // 所属租户
-	Username string   `gorm:"size:64;not null;uniqueIndex" json:"username"`   // 用户名
-	Password string   `gorm:"size:256;not null" json:"-"`                     // 密码哈希
-	Role     UserRole `gorm:"size:16;not null;default:developer" json:"role"` // 角色：admin、developer、readonly
-	Status   string   `gorm:"size:16;not null;default:active" json:"status"`  // 状态
+	TenantID uint     `gorm:"not null;index" json:"tenant_id"`                                 // 所属租户
+	Username string   `gorm:"size:64;not null;uniqueIndex:idx_users_username" json:"username"` // 用户名
+	Password string   `gorm:"size:256;not null" json:"-"`                                      // 密码哈希
+	Role     UserRole `gorm:"size:16;not null;default:developer" json:"role"`                  // 角色：admin、developer、readonly
+	Status   string   `gorm:"size:16;not null;default:active" json:"status"`                   // 状态
 
 	Tenant Tenant `gorm:"foreignKey:TenantID" json:"-"`
 }
@@ -49,15 +49,15 @@ const (
 // APIKey API 密钥表
 type APIKey struct {
 	gorm.Model
-	TenantID    uint       `gorm:"not null;index" json:"tenant_id"`               // 所属租户
-	UserID      uint       `gorm:"not null;index" json:"user_id"`                 // 创建者
-	Key         string     `gorm:"size:64;not null;uniqueIndex" json:"key"`       // API Key 值
-	Name        string     `gorm:"size:128;not null" json:"name"`                 // Key 名称/描述
-	Permissions string     `gorm:"size:512" json:"permissions"`                   // 权限范围（JSON 数组）
-	IPWhitelist string     `gorm:"size:1024" json:"ip_whitelist"`                 // IP 白名单（逗号分隔）
-	Status      string     `gorm:"size:16;not null;default:active" json:"status"` // 状态：active、revoked
-	ExpiresAt   *time.Time `json:"expires_at"`                                    // 过期时间，nil 表示永不过期
-	LastUsedAt  *time.Time `json:"last_used_at"`                                  // 最后使用时间
+	TenantID    uint       `gorm:"not null;index" json:"tenant_id"`                          // 所属租户
+	UserID      uint       `gorm:"not null;index" json:"user_id"`                            // 创建者
+	Key         string     `gorm:"size:64;not null;uniqueIndex:idx_api_keys_key" json:"key"` // API Key 值
+	Name        string     `gorm:"size:128;not null" json:"name"`                            // Key 名称/描述
+	Permissions string     `gorm:"size:512" json:"permissions"`                              // 权限范围（JSON 数组）
+	IPWhitelist string     `gorm:"size:1024" json:"ip_whitelist"`                            // IP 白名单（逗号分隔）
+	Status      string     `gorm:"size:16;not null;default:active" json:"status"`            // 状态：active、revoked
+	ExpiresAt   *time.Time `json:"expires_at"`                                               // 过期时间，nil 表示永不过期
+	LastUsedAt  *time.Time `json:"last_used_at"`                                             // 最后使用时间
 
 	Tenant Tenant `gorm:"foreignKey:TenantID" json:"-"`
 	User   User   `gorm:"foreignKey:UserID" json:"-"`
@@ -164,12 +164,12 @@ type Bill struct {
 // Quota 配额表
 type Quota struct {
 	gorm.Model
-	TenantID      uint   `gorm:"not null;uniqueIndex" json:"tenant_id"`                   // 所属租户
-	MonthlyLimit  uint64 `gorm:"not null;default:1000" json:"monthly_limit"`              // 月调用上限
-	DailyLimit    uint64 `gorm:"not null;default:100" json:"daily_limit"`                 // 日调用上限
-	RateLimit     int    `gorm:"not null;default:10" json:"rate_limit"`                   // QPS 限制
-	MonthlyUsed   uint64 `gorm:"default:0" json:"monthly_used"`                           // 当月已用
-	OveragePolicy string `gorm:"size:16;not null;default:throttle" json:"overage_policy"` // 超额策略：throttle、block
+	TenantID      uint   `gorm:"not null;uniqueIndex:idx_quotas_tenant_id" json:"tenant_id"` // 所属租户
+	MonthlyLimit  uint64 `gorm:"not null;default:1000" json:"monthly_limit"`                 // 月调用上限
+	DailyLimit    uint64 `gorm:"not null;default:100" json:"daily_limit"`                    // 日调用上限
+	RateLimit     int    `gorm:"not null;default:10" json:"rate_limit"`                      // QPS 限制
+	MonthlyUsed   uint64 `gorm:"default:0" json:"monthly_used"`                              // 当月已用
+	OveragePolicy string `gorm:"size:16;not null;default:throttle" json:"overage_policy"`    // 超额策略：throttle、block
 
 	Tenant Tenant `gorm:"foreignKey:TenantID" json:"-"`
 }

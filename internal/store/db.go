@@ -9,38 +9,55 @@ import (
 	"gorm.io/gorm"
 )
 
-// NewDB 创建数据库连接并自动迁移表结构
+// allModels 所有需要迁移的表模型列表（仅在 AutoMigrate 开启时使用）
+var allModels = []interface{}{
+	&Tenant{},
+	&User{},
+	&APIKey{},
+	&TenantChainConfig{},
+	&TenantChainNode{},
+	&TenantContractConfig{},
+	&CallLog{},
+	&Bill{},
+	&Quota{},
+	&AuditLog{},
+}
+
+// NewDB 创建数据库连接，根据配置决定是否自动迁移表结构
 func NewDB(cfg *config.DatabaseConf) (*gorm.DB, error) {
 	if cfg.DSN == "" {
 		return nil, fmt.Errorf("database DSN is required")
 	}
 
-	// 需要迁移的表模型列表
-	models := []interface{}{
-		&Tenant{},
-		&User{},
-		&APIKey{},
-		&TenantChainConfig{},
-		&TenantChainNode{},
-		&TenantContractConfig{},
-		&CallLog{},
-		&Bill{},
-		&Quota{},
-		&AuditLog{},
-	}
-
-	// 自定义 gorm 配置：禁止 AutoMigrate 时使用外键约束操作来处理索引变更，
-	// 避免 MySQL 报 Error 1091: Can't DROP ... check that column/key exists
-	gormConf := &gorm.Config{
-		DisableForeignKeyConstraintWhenMigrating: true,
-	}
-
-	db, err := commonDB.InitGormDB(cfg.Type, cfg.DSN, models, gormConf)
+	// 传 nil models 给 InitGormDB，跳过其内部的 AutoMigrate
+	db, err := commonDB.InitGormDB(cfg.Type, cfg.DSN, nil, &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
-	logx.Infof("[Store] database connected successfully, type=%s", cfg.Type)
+	// 仅在配置开启时执行 AutoMigrate（开发/测试环境首次建表使用，生产环境通过 migration 工具管理）
+	if cfg.AutoMigrate {
+		logx.Info("[Store] AutoMigrate enabled, migrating table schemas...")
+		if migrateErr := db.AutoMigrate(allModels...); migrateErr != nil {
+			return nil, fmt.Errorf("failed to auto migrate tables: %w", migrateErr)
+		}
+		logx.Info("[Store] AutoMigrate completed successfully")
+	}
+
+	// 如果用户配置了自定义连接池参数，覆盖 common 包的默认值
+	if cfg.MaxIdleConns > 0 || cfg.MaxOpenConns > 0 {
+		sqlDB, sqlErr := db.DB()
+		if sqlErr == nil {
+			if cfg.MaxIdleConns > 0 {
+				sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+			}
+			if cfg.MaxOpenConns > 0 {
+				sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+			}
+		}
+	}
+
+	logx.Infof("[Store] database connected successfully, type=%s, autoMigrate=%v", cfg.Type, cfg.AutoMigrate)
 
 	return db, nil
 }

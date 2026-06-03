@@ -40,6 +40,10 @@ type DatabaseConf struct {
 	// DSN 数据库连接字符串
 	DSN string
 
+	// AutoMigrate 是否在启动时自动迁移表结构
+	// 仅开发/测试环境首次建表时开启，生产环境应设为 false，通过 migration 工具管理 schema 变更
+	AutoMigrate bool `json:",default=false"` //nolint:staticcheck
+
 	// MaxIdleConns 空闲连接池最大数量（可选，默认使用 common 包内置值）
 	MaxIdleConns int `json:",optional"` //nolint:staticcheck
 
