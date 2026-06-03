@@ -17,6 +17,7 @@ import (
 	commonGrpc "github.com/jackz-jones/common/grpc"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/proc"
 	"github.com/zeromicro/go-zero/core/service"
 	"github.com/zeromicro/go-zero/rest"
 	"google.golang.org/grpc"
@@ -61,38 +62,24 @@ func main() {
 		panic(fmt.Errorf("failed to CreateGRPCServer,error: %v", err))
 	}
 
-	defer s.Stop()
-
 	// 注册 gRPC 拦截器
 	s.AddUnaryInterceptors(authInterceptor.Unary())
 	s.AddUnaryInterceptors(rbacInterceptor.Unary())
 	s.AddUnaryInterceptors(quotaInterceptor.Unary())
 
-	// 启动 HTTP API Gateway
-	if c.GatewayConf.Enable {
-		httpServer := rest.MustNewServer(rest.RestConf{
-			Host: c.GatewayConf.Host,
-			Port: c.GatewayConf.Port,
-		})
-		defer httpServer.Stop()
+	// 使用 ServiceGroup 统一管理 gRPC 和 HTTP 服务
+	group := service.NewServiceGroup()
 
-		handler.RegisterHandlers(httpServer, ctx)
-
-		go func() {
-			addr := fmt.Sprintf("%s:%d", c.GatewayConf.Host, c.GatewayConf.Port)
-			logx.Infof("[Gateway] HTTP API Gateway starting at %s", addr)
-			fmt.Printf("Starting HTTP API Gateway at %s...\n", addr)
-			httpServer.Start()
-		}()
-	} else {
-		logx.Info("[Gateway] HTTP gateway is disabled")
-	}
+	// 添加 gRPC 服务（先添加，后关闭）
+	group.Add(s)
 
 	// 启动订阅（仅基于 DB 配置）
 	sdk.StartSubscribe(ctx.RootCtx, ctx.Logger, ctx.TenantSDKManager, ctx.Repo)
 
-	// 服务退出前释放所有的 sdk client
-	defer func() {
+	// 注册服务退出时的资源释放回调
+	proc.AddShutdownListener(func() {
+		logx.Info("Shutting down, releasing SDK clients and cancelling context")
+
 		// 先取消根 ctx，通知订阅 goroutine 等退出
 		ctx.Cancel()
 
@@ -100,9 +87,29 @@ func main() {
 		if ctx.TenantSDKManager != nil {
 			ctx.TenantSDKManager.StopAll()
 		}
-	}()
+	})
+
+	// 启动 HTTP API Gateway
+	if c.GatewayConf.Enable {
+		httpServer := rest.MustNewServer(rest.RestConf{
+			Host: c.GatewayConf.Host,
+			Port: c.GatewayConf.Port,
+		})
+		handler.RegisterHandlers(httpServer, ctx)
+
+		// 添加 HTTP 服务（后添加，先关闭）
+		group.Add(httpServer)
+
+		addr := fmt.Sprintf("%s:%d", c.GatewayConf.Host, c.GatewayConf.Port)
+		logx.Infof("[Gateway] HTTP API Gateway starting at %s", addr)
+		fmt.Printf("Starting HTTP API Gateway at %s...\n", addr)
+	} else {
+		logx.Info("[Gateway] HTTP gateway is disabled")
+	}
 
 	fmt.Printf("Starting rpc server at %s...\n", c.ListenOn)
 	ctx.Logger.Infof("Starting rpc server at %s", c.ListenOn)
-	s.Start()
+
+	// Start 阻塞运行，收到退出信号后按逆序 Stop 所有服务
+	group.Start()
 }
