@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, Input, Button, Typography, Space, message, Alert, Divider, Form } from 'antd'
 import { KeyOutlined, CheckCircleOutlined, UserAddOutlined } from '@ant-design/icons'
 import { useAuthStore } from '@/stores/auth'
@@ -7,6 +8,7 @@ import api from '@/services/api'
 const { Title, Paragraph, Text } = Typography
 
 export default function Settings() {
+  const navigate = useNavigate()
   const { apiKey, setApiKey, setTenant } = useAuthStore()
   const [inputKey, setInputKey] = useState(apiKey || '')
   const [loading, setLoading] = useState(false)
@@ -35,6 +37,8 @@ export default function Settings() {
         role: (info.role as 'admin' | 'user') || 'admin',
       })
       message.success('API Key 验证成功')
+      // 验证成功后自动跳转到概览页
+      navigate('/dashboard')
     } catch {
       message.error('API Key 验证失败，请检查输入')
     } finally {
@@ -66,6 +70,8 @@ export default function Settings() {
       message.success('注册成功！API Key 已自动配置')
       setRegisterMode(false)
       registerForm.resetFields()
+      // 注册成功后自动跳转到概览页
+      navigate('/dashboard')
     } catch {
       // 错误已由拦截器处理
     } finally {
