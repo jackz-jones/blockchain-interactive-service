@@ -22,7 +22,7 @@ gen-code:
 	@sh ./scripts/generate_code.sh chaininteractive
 
 start-service:
-	go run ${SOURCE}
+	@go build -o ./bin/${BUILD_NAME} ${SOURCE} && ./bin/${BUILD_NAME}
 
 build:
 	go build ${LDFLAGS} -o ${BUILD_NAME} ${SOURCE}
