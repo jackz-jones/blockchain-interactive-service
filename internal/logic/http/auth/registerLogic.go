@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/svc"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/tenant"
@@ -38,8 +39,20 @@ func (l *RegisterLogic) Register(req *types.RegisterRequest) (resp interface{}, 
 		Password: req.Password,
 	})
 	if err != nil {
-		if err == tenant.ErrTenantExists {
-			return nil, &types.BizError{Code: 409, Message: "tenant already exists"}
+		if errors.Is(err, tenant.ErrTenantExists) {
+			// 租户已存在，尝试恢复缺失的资源（API Key 和 Quota）
+			recoverResult, recoverErr := l.svcCtx.TenantService.EnsureTenantResources(l.ctx, req.Name, "free", req.Password)
+			if recoverErr != nil {
+				logx.Errorf("failed to recover tenant resources: %v", recoverErr)
+				return nil, &types.BizError{Code: 409, Message: "tenant already exists"}
+			}
+			return map[string]interface{}{
+				"tenant_id":   recoverResult.Tenant.ID,
+				"tenant_name": recoverResult.Tenant.Name,
+				"api_key":     recoverResult.APIKey.Key,
+				"username":    req.Name + "_admin",
+				"recovered":   true,
+			}, nil
 		}
 		return nil, &types.BizError{Code: 500, Message: "create tenant: " + err.Error()}
 	}

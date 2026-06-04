@@ -49,15 +49,15 @@ const (
 // APIKey API 密钥表
 type APIKey struct {
 	gorm.Model
-	TenantID    uint       `gorm:"not null;index" json:"tenant_id"`                          // 所属租户
-	UserID      uint       `gorm:"not null;index" json:"user_id"`                            // 创建者
-	Key         string     `gorm:"size:64;not null;uniqueIndex:idx_api_keys_key" json:"key"` // API Key 值
-	Name        string     `gorm:"size:128;not null" json:"name"`                            // Key 名称/描述
-	Permissions string     `gorm:"size:512" json:"permissions"`                              // 权限范围（JSON 数组）
-	IPWhitelist string     `gorm:"size:1024" json:"ip_whitelist"`                            // IP 白名单（逗号分隔）
-	Status      string     `gorm:"size:16;not null;default:active" json:"status"`            // 状态：active、revoked
-	ExpiresAt   *time.Time `json:"expires_at"`                                               // 过期时间，nil 表示永不过期
-	LastUsedAt  *time.Time `json:"last_used_at"`                                             // 最后使用时间
+	TenantID    uint       `gorm:"not null;index" json:"tenant_id"`                           // 所属租户
+	UserID      uint       `gorm:"not null;index" json:"user_id"`                             // 创建者
+	Key         string     `gorm:"size:128;not null;uniqueIndex:idx_api_keys_key" json:"key"` // API Key 值
+	Name        string     `gorm:"size:128;not null" json:"name"`                             // Key 名称/描述
+	Permissions string     `gorm:"size:512" json:"permissions"`                               // 权限范围（JSON 数组）
+	IPWhitelist string     `gorm:"size:1024" json:"ip_whitelist"`                             // IP 白名单（逗号分隔）
+	Status      string     `gorm:"size:16;not null;default:active" json:"status"`             // 状态：active、revoked
+	ExpiresAt   *time.Time `json:"expires_at"`                                                // 过期时间，nil 表示永不过期
+	LastUsedAt  *time.Time `json:"last_used_at"`                                              // 最后使用时间
 
 	Tenant Tenant `gorm:"foreignKey:TenantID" json:"-"`
 	User   User   `gorm:"foreignKey:UserID" json:"-"`

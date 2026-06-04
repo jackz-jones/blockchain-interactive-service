@@ -10,6 +10,9 @@ import (
 
 // Repository 数据访问层接口
 type Repository interface {
+	// 获取底层数据库连接（用于事务操作）
+	DB() *gorm.DB
+
 	// 租户相关
 	CreateTenant(ctx context.Context, tenant *Tenant) error
 	GetTenantByID(ctx context.Context, id uint) (*Tenant, error)
@@ -112,6 +115,11 @@ type GormRepository struct {
 // NewGormRepository 创建 GormRepository 实例
 func NewGormRepository(db *gorm.DB) Repository {
 	return &GormRepository{db: db}
+}
+
+// DB 获取底层数据库连接（用于事务操作）
+func (r *GormRepository) DB() *gorm.DB {
+	return r.db
 }
 
 // ========== 租户 ==========

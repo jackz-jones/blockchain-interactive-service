@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 var (
@@ -49,76 +50,201 @@ type CreateTenantResponse struct {
 
 // CreateTenant 创建新租户（含默认管理员和 API Key）
 func (s *Service) CreateTenant(ctx context.Context, req *CreateTenantRequest) (*CreateTenantResponse, error) {
-	// 检查租户名是否已存在
-	existing, err := s.repo.GetTenantByName(ctx, req.Name)
+	// 使用数据库事务确保所有操作的原子性
+	var result *CreateTenantResponse
+	err := s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 检查租户名是否已存在
+		var existing store.Tenant
+		if err := tx.Where("name = ?", req.Name).First(&existing).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("check tenant existence: %w", err)
+			}
+		} else {
+			return ErrTenantExists
+		}
+
+		// 创建租户
+		plan := req.Plan
+		if plan == "" {
+			plan = "free"
+		}
+		tenant := &store.Tenant{
+			Name:   req.Name,
+			Email:  req.Email,
+			Phone:  req.Phone,
+			Status: store.TenantStatusActive,
+			Plan:   plan,
+		}
+		if err := tx.Create(tenant).Error; err != nil {
+			return fmt.Errorf("create tenant: %w", err)
+		}
+
+		// 创建默认管理员账号
+		hashedPwd, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("hash password: %w", err)
+		}
+		admin := &store.User{
+			TenantID: tenant.ID,
+			Username: req.Name + "_admin",
+			Password: string(hashedPwd),
+			Role:     store.UserRoleAdmin,
+			Status:   "active",
+		}
+		if err := tx.Create(admin).Error; err != nil {
+			return fmt.Errorf("create admin user: %w", err)
+		}
+
+		// 生成默认 API Key
+		apiKey := &store.APIKey{
+			TenantID: tenant.ID,
+			UserID:   admin.ID,
+			Key:      generateAPIKey(),
+			Name:     "Default API Key",
+			Status:   "active",
+		}
+		if err := tx.Create(apiKey).Error; err != nil {
+			return fmt.Errorf("create api key: %w", err)
+		}
+
+		// 初始化默认配额
+		quota := &store.Quota{
+			TenantID:      tenant.ID,
+			MonthlyLimit:  getDefaultMonthlyLimit(plan),
+			DailyLimit:    getDefaultDailyLimit(plan),
+			RateLimit:     getDefaultRateLimit(plan),
+			OveragePolicy: "throttle",
+		}
+		if err := tx.Create(quota).Error; err != nil {
+			return fmt.Errorf("create quota: %w", err)
+		}
+
+		result = &CreateTenantResponse{
+			Tenant: tenant,
+			Admin:  admin,
+			APIKey: apiKey,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// EnsureTenantResources 确保租户拥有完整的资源（API Key 和 Quota）
+// 如果租户已存在但缺少 API Key 或 Quota，会自动补充创建缺失资源
+func (s *Service) EnsureTenantResources(ctx context.Context, tenantName, plan, password string) (*CreateTenantResponse, error) {
+	// 查找现有租户
+	existing, err := s.repo.GetTenantByName(ctx, tenantName)
 	if err != nil {
 		return nil, fmt.Errorf("check tenant existence: %w", err)
 	}
-	if existing != nil {
-		return nil, ErrTenantExists
+	if existing == nil {
+		return nil, ErrTenantNotFound
 	}
 
-	// 创建租户
-	plan := req.Plan
-	if plan == "" {
-		plan = "free"
-	}
-	tenant := &store.Tenant{
-		Name:   req.Name,
-		Email:  req.Email,
-		Phone:  req.Phone,
-		Status: store.TenantStatusActive,
-		Plan:   plan,
-	}
-	if err := s.repo.CreateTenant(ctx, tenant); err != nil {
-		return nil, fmt.Errorf("create tenant: %w", err)
-	}
+	// 使用数据库事务确保恢复操作的原子性
+	var result *CreateTenantResponse
+	err = s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 检查租户是否已有 API Key
+		var existingAPIKey store.APIKey
+		hasAPIKey := true
+		if err := tx.Where("tenant_id = ? AND status = ?", existing.ID, "active").First(&existingAPIKey).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				hasAPIKey = false
+			} else {
+				return fmt.Errorf("check api key existence: %w", err)
+			}
+		}
 
-	// 创建默认管理员账号
-	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		var apiKey *store.APIKey
+		if !hasAPIKey {
+			// 查找租户的管理员账号
+			var admin store.User
+			if err := tx.Where("tenant_id = ? AND role = ?", existing.ID, store.UserRoleAdmin).First(&admin).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					// 管理员也不存在，需要创建
+					hashedPwd, hashErr := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+					if hashErr != nil {
+						return fmt.Errorf("hash password: %w", hashErr)
+					}
+					admin = store.User{
+						TenantID: existing.ID,
+						Username: tenantName + "_admin",
+						Password: string(hashedPwd),
+						Role:     store.UserRoleAdmin,
+						Status:   "active",
+					}
+					if err := tx.Create(&admin).Error; err != nil {
+						return fmt.Errorf("create admin user: %w", err)
+					}
+				} else {
+					return fmt.Errorf("check admin existence: %w", err)
+				}
+			}
+
+			// 创建缺失的 API Key
+			newAPIKey := &store.APIKey{
+				TenantID: existing.ID,
+				UserID:   admin.ID,
+				Key:      generateAPIKey(),
+				Name:     "Default API Key",
+				Status:   "active",
+			}
+			if err := tx.Create(newAPIKey).Error; err != nil {
+				return fmt.Errorf("create api key: %w", err)
+			}
+			apiKey = newAPIKey
+		} else {
+			apiKey = &existingAPIKey
+		}
+
+		// 检查租户是否已有 Quota
+		var existingQuota store.Quota
+		hasQuota := true
+		if err := tx.Where("tenant_id = ?", existing.ID).First(&existingQuota).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				hasQuota = false
+			} else {
+				return fmt.Errorf("check quota existence: %w", err)
+			}
+		}
+
+		var quota *store.Quota
+		if !hasQuota {
+			// 创建缺失的 Quota
+			plan := existing.Plan
+			if plan == "" {
+				plan = "free"
+			}
+			newQuota := &store.Quota{
+				TenantID:      existing.ID,
+				MonthlyLimit:  getDefaultMonthlyLimit(plan),
+				DailyLimit:    getDefaultDailyLimit(plan),
+				RateLimit:     getDefaultRateLimit(plan),
+				OveragePolicy: "throttle",
+			}
+			if err := tx.Create(newQuota).Error; err != nil {
+				return fmt.Errorf("create quota: %w", err)
+			}
+			quota = newQuota
+		} else {
+			quota = &existingQuota
+		}
+
+		result = &CreateTenantResponse{
+			Tenant: existing,
+			Admin:  nil, // Admin 信息在此恢复场景中非必需
+			APIKey: apiKey,
+		}
+		_ = quota // Quota 信息在此恢复场景中非必需
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("hash password: %w", err)
+		return nil, err
 	}
-	admin := &store.User{
-		TenantID: tenant.ID,
-		Username: req.Name + "_admin",
-		Password: string(hashedPwd),
-		Role:     store.UserRoleAdmin,
-		Status:   "active",
-	}
-	if err := s.repo.CreateUser(ctx, admin); err != nil {
-		return nil, fmt.Errorf("create admin user: %w", err)
-	}
-
-	// 生成默认 API Key
-	apiKey := &store.APIKey{
-		TenantID: tenant.ID,
-		UserID:   admin.ID,
-		Key:      generateAPIKey(),
-		Name:     "Default API Key",
-		Status:   "active",
-	}
-	if err := s.repo.CreateAPIKey(ctx, apiKey); err != nil {
-		return nil, fmt.Errorf("create api key: %w", err)
-	}
-
-	// 初始化默认配额
-	quota := &store.Quota{
-		TenantID:      tenant.ID,
-		MonthlyLimit:  getDefaultMonthlyLimit(plan),
-		DailyLimit:    getDefaultDailyLimit(plan),
-		RateLimit:     getDefaultRateLimit(plan),
-		OveragePolicy: "throttle",
-	}
-	if err := s.repo.CreateOrUpdateQuota(ctx, quota); err != nil {
-		return nil, fmt.Errorf("create quota: %w", err)
-	}
-
-	return &CreateTenantResponse{
-		Tenant: tenant,
-		Admin:  admin,
-		APIKey: apiKey,
-	}, nil
+	return result, nil
 }
 
 // GetTenant 获取租户信息
@@ -250,7 +376,9 @@ func (s *Service) ValidatePassword(ctx context.Context, username, password strin
 
 // generateAPIKey 生成随机 API Key
 func generateAPIKey() string {
-	bytes := make([]byte, 32)
+	// 生成 28 字节随机数 → hex 编码为 56 字符 → 加上 "cis_" 前缀共 60 字符
+	// 满足数据库 key 字段 varchar(64) 的长度限制
+	bytes := make([]byte, 28)
 	if _, err := rand.Read(bytes); err != nil {
 		// fallback: 使用时间戳
 		return fmt.Sprintf("cis_%d", time.Now().UnixNano())
