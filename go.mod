@@ -9,13 +9,12 @@ require (
 	github.com/gagliardetto/solana-go v1.8.3
 	github.com/jackz-jones/common v0.0.0-20260603111924-dc427d9a38c7
 	github.com/mr-tron/base58 v1.2.0
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.9.0
 	github.com/zeromicro/go-zero v1.6.2
 	golang.org/x/crypto v0.31.0
 	google.golang.org/grpc v1.65.0
 	google.golang.org/protobuf v1.34.2
-	gorm.io/driver/mysql v1.4.7
-	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.25.10
 )
 
@@ -125,7 +124,6 @@ require (
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/redis/go-redis/v9 v9.4.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20200410134404-eec4a21b6bb0 // indirect
-	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
@@ -184,6 +182,8 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	gorm.io/driver/mysql v1.4.7 // indirect
+	gorm.io/driver/postgres v1.6.0 // indirect
 	k8s.io/api v0.29.1 // indirect
 	k8s.io/apimachinery v0.29.1 // indirect
 	k8s.io/client-go v0.29.1 // indirect

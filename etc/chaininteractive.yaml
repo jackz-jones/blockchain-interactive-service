@@ -82,3 +82,14 @@ DatabaseConf:
   AutoMigrate: true
   MaxIdleConns: 25
   MaxOpenConns: 100
+
+# HTTP Gateway 配置
+GatewayConf:
+  # Enable 是否启用 HTTP Gateway
+  Enable: true
+  # Host HTTP 监听地址
+  Host: 0.0.0.0
+  # Port HTTP 监听端口
+  Port: 8080
+  # RateLimit 默认 QPS 限制（每租户）
+  RateLimit: 10
