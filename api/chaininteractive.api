@@ -362,6 +362,9 @@ service chaininteractive-api {
 	@handler ListBills
 	get /dashboard/bills (ListBillsRequest) returns (CommonResponse)
 
+	@handler GetRealtimeCost
+	get /dashboard/realtime-cost returns (CommonResponse)
+
 	@handler GenerateBills
 	post /dashboard/bills/generate (GenerateBillsRequest) returns (CommonResponse)
 

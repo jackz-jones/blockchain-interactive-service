@@ -365,6 +365,86 @@ func (s *Service) GetUsageStatsTrend(ctx context.Context, tenantID uint, days in
 
 // ========== 内部方法 ==========
 
+// RealtimeCost 实时计费信息
+type RealtimeCost struct {
+	Plan          string  `json:"plan"`           // 当前套餐
+	MonthCalls    int64   `json:"month_calls"`    // 本月 Invoke 调用量（计费口径）
+	MonthlyLimit  int64   `json:"monthly_limit"`  // 月配额上限
+	MonthlyUsed   int64   `json:"monthly_used"`   // 月已用量
+	CurrentCost   float64 `json:"current_cost"`   // 实时费用（元）
+	Currency      string  `json:"currency"`       // 币种
+	CostBreakdown string  `json:"cost_breakdown"` // 费用说明（如"免费额度内"、"超出 1000 次按 ¥0.01/次"）
+	UsagePercent  float64 `json:"usage_percent"`  // 用量百分比
+	CalculatedAt  string  `json:"calculated_at"`  // 计算时间
+}
+
+// GetRealtimeCost 获取租户实时计费信息（用户主动触发，与定时任务不冲突）
+func (s *Service) GetRealtimeCost(ctx context.Context, tenantID uint, plan string) (*RealtimeCost, error) {
+	now := time.Now()
+
+	// 本月 Invoke 调用量（计费口径，与定时任务一致）
+	monthCalls, err := s.repo.CountCallsByTenantMonth(ctx, tenantID, now.Year(), now.Month())
+	if err != nil {
+		return nil, fmt.Errorf("count month calls: %w", err)
+	}
+
+	// 配额信息
+	quota, err := s.repo.GetQuotaByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get quota: %w", err)
+	}
+
+	// 计算实时费用（与定时任务使用同一 calculateAmount 函数，确保一致性）
+	currentCost := calculateAmount(plan, uint64(monthCalls))
+
+	// 费用说明
+	breakdown := getCostBreakdown(plan, uint64(monthCalls))
+
+	// 配额与用量
+	var monthlyLimit int64
+	var monthlyUsed int64
+	var usagePercent float64
+	if quota != nil {
+		monthlyLimit = int64(quota.MonthlyLimit)
+		monthlyUsed = int64(quota.MonthlyUsed)
+		if quota.MonthlyLimit > 0 {
+			usagePercent = float64(monthlyUsed) / float64(quota.MonthlyLimit) * 100
+		}
+	}
+
+	return &RealtimeCost{
+		Plan:          plan,
+		MonthCalls:    monthCalls,
+		MonthlyLimit:  monthlyLimit,
+		MonthlyUsed:   monthlyUsed,
+		CurrentCost:   currentCost,
+		Currency:      "CNY",
+		CostBreakdown: breakdown,
+		UsagePercent:  usagePercent,
+		CalculatedAt:  now.Format("2006-01-02 15:04:05"),
+	}, nil
+}
+
+// getCostBreakdown 根据套餐和调用量生成费用说明
+func getCostBreakdown(plan string, totalCalls uint64) string {
+	switch plan {
+	case "free":
+		if totalCalls <= 1000 {
+			return "免费套餐，1000 次/月免费额度内"
+		}
+		return fmt.Sprintf("免费套餐，超出 1000 次部分按 ¥0.01/次计费（超出 %d 次）", totalCalls-1000)
+	case "developer":
+		if totalCalls <= 50000 {
+			return "开发者版，月费 ¥99 含 50000 次调用"
+		}
+		return fmt.Sprintf("开发者版，月费 ¥99 + 超出 50000 次部分按 ¥0.005/次计费（超出 %d 次）", totalCalls-50000)
+	case "enterprise":
+		return "企业版，月费 ¥999，无限调用"
+	default:
+		return fmt.Sprintf("按量计费 ¥0.01/次")
+	}
+}
+
 // getDailyCount 获取租户今日调用次数
 func (s *Service) getDailyCount(ctx context.Context, tenantID uint) (int64, error) {
 	// 优先从内存缓存获取

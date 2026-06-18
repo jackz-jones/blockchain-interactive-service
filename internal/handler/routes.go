@@ -36,6 +36,9 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 		rest.WithPrefix("/api/v1"),
 	)
 
+	// ========== 区块链核心操作路由 ==========
+	// 仅区块链核心操作挂载 QuotaMiddleware，配额统计仅针对链上资源消耗
+	// 业内 BaaS 标准：只有调用合约、部署合约、发送交易等链上操作才计配额
 	server.AddRoutes(
 		rest.WithMiddlewares(
 			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
@@ -45,6 +48,35 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/contract/call",
 					Handler: chain.CallContractHandler(serverCtx),
 				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1"),
+	)
+
+	// ========== 区块链事件订阅路由 ==========
+	// 订阅合约事件涉及链上资源，计配额
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
+			[]rest.Route{
+				{
+					Method:  http.MethodPost,
+					Path:    "/events/subscribe-by-contract",
+					Handler: event.SubscribeByContractHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1"),
+	)
+
+	// ========== Web 平台管理路由（不计配额） ==========
+	// 查询链状态、查看交易、管理配置、Dashboard 统计等均为平台操作，不消耗链上资源
+	// 仅挂载认证、审计、限流中间件，不挂载 QuotaMiddleware
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware},
+			[]rest.Route{
+				// 链查询（只读，不计配额）
 				{
 					Method:  http.MethodGet,
 					Path:    "/tx/:txId",
@@ -60,30 +92,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/chains/:chainName/status",
 					Handler: chain.GetChainStatusHandler(serverCtx),
 				},
-			}...,
-		),
-		rest.WithPrefix("/api/v1"),
-	)
-
-	server.AddRoutes(
-		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
-			[]rest.Route{
+				// 事件查询（只读，不计配额）
 				{
 					Method:  http.MethodGet,
 					Path:    "/events/subscriptions",
 					Handler: event.ListSubscriptionsHandler(serverCtx),
-				},
-				// 基于合约配置的订阅管理
-				{
-					Method:  http.MethodPost,
-					Path:    "/events/subscribe-by-contract",
-					Handler: event.SubscribeByContractHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodDelete,
-					Path:    "/events/subscribe-by-contract/:contractConfigId",
-					Handler: event.UnsubscribeByContractHandler(serverCtx),
 				},
 				{
 					Method:  http.MethodGet,
@@ -95,68 +108,13 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/events/recent/:contractConfigId",
 					Handler: event.RecentEventsHandler(serverCtx),
 				},
-			}...,
-		),
-		rest.WithPrefix("/api/v1"),
-	)
-
-	server.AddRoutes(
-		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
-			[]rest.Route{
+				// 取消订阅（Web 平台操作，不请求链节点，不计配额）
 				{
-					Method:  http.MethodPost,
-					Path:    "/tenants",
-					Handler: tenant.CreateTenantHandler(serverCtx),
+					Method:  http.MethodDelete,
+					Path:    "/events/subscribe-by-contract/:contractConfigId",
+					Handler: event.UnsubscribeByContractHandler(serverCtx),
 				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/tenants/:id",
-					Handler: tenant.GetTenantHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/tenants",
-					Handler: tenant.ListTenantsHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPost,
-					Path:    "/tenants/:id/disable",
-					Handler: tenant.DisableTenantHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPost,
-					Path:    "/tenants/:id/enable",
-					Handler: tenant.EnableTenantHandler(serverCtx),
-				},
-			}...,
-		),
-		rest.WithPrefix("/api/v1"),
-	)
-
-	server.AddRoutes(
-		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
-			[]rest.Route{
-				{
-					Method:  http.MethodPost,
-					Path:    "/api-keys",
-					Handler: apikey.CreateAPIKeyHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/api-keys",
-					Handler: apikey.ListAPIKeysHandler(serverCtx),
-				},
-			}...,
-		),
-		rest.WithPrefix("/api/v1"),
-	)
-
-	server.AddRoutes(
-		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
-			[]rest.Route{
+				// 链配置管理（平台操作，不计配额）
 				{
 					Method:  http.MethodPost,
 					Path:    "/chain-configs",
@@ -187,15 +145,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/chain-configs/:id/test-connection",
 					Handler: chainconfig.TestChainConnectionHandler(serverCtx),
 				},
-			}...,
-		),
-		rest.WithPrefix("/api/v1"),
-	)
-
-	server.AddRoutes(
-		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
-			[]rest.Route{
+				// 合约配置管理（平台操作，不计配额）
 				{
 					Method:  http.MethodPost,
 					Path:    "/chain-configs/:chainConfigId/contracts",
@@ -221,29 +171,50 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/chain-configs/:chainConfigId/contracts/:id",
 					Handler: contractconfig.DeleteContractConfigHandler(serverCtx),
 				},
-			}...,
-		),
-		rest.WithPrefix("/api/v1"),
-	)
-
-	server.AddRoutes(
-		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
-			[]rest.Route{
+				// 租户管理（平台操作，不计配额）
+				{
+					Method:  http.MethodPost,
+					Path:    "/tenants",
+					Handler: tenant.CreateTenantHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
+					Path:    "/tenants/:id",
+					Handler: tenant.GetTenantHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
+					Path:    "/tenants",
+					Handler: tenant.ListTenantsHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/tenants/:id/disable",
+					Handler: tenant.DisableTenantHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/tenants/:id/enable",
+					Handler: tenant.EnableTenantHandler(serverCtx),
+				},
+				// API Key 管理（平台操作，不计配额）
+				{
+					Method:  http.MethodPost,
+					Path:    "/api-keys",
+					Handler: apikey.CreateAPIKeyHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
+					Path:    "/api-keys",
+					Handler: apikey.ListAPIKeysHandler(serverCtx),
+				},
+				// 用户管理（平台操作，不计配额）
 				{
 					Method:  http.MethodGet,
 					Path:    "/users",
 					Handler: user.ListUsersHandler(serverCtx),
 				},
-			}...,
-		),
-		rest.WithPrefix("/api/v1"),
-	)
-
-	server.AddRoutes(
-		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
-			[]rest.Route{
+				// Dashboard 统计（平台查询，不计配额）
 				{
 					Method:  http.MethodGet,
 					Path:    "/dashboard/overview",
@@ -268,6 +239,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodGet,
 					Path:    "/dashboard/bills",
 					Handler: dashboard.ListBillsHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
+					Path:    "/dashboard/realtime-cost",
+					Handler: dashboard.GetRealtimeCostHandler(serverCtx),
 				},
 				{
 					Method:  http.MethodPost,
