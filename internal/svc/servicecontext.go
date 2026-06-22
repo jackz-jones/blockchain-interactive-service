@@ -13,6 +13,7 @@ import (
 	"github.com/jackz-jones/blockchain-interactive-service/internal/service"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/tenant"
+	"github.com/robfig/cron/v3"
 
 	commonEvent "github.com/jackz-jones/common/event"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -47,6 +48,9 @@ type ServiceContext struct {
 	// 计费服务
 	BillingService *billing.Service
 
+	// 定时任务调度器
+	CronScheduler *cron.Cron
+
 	// 配置解析器（业务语义到 ID 的映射层）
 	ConfigResolver *service.ConfigResolver
 
@@ -55,6 +59,7 @@ type ServiceContext struct {
 
 	// HTTP 中间件（供 goctl 生成的路由使用）
 	AuthMiddleware      rest.Middleware
+	AuditMiddleware     rest.Middleware
 	RateLimitMiddleware rest.Middleware
 	QuotaMiddleware     rest.Middleware
 }
@@ -127,6 +132,9 @@ func (svc *ServiceContext) initDatabase() {
 	// 初始化计费服务
 	svc.BillingService = billing.NewService(svc.Repo, svc.Logger)
 
+	// 初始化定时任务调度器
+	svc.initCronScheduler()
+
 	// 初始化配置解析器
 	svc.ConfigResolver = service.NewConfigResolver(svc.Repo)
 }
@@ -144,11 +152,62 @@ func (svc *ServiceContext) initRedisClient() {
 	svc.RedisClient = redisClient
 }
 
+// initCronScheduler 初始化定时任务调度器
+func (svc *ServiceContext) initCronScheduler() {
+	svc.CronScheduler = cron.New(cron.WithSeconds())
+
+	billingSvc := svc.BillingService
+	logger := svc.Logger
+
+	// 每日24:00生成日账单
+	_, err := svc.CronScheduler.AddFunc("0 0 0 * * *", func() {
+		ctx := context.Background()
+		logger.Info("[Cron] starting daily bill generation")
+		if err := billingSvc.GenerateDailyBills(ctx); err != nil {
+			logger.Errorf("[Cron] daily bill generation failed: %v", err)
+		}
+	})
+	if err != nil {
+		logger.Errorf("[Cron] failed to register daily bill job: %v", err)
+	}
+
+	// 每月1日00:05生成月度汇总账单
+	_, err = svc.CronScheduler.AddFunc("0 5 0 1 * *", func() {
+		ctx := context.Background()
+		logger.Info("[Cron] starting monthly bill generation")
+		if err := billingSvc.GenerateMonthlyBills(ctx); err != nil {
+			logger.Errorf("[Cron] monthly bill generation failed: %v", err)
+		}
+	})
+	if err != nil {
+		logger.Errorf("[Cron] failed to register monthly bill job: %v", err)
+	}
+
+	// 每月1日00:00重置月度计数器
+	_, err = svc.CronScheduler.AddFunc("0 0 0 1 * *", func() {
+		ctx := context.Background()
+		logger.Info("[Cron] resetting monthly counters")
+		if err := billingSvc.ResetMonthlyCounters(ctx); err != nil {
+			logger.Errorf("[Cron] monthly counter reset failed: %v", err)
+		}
+	})
+	if err != nil {
+		logger.Errorf("[Cron] failed to register monthly counter reset job: %v", err)
+	}
+
+	svc.CronScheduler.Start()
+	logger.Info("[Cron] scheduler started with daily/monthly billing jobs")
+}
+
 // initHTTPMiddlewares 初始化 HTTP 中间件（适配 rest.Middleware 签名）
 func (svc *ServiceContext) initHTTPMiddlewares() {
 	// 认证中间件
 	authMw := middleware.HTTPAuthMiddleware(svc.Repo)
 	svc.AuthMiddleware = toRestMiddleware(authMw)
+
+	// 审计中间件（位于认证之后、限流之前）
+	auditMw := middleware.HTTPAuditMiddleware(svc.Repo)
+	svc.AuditMiddleware = toRestMiddleware(auditMw)
 
 	// 限流中间件
 	rateLimiter := middleware.NewRateLimiter(svc.Config.GatewayConf.RateLimit)

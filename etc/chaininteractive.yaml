@@ -79,6 +79,6 @@ DatabaseConf:
   # 数据库连接字符串
   DSN: root:root123456@tcp(127.0.0.1:3306)/chaininteractiveservice?charset=utf8&parseTime=true&loc=Asia%2FShanghai
   # 是否在启动时自动迁移表结构（仅开发/测试环境首次建表时开启，生产环境应设为 false，通过 migration 工具管理，比如 goose）
-  AutoMigrate: false
+  AutoMigrate: true
   MaxIdleConns: 25
   MaxOpenConns: 100

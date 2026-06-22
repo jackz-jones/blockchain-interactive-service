@@ -67,6 +67,10 @@ func main() {
 	s.AddUnaryInterceptors(rbacInterceptor.Unary())
 	s.AddUnaryInterceptors(quotaInterceptor.Unary())
 
+	// 注册 gRPC Stream 拦截器（用于流式 RPC 认证和权限校验）
+	s.AddStreamInterceptors(authInterceptor.Stream())
+	s.AddStreamInterceptors(rbacInterceptor.Stream())
+
 	// 使用 ServiceGroup 统一管理 gRPC 和 HTTP 服务
 	group := service.NewServiceGroup()
 	// defer 兜底：panic 退出时确保服务被关闭（stopOnce 幂等，信号退出时重复调用无副作用）
@@ -88,6 +92,12 @@ func main() {
 	defer func() {
 		if ctx.TenantSDKManager != nil {
 			ctx.TenantSDKManager.StopAll()
+		}
+	}()
+	// defer 兜底：panic 时停止 cron 调度器
+	defer func() {
+		if ctx.CronScheduler != nil {
+			ctx.CronScheduler.Stop()
 		}
 	}()
 
