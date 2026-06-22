@@ -1,23 +1,26 @@
 import { useEffect, useState } from 'react'
-import { Table, Button, Space, Typography, Tag, Input, Select, Popconfirm, message } from 'antd'
+import { Table, Button, Typography, Tag, Space, Popconfirm, Input, Select } from 'antd'
 import { PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
+import { useApiMessage } from '@/hooks/useApiMessage'
+import { useGlobalMessage } from '@/components/GlobalMessage'
 
 const { Title } = Typography
 
 interface ChainConfig {
-  id: string
+  ID: number
   chain_name: string
   chain_type: string
-  enabled: boolean
-  node_count: number
-  created_at: string
+  enable: boolean
+  CreatedAt: string
 }
 
 export default function ChainConfigList() {
   const navigate = useNavigate()
+  const { message } = useGlobalMessage()
+  const { handleApiError } = useApiMessage()
   const [data, setData] = useState<ChainConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -30,9 +33,9 @@ export default function ChainConfigList() {
       if (search) params.search = search
       if (typeFilter) params.chain_type = typeFilter
       const res = await api.get('/chain-configs', { params })
-      setData((res.data as { items: ChainConfig[] }).items || [])
-    } catch {
-      // 错误已由拦截器处理
+      setData((res.data as ChainConfig[]) || [])
+    } catch (err) {
+      handleApiError(err)
     } finally {
       setLoading(false)
     }
@@ -47,8 +50,8 @@ export default function ChainConfigList() {
       await api.delete(`/chain-configs/${id}`)
       message.success('删除成功')
       fetchList()
-    } catch {
-      // 错误已由拦截器处理
+    } catch (err) {
+      handleApiError(err)
     }
   }
 
@@ -57,14 +60,17 @@ export default function ChainConfigList() {
       title: '链名称',
       dataIndex: 'chain_name',
       key: 'chain_name',
+      width: 240,
+      ellipsis: { showTitle: false },
       render: (text: string, record) => (
-        <a onClick={() => navigate(`/chain-configs/${record.id}/edit`)}>{text}</a>
+        <a onClick={() => navigate(`/chain-configs/${record.ID}/edit`)}>{text}</a>
       ),
     },
     {
       title: '链类型',
       dataIndex: 'chain_type',
       key: 'chain_type',
+      width: 140,
       render: (type: string) => {
         const colorMap: Record<string, string> = {
           ethereum: 'blue',
@@ -76,42 +82,38 @@ export default function ChainConfigList() {
     },
     {
       title: '状态',
-      dataIndex: 'enabled',
-      key: 'enabled',
-      render: (enabled: boolean) => (
-        <Tag color={enabled ? 'success' : 'default'}>
-          {enabled ? '已启用' : '已禁用'}
+      dataIndex: 'enable',
+      key: 'enable',
+      width: 120,
+      render: (enable: boolean) => (
+        <Tag color={enable ? 'success' : 'default'}>
+          {enable ? '已启用' : '已禁用'}
         </Tag>
       ),
     },
     {
-      title: '节点数量',
-      dataIndex: 'node_count',
-      key: 'node_count',
-      width: 100,
-    },
-    {
       title: '创建时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      render: (time: string) => new Date(time).toLocaleDateString('zh-CN'),
+      dataIndex: 'CreatedAt',
+      key: 'CreatedAt',
+      width: 180,
+      render: (time: string) => time ? new Date(time).toLocaleDateString('zh-CN') : '-',
     },
     {
       title: '操作',
       key: 'actions',
-      width: 150,
+      width: 120,
       render: (_, record) => (
         <Space size="small">
           <Button
             type="text"
             size="small"
             icon={<EditOutlined />}
-            onClick={() => navigate(`/chain-configs/${record.id}/edit`)}
+            onClick={() => navigate(`/chain-configs/${record.ID}/edit`)}
           />
           <Popconfirm
             title="确认删除"
             description="删除后不可恢复，确定要删除吗？"
-            onConfirm={() => handleDelete(record.id)}
+            onConfirm={() => handleDelete(String(record.ID))}
             okText="删除"
             cancelText="取消"
             okButtonProps={{ danger: true }}
@@ -163,7 +165,7 @@ export default function ChainConfigList() {
       <Table
         columns={columns}
         dataSource={data}
-        rowKey="id"
+        rowKey="ID"
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
         size="middle"

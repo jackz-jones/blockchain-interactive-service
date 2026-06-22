@@ -1,19 +1,25 @@
 import { useEffect, useState } from 'react'
-import { Table, Button, Typography, Tag, Space, Modal, Form, Input, Select, message, Alert } from 'antd'
+import { Table, Button, Typography, Tag, Space, Modal, Form, Input, Select, Alert, Tooltip } from 'antd'
 import { PlusOutlined, CopyOutlined, WarningOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
+import { useApiMessage } from '@/hooks/useApiMessage'
+import { useGlobalMessage } from '@/components/GlobalMessage'
 
 const { Title, Text, Paragraph } = Typography
 
 interface ApiKey {
-  id: string
+  ID: number
   name: string
-  key_prefix: string
+  key: string
+  key_masked: string
   permissions: string[]
   ip_whitelist: string[]
-  expires_at: string
-  created_at: string
+  status: string
+  expires_at: string | null
+  CreatedAt: string
+  UpdatedAt: string
+  last_used_at: string | null
 }
 
 export default function ApiKeyList() {
@@ -22,15 +28,27 @@ export default function ApiKeyList() {
   const [createOpen, setCreateOpen] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
   const [newKey, setNewKey] = useState<string | null>(null)
+  const { message } = useGlobalMessage()
+  const { handleApiError } = useApiMessage()
   const [form] = Form.useForm()
 
   const fetchList = async () => {
     setLoading(true)
     try {
       const res = await api.get('/api-keys')
-      setData((res.data as { items: ApiKey[] }).items || [])
-    } catch {
-      // 错误已由拦截器处理
+      const rawItems = (res.data as { items: any[] }).items || []
+      const items = rawItems.map((item: any) => ({
+        ...item,
+        permissions: typeof item.permissions === 'string'
+          ? (item.permissions ? item.permissions.split(',').filter(Boolean) : [])
+          : (item.permissions || []),
+        ip_whitelist: typeof item.ip_whitelist === 'string'
+          ? (item.ip_whitelist ? item.ip_whitelist.split(',').filter(Boolean) : [])
+          : (item.ip_whitelist || []),
+      }))
+      setData(items)
+    } catch (err) {
+      handleApiError(err)
     } finally {
       setLoading(false)
     }
@@ -44,13 +62,14 @@ export default function ApiKeyList() {
     setCreateLoading(true)
     try {
       const res = await api.post('/api-keys', values)
-      const data = res.data as { api_key: string }
-      setNewKey(data.api_key)
+      const result = res.data as { id: number; key: string }
+      message.success('创建成功')
+      setNewKey(result.key)
       setCreateOpen(false)
       form.resetFields()
       fetchList()
-    } catch {
-      // 错误已由拦截器处理
+    } catch (err) {
+      handleApiError(err)
     } finally {
       setCreateLoading(false)
     }
@@ -63,41 +82,62 @@ export default function ApiKeyList() {
     }
   }
 
-  const isExpired = (date: string) => new Date(date) < new Date()
-  const isExpiringSoon = (date: string) => {
+  const isExpired = (date: string | null | undefined) => {
+    if (!date) return false // 永不过期的 Key（expires_at 为 null），不应判为已过期
+    return new Date(date) < new Date()
+  }
+  const isExpiringSoon = (date: string | null | undefined) => {
+    if (!date) return false
     const diff = new Date(date).getTime() - Date.now()
     return diff > 0 && diff < 7 * 24 * 60 * 60 * 1000 // 7天内过期
   }
 
   const columns: ColumnsType<ApiKey> = [
-    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: '名称', dataIndex: 'name', key: 'name', width: 200 },
     {
-      title: 'Key 前缀',
-      dataIndex: 'key_prefix',
-      key: 'key_prefix',
-      render: (prefix: string) => <Text code>{prefix}...</Text>,
+      title: 'Key',
+      dataIndex: 'key_masked',
+      key: 'key_masked',
+      width: 240,
+      render: (masked: string) => <Text code>{masked || '-'}</Text>,
     },
     {
       title: '权限',
       dataIndex: 'permissions',
       key: 'permissions',
-      render: (perms: string[]) => (
-        <Space size={4} wrap>
-          {perms?.map((p) => <Tag key={p}>{p}</Tag>)}
-        </Space>
-      ),
+      width: 200,
+      render: (perms: string[]) => {
+        if (!perms?.length) return <Text type="secondary">不限制</Text>
+        return (
+          <Space size={4} wrap>
+            {perms.map((p) => <Tag key={p}>{p}</Tag>)}
+          </Space>
+        )
+      },
     },
     {
       title: 'IP 白名单',
       dataIndex: 'ip_whitelist',
       key: 'ip_whitelist',
-      render: (ips: string[]) => ips?.length ? ips.join(', ') : <Text type="secondary">不限制</Text>,
+      width: 220,
+      ellipsis: { showTitle: false },
+      render: (ips: string[]) => {
+        if (!ips?.length) return <Text type="secondary">不限制</Text>
+        const text = ips.join(', ')
+        return (
+          <Tooltip title={text} placement="topLeft">
+            <span>{text}</span>
+          </Tooltip>
+        )
+      },
     },
     {
       title: '过期时间',
       dataIndex: 'expires_at',
       key: 'expires_at',
-      render: (date: string) => {
+      width: 180,
+      render: (date: string | null | undefined) => {
+        if (!date) return <Tag color="success">永不过期</Tag>
         if (isExpired(date)) return <Tag color="error">已过期</Tag>
         if (isExpiringSoon(date)) return <Tag icon={<WarningOutlined />} color="warning">即将过期</Tag>
         return new Date(date).toLocaleDateString('zh-CN')
@@ -117,7 +157,7 @@ export default function ApiKeyList() {
       <Table
         columns={columns}
         dataSource={data}
-        rowKey="id"
+        rowKey="ID"
         loading={loading}
         pagination={{ pageSize: 10 }}
         size="middle"
@@ -159,7 +199,7 @@ export default function ApiKeyList() {
       >
         <Alert
           type="warning"
-          message="请立即保存此 API Key"
+          title="请立即保存此 API Key"
           description="此 Key 仅展示一次，关闭后无法再次查看。"
           showIcon
           style={{ marginBottom: 16 }}

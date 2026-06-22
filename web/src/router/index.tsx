@@ -60,8 +60,8 @@ function AppRouter() {
 
           {/* 合约配置 */}
           <Route path="contract-configs" element={<ContractConfigList />} />
-          <Route path="contract-configs/create" element={<ContractConfigForm />} />
-          <Route path="contract-configs/:id/edit" element={<ContractConfigForm />} />
+          <Route path="chain-configs/:chainConfigId/contracts/create" element={<ContractConfigForm />} />
+          <Route path="chain-configs/:chainConfigId/contracts/:id/edit" element={<ContractConfigForm />} />
 
           {/* 合约交互 */}
           <Route path="contract-call" element={<ContractCall />} />

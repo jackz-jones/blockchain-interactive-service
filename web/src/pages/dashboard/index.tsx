@@ -8,13 +8,14 @@ import {
   PercentageOutlined,
 } from '@ant-design/icons'
 import api from '@/services/api'
+import { useApiMessage } from '@/hooks/useApiMessage'
 
 const { Title } = Typography
 
 interface OverviewData {
   today_calls: number
   month_calls: number
-  quota_usage_percent: number
+  usage_percent: number
   active_chains: number
   success_rate: number
 }
@@ -22,14 +23,15 @@ interface OverviewData {
 export default function Dashboard() {
   const [data, setData] = useState<OverviewData | null>(null)
   const [loading, setLoading] = useState(true)
+  const { handleApiError } = useApiMessage()
 
   useEffect(() => {
     const fetchOverview = async () => {
       try {
         const res = await api.get('/dashboard/overview')
         setData(res.data as OverviewData)
-      } catch {
-        // 错误已由拦截器处理
+      } catch (err) {
+        handleApiError(err)
       } finally {
         setLoading(false)
       }
@@ -52,10 +54,10 @@ export default function Dashboard() {
     },
     {
       title: '配额使用率',
-      value: data?.quota_usage_percent ?? 0,
+      value: data?.usage_percent ?? 0,
       suffix: '%',
       icon: <PercentageOutlined />,
-      color: (data?.quota_usage_percent ?? 0) > 80 ? '#c0392b' : '#b8860b',
+      color: (data?.usage_percent ?? 0) > 80 ? '#c0392b' : '#b8860b',
     },
     {
       title: '活跃链数',

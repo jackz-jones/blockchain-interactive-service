@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Table, Button, Typography, Tag, Space, Modal, Form, Input, Switch, Popconfirm, message } from 'antd'
+import { Table, Button, Typography, Tag, Space, Modal, Form, Input, Popconfirm, Tooltip } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
+import { useApiMessage } from '@/hooks/useApiMessage'
+import { useGlobalMessage } from '@/components/GlobalMessage'
 
 const { Title } = Typography
 
@@ -10,7 +12,10 @@ interface Tenant {
   id: string
   name: string
   enabled: boolean
-  quota_limit: number
+  status: string
+  email: string
+  phone: string
+  plan: string
   created_at: string
 }
 
@@ -19,6 +24,8 @@ export default function TenantList() {
   const [loading, setLoading] = useState(true)
   const [createOpen, setCreateOpen] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
+  const { message } = useGlobalMessage()
+  const { handleApiError } = useApiMessage()
   const [form] = Form.useForm()
 
   const fetchList = async () => {
@@ -26,8 +33,8 @@ export default function TenantList() {
     try {
       const res = await api.get('/tenants')
       setData((res.data as { items: Tenant[] }).items || [])
-    } catch {
-      // 错误已由拦截器处理
+    } catch (err) {
+      handleApiError(err)
     } finally {
       setLoading(false)
     }
@@ -45,53 +52,76 @@ export default function TenantList() {
       setCreateOpen(false)
       form.resetFields()
       fetchList()
-    } catch {
-      // 错误已由拦截器处理
+    } catch (err) {
+      handleApiError(err)
     } finally {
       setCreateLoading(false)
     }
   }
 
-  const handleToggle = async (id: string, enabled: boolean) => {
+  const handleToggle = async (id: string, enable: boolean) => {
     try {
-      await api.put(`/tenants/${id}`, { enabled })
-      message.success(enabled ? '已启用' : '已禁用')
+      if (enable) {
+        await api.post(`/tenants/${id}/enable`)
+        message.success('已启用')
+      } else {
+        await api.post(`/tenants/${id}/disable`)
+        message.success('已禁用')
+      }
       fetchList()
-    } catch {
-      // 错误已由拦截器处理
+    } catch (err) {
+      handleApiError(err)
     }
   }
 
+  const isEnabled = (record: Tenant) => record.status === 'active' || record.enabled
+
   const columns: ColumnsType<Tenant> = [
-    { title: '租户名称', dataIndex: 'name', key: 'name' },
+    { title: '租户名称', dataIndex: 'name', key: 'name', width: 200 },
     {
-      title: '状态',
-      dataIndex: 'enabled',
-      key: 'enabled',
-      render: (enabled: boolean) => (
-        <Tag color={enabled ? 'success' : 'default'}>{enabled ? '已启用' : '已禁用'}</Tag>
+      title: '邮箱',
+      dataIndex: 'email',
+      key: 'email',
+      width: 260,
+      ellipsis: { showTitle: false },
+      render: (email: string) => (
+        <Tooltip title={email} placement="topLeft"><span>{email || '-'}</span></Tooltip>
       ),
     },
-    { title: '配额上限', dataIndex: 'quota_limit', key: 'quota_limit' },
+    {
+      title: '状态',
+      key: 'status',
+      width: 120,
+      render: (_, record) => {
+        const enabled = isEnabled(record)
+        return <Tag color={enabled ? 'success' : 'default'}>{enabled ? '已启用' : '已禁用'}</Tag>
+      },
+    },
+    { title: '套餐', dataIndex: 'plan', key: 'plan', width: 120 },
     {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
+      width: 180,
       render: (time: string) => new Date(time).toLocaleDateString('zh-CN'),
     },
     {
       title: '操作',
       key: 'actions',
-      render: (_, record) => (
-        <Popconfirm
-          title={record.enabled ? '确认禁用？' : '确认启用？'}
-          onConfirm={() => handleToggle(record.id, !record.enabled)}
-        >
-          <Button type="text" size="small">
-            {record.enabled ? '禁用' : '启用'}
-          </Button>
-        </Popconfirm>
-      ),
+      width: 120,
+      render: (_, record) => {
+        const enabled = isEnabled(record)
+        return (
+          <Popconfirm
+            title={enabled ? '确认禁用？' : '确认启用？'}
+            onConfirm={() => handleToggle(record.id, !enabled)}
+          >
+            <Button type="text" size="small">
+              {enabled ? '禁用' : '启用'}
+            </Button>
+          </Popconfirm>
+        )
+      },
     },
   ]
 
@@ -111,11 +141,17 @@ export default function TenantList() {
           <Form.Item name="name" label="租户名称" rules={[{ required: true, message: '请输入租户名称' }]}>
             <Input placeholder="租户名称" />
           </Form.Item>
-          <Form.Item name="quota_limit" label="配额上限">
-            <Input type="number" placeholder="每月调用次数上限" />
+          <Form.Item name="email" label="邮箱" rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '请输入有效的邮箱地址' }]}>
+            <Input placeholder="管理员邮箱" />
           </Form.Item>
-          <Form.Item name="enabled" label="启用" valuePropName="checked" initialValue={true}>
-            <Switch />
+          <Form.Item name="password" label="初始密码" rules={[{ required: true, message: '请输入初始密码' }, { min: 6, message: '密码至少6位' }]}>
+            <Input.Password placeholder="管理员初始密码" />
+          </Form.Item>
+          <Form.Item name="phone" label="联系电话">
+            <Input placeholder="联系电话（选填）" />
+          </Form.Item>
+          <Form.Item name="plan" label="套餐">
+            <Input placeholder="套餐计划（选填）" />
           </Form.Item>
           <Space>
             <Button type="primary" htmlType="submit" loading={createLoading}>创建</Button>

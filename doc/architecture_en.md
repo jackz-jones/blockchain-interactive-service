@@ -181,7 +181,7 @@ mindmap
 |--------|-------------|-----------|
 | **Contract Call** | Unified interface for multi-chain contract calls (Invoke/Query) | `internal/logic/callcontractlogic.go` |
 | **Transaction Query** | Query transaction status and details by TX ID | `internal/logic/gettxbytxidlogic.go` |
-| **Event Subscription** | Subscribe to on-chain contract events, push to Redis | `internal/sdk/*.go` |
+| **Event Subscription** | Subscribe to on-chain contract events, push to Redis, stream to consumers via gRPC | `internal/sdk/*.go`, `internal/logic/grpc/subscribecontracteventslogic.go` |
 | **Chain Info Query** | Query available chains and contract configurations | `internal/logic/getavailablechainandcontractnameslogic.go` |
 
 ### 3.3 Commercial Feature Modules
@@ -546,11 +546,12 @@ flowchart TD
 
 ### 10.1 gRPC Interfaces
 
-| Method | Description |
-|--------|-------------|
-| `CallContract` | Call/query on-chain contracts |
-| `GetTxByTxId` | Query transaction by TX ID |
-| `GetAvailableChainAndContractNames` | Get available chains and contracts |
+| Method | Type | Description |
+|--------|------|-------------|
+| `CallContract` | Unary | Call/query on-chain contracts |
+| `GetTxByTxId` | Unary | Query transaction by TX ID |
+| `GetAvailableChainAndContractNames` | Unary | Get available chains and contracts |
+| `SubscribeContractEvents` | Server-Side Streaming | Stream contract events to consumers |
 
 ### 10.2 RESTful HTTP API
 
@@ -573,5 +574,6 @@ flowchart TD
 | GET | `/api/v1/dashboard/overview` | Dashboard overview |
 | GET | `/api/v1/dashboard/call-logs` | Call logs |
 | GET | `/api/v1/dashboard/usage-stats` | Usage statistics |
+| GET | `/api/v1/dashboard/usage-stats-trend` | Usage statistics trend (with Invoke/Query breakdown) |
 | GET | `/api/v1/dashboard/bills` | Bill list |
 | GET | `/api/v1/dashboard/audit-logs` | Audit logs |

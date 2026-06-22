@@ -12,7 +12,7 @@ A universal blockchain interaction service platform (BaaS - Blockchain as a Serv
 - 🔗 **Multi-Chain Support**: Unified interface for Ethereum, ChainMaker, and Solana, with plugin architecture for easy expansion
 - 📝 **Contract Invocation**: Supports both Invoke (write) and Query (read) call modes
 - 🔍 **Transaction Query**: Query transaction details and on-chain status by transaction ID
-- 📡 **Event Subscription**: Subscribe to contract events via HTTP API with polling mechanism
+- 📡 **Event Subscription**: Subscribe to contract events with real-time push via gRPC Server-Side Streaming
 - ⚡ **Sync/Async**: Contract calls support both synchronous waiting and asynchronous return
 
 ### Commercial Features (BaaS Platform)
@@ -241,6 +241,7 @@ SubscribeConf:
 | `CallContract` | Call/query on-chain contracts |
 | `GetTxByTxId` | Query transaction by TX ID |
 | `GetAvailableChainAndContractNames` | Get available chains and contracts |
+| `SubscribeContractEvents` | Stream contract events (Server-Side Streaming) |
 
 ### RESTful HTTP API (port 8080)
 
@@ -249,7 +250,7 @@ SubscribeConf:
 | **Contract** | `POST /api/v1/contract/call` | Call/query contracts |
 | **Transaction** | `GET /api/v1/tx/:txId` | Query transaction by ID |
 | **Chain** | `GET /api/v1/chains`, `GET /api/v1/chains/:chainName/status` | List chains, check status |
-| **Event** | `POST /api/v1/events/subscribe`, `GET /api/v1/events/poll`, `DELETE /api/v1/events/subscribe/:subscriptionId` | Event subscription |
+| **Event** | `GET /api/v1/events/subscriptions`, `POST /api/v1/events/subscribe-by-contract`, `DELETE .../subscribe-by-contract/:id` | Event subscription management |
 | **Tenant** | `POST/GET /api/v1/tenants`, `POST .../disable\|enable` | Tenant management |
 | **API Key** | `POST/GET /api/v1/api-keys` | API Key management |
 | **Chain Config** | `CRUD /api/v1/chain-configs`, `POST .../test-connection` | Chain configuration |
@@ -344,7 +345,7 @@ helm upgrade chain-interactive ./deploy/helm -f custom-values.yaml
 | **Contract Config** | Manage contracts per chain (ABI, subscription settings) |
 | **Contract Call** | Interactive contract invocation with Monaco editor |
 | **Transaction Query** | Query and inspect transaction details |
-| **Event Subscription** | Subscribe/unsubscribe to contract events, poll results |
+| **Event Subscription** | Subscribe to contract events, gRPC streaming push |
 | **Tenant Management** | Create/disable/enable tenants |
 | **API Key** | Generate and manage API keys |
 | **User Management** | View and manage users |

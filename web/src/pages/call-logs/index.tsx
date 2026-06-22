@@ -3,6 +3,7 @@ import { Table, Typography, Space, Select, DatePicker, Tag, Input } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
+import { useApiMessage } from '@/hooks/useApiMessage'
 
 const { Title } = Typography
 const { RangePicker } = DatePicker
@@ -12,6 +13,8 @@ interface CallLog {
   chain_name: string
   contract_name: string
   method: string
+  method_type: number
+  method_type_label: string
   call_type: string
   status: string
   duration_ms: number
@@ -24,6 +27,7 @@ export default function CallLogs() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState<Record<string, string>>({})
+  const { handleApiError } = useApiMessage()
 
   const fetchList = async (p = page) => {
     setLoading(true)
@@ -33,8 +37,8 @@ export default function CallLogs() {
       const result = res.data as { items: CallLog[]; total: number }
       setData(result.items || [])
       setTotal(result.total || 0)
-    } catch {
-      // 错误已由拦截器处理
+    } catch (err) {
+      handleApiError(err)
     } finally {
       setLoading(false)
     }
@@ -45,21 +49,35 @@ export default function CallLogs() {
   }, [page, filters])
 
   const columns: ColumnsType<CallLog> = [
-    { title: '链名称', dataIndex: 'chain_name', key: 'chain_name', width: 120 },
-    { title: '合约', dataIndex: 'contract_name', key: 'contract_name', width: 120 },
-    { title: '方法', dataIndex: 'method', key: 'method', width: 120 },
+    { title: '链名称', dataIndex: 'chain_name', key: 'chain_name', width: 160 },
+    { title: '合约', dataIndex: 'contract_name', key: 'contract_name', width: 200 },
+    { title: '方法', dataIndex: 'method', key: 'method', width: 200, ellipsis: { showTitle: false } },
     {
-      title: '类型',
+      title: '操作类型',
+      dataIndex: 'method_type_label',
+      key: 'method_type_label',
+      width: 100,
+      render: (label: string, record: CallLog) => {
+        const isInvoke = record.method_type === 1
+        return (
+          <Tag color={isInvoke ? 'orange' : 'blue'}>
+            {label || (isInvoke ? '写链(Invoke)' : '读链(Query)')}
+          </Tag>
+        )
+      },
+    },
+    {
+      title: '链类型',
       dataIndex: 'call_type',
       key: 'call_type',
-      width: 80,
+      width: 100,
       render: (type: string) => <Tag>{type}</Tag>,
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 80,
+      width: 100,
       render: (status: string) => (
         <Tag color={status === 'success' ? 'success' : 'error'}>{status}</Tag>
       ),
@@ -68,13 +86,14 @@ export default function CallLogs() {
       title: '耗时',
       dataIndex: 'duration_ms',
       key: 'duration_ms',
-      width: 80,
+      width: 100,
       render: (ms: number) => `${ms}ms`,
     },
     {
       title: '时间',
       dataIndex: 'created_at',
       key: 'created_at',
+      width: 200,
       render: (time: string) => new Date(time).toLocaleString('zh-CN'),
     },
   ]
@@ -90,6 +109,16 @@ export default function CallLogs() {
           style={{ width: 160 }}
           allowClear
           onChange={(e) => setFilters((f) => ({ ...f, chain_name: e.target.value }))}
+        />
+        <Select
+          placeholder="操作类型"
+          allowClear
+          style={{ width: 140 }}
+          onChange={(val) => setFilters((f) => ({ ...f, method_type: val || '' }))}
+          options={[
+            { label: '写链(Invoke)', value: '1' },
+            { label: '读链(Query)', value: '2' },
+          ]}
         />
         <Select
           placeholder="状态"
@@ -121,7 +150,6 @@ export default function CallLogs() {
           showTotal: (t) => `共 ${t} 条`,
         }}
         size="middle"
-        scroll={{ x: 800 }}
       />
     </div>
   )

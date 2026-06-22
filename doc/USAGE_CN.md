@@ -15,6 +15,7 @@
   - [ChainMaker](#chainmaker)
   - [Solana](#solana)
 - [事件订阅](#事件订阅)
+- [合约调用同步/异步模式](#合约调用同步异步模式)
 - [多租户 HTTP API](#多租户-http-api)
 - [Web 管理控制台](#web-管理控制台)
 - [TLS 配置](#tls-配置)
@@ -313,7 +314,6 @@ ChainConfs:
         HttpUrl: "https://mainnet.infura.io/v3/KEY"   # HTTP RPC 端点
         WebsocketUrl: "wss://mainnet.infura.io/ws/v3/KEY"  # WebSocket 端点（用于事件订阅）
         PrivateKey: "hex-私钥"                         # 签名私钥（hex 格式）
-        GasLimit: 1000000                              # 交易 Gas 限制
 ```
 
 **CallContract 行为：**
@@ -472,20 +472,28 @@ Solana 使用基于 WebSocket 的日志订阅（`logsSubscribe`）来监控程�
 
 ### 概述
 
-事件订阅系统允许您在链上合约事件发生时接收实时通知。
+事件订阅系统允许您在链上合约事件发生时接收实时通知。系统提供两种方式管理订阅：
+
+1. **合约配置页面**：创建合约时直接开启 `EnableSubscribe`
+2. **订阅管理页面**：为未开启订阅的合约补充创建订阅
+
+消费端通过 **gRPC 服务端流（Server-Side Streaming）** 实时接收事件推送。
 
 ### 架构
 
 ```mermaid
 sequenceDiagram
+    participant C as 消费端 (gRPC Client)
     participant S as Chain Interactive Service
     participant CH as 区块链节点
-    participant R as Redis
+    participant R as Redis Stream
     
     S->>CH: 订阅合约事件
     CH-->>S: 事件数据
-    S->>R: 发布事件到 Redis 频道
-    R-->>S: 下游服务消费事件
+    S->>R: 发布事件到 Redis Stream
+    C->>S: SubscribeContractEvents (gRPC Stream)
+    S->>R: 读取 Redis Stream 事件
+    S-->>C: 流式推送事件
 ```
 
 ### 工作原理
@@ -496,9 +504,70 @@ sequenceDiagram
 4. 如果订阅协程退出（错误或断连），`SubscribeFlag` 会被清除，下次调度周期将重新订阅。
 5. 服务关闭时，根 context 被取消，传播到所有订阅协程驱动其退出。
 
-### Redis 事件格式
+### gRPC 流式事件消费
 
-订阅的事件会发布到 Redis，具体的频道和格式取决于 `chainType` 和合约配置名称。
+消费端通过 gRPC 服务端流接口 `SubscribeContractEvents` 实时接收事件：
+
+```protobuf
+// 请求
+message SubscribeContractEventsRequest {
+  string requestId = 1;     // 请求 ID（日志追踪）
+  string chainName = 2;     // 链名称（必填）
+  string contractName = 3;  // 合约名称（可选）
+  string contractAddr = 4;  // 合约地址（可选）
+}
+
+// 响应流
+message ContractEventResponse {
+  string eventName = 1;       // 事件名称
+  string contractAddress = 2; // 合约地址
+  string txHash = 3;          // 交易哈希
+  uint64 blockNumber = 4;     // 区块号
+  string data = 5;            // 事件数据 JSON
+  int64 timestamp = 6;        // 时间戳（Unix 秒）
+}
+```
+
+**Go 客户端示例：**
+
+```go
+import (
+    pb "github.com/jackz-jones/blockchain-interactive-service/pb"
+)
+
+// 建立 gRPC 连接（需携带认证信息）
+stream, err := client.SubscribeContractEvents(ctx, &pb.SubscribeContractEventsRequest{
+    ChainName:    "my-chain",
+    ContractName: "my-contract",
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+// 持续接收事件
+for {
+    event, err := stream.Recv()
+    if err != nil {
+        log.Printf("stream ended: %v", err)
+        break
+    }
+    log.Printf("received event: %s, data: %s", event.EventName, event.Data)
+}
+```
+
+**注意事项：**
+- 每个租户最大并发流连接数为 10（可配置）
+- 客户端断开后需自行实现重连逻辑
+- 合约必须先开启事件订阅（`EnableSubscribe: true`）才能消费事件
+
+### HTTP 订阅管理接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/events/subscriptions` | 获取已开启订阅的合约列表 |
+| GET | `/api/v1/events/available-contracts` | 获取可订阅的合约列表（未开启订阅的） |
+| POST | `/api/v1/events/subscribe-by-contract` | 为合约开启事件订阅 |
+| DELETE | `/api/v1/events/subscribe-by-contract/:contractConfigId` | 取消合约事件订阅 |
 
 ### Redis 部署模式
 
@@ -601,6 +670,44 @@ DevServer:
 
 ---
 
+### 用量统计
+
+用量统计页面展示租户的调用趋势和配额使用情况。
+
+#### 趋势数据字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| dates | string[] | 日期序列（MM/DD 格式） |
+| calls | int64[] | 每日总调用量 |
+| success | int64[] | 每日成功次数 |
+| failed | int64[] | 每日失败次数 |
+| invoke | int64[] | 每日 Invoke（写链）调用量 |
+| query | int64[] | 每日 Query（读链）调用量 |
+| quota_limit | int64 | 月配额上限 |
+| quota_used | int64 | 已使用月配额 |
+
+#### Invoke/Query 分类统计
+
+用量统计趋势数据中新增了 `invoke` 和 `query` 两个维度，用于区分写链操作和读链操作：
+
+- **Invoke（写链）**：合约写操作，如发送交易、修改链上状态，会计入配额和计费
+- **Query（读链）**：合约读操作，如查询链上状态、读取合约数据，不消耗配额
+
+计算关系：`query = calls - invoke`（当结果为负数时置为 0）
+
+#### API 接口
+
+**`GET /api/v1/dashboard/usage-stats?period=30d`**
+
+请求参数：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| period | string | 30d | 统计周期：7d / 30d / 90d |
+
+---
+
 ## 错误处理
 
 ### 返回码规则
@@ -628,6 +735,231 @@ sync to get tx receipt timeout, maybe try it later
 ```
 
 在这种情况下，交易**已成功提交**到节点。响应数据中包含 `txId`，您可以稍后使用 `GetTxByTxId` 查询交易状态。
+
+---
+
+## 合约调用同步/异步模式
+
+### 概述
+
+合约写链调用（Invoke）支持两种模式：
+
+| 模式 | 参数 | 行为 | 适用场景 |
+|------|------|------|---------|
+| **异步模式**（默认） | `sync=false` | 提交交易后立即返回 `tx_id`，不等待区块确认 | 高吞吐、对延迟敏感的场景 |
+| **同步模式** | `sync=true` | 等待交易被区块打包确认后再返回完整 receipt | 需要即时确认的场景 |
+
+### 异步模式流程
+
+```mermaid
+sequenceDiagram
+    participant 前端/客户端
+    participant 后端服务
+    participant 区块链节点
+
+    前端/客户端->>后端服务: POST /api/v1/contract/call (sync=false)
+    后端服务->>区块链节点: 签名并提交交易
+    区块链节点-->>后端服务: 返回 txId (交易已进入 mempool)
+    后端服务-->>前端/客户端: {tx_id: "0x...", pending: true} (1~3秒内响应)
+
+    Note over 前端/客户端: 开始轮询交易状态
+
+    loop 每3秒轮询一次 (最多20次 ≈ 60秒)
+        前端/客户端->>后端服务: GET /api/v1/tx/{txId}?chain_name=xxx
+        后端服务->>区块链节点: 查询交易状态 (TransactionByHash / GetTxByTxId)
+        区块链节点-->>后端服务: pending=true / confirmed
+        后端服务-->>前端/客户端: {confirmed: true/false, result: "..."}
+    end
+
+    Note over 前端/客户端: confirmed=true → 交易已上链确认
+```
+
+### 同步模式流程
+
+```mermaid
+sequenceDiagram
+    participant 前端/客户端
+    participant 后端服务
+    participant 区块链节点
+
+    前端/客户端->>后端服务: POST /api/v1/contract/call (sync=true, tx_timeout=30)
+    后端服务->>区块链节点: 签名并提交交易
+    区块链节点-->>后端服务: 返回 txId
+
+    loop 等待区块确认 (直到超时)
+        后端服务->>区块链节点: 轮询 TransactionReceipt
+        区块链节点-->>后端服务: receipt (成功/失败)
+    end
+
+    后端服务-->>前端/客户端: {tx_id: "0x...", pending: false, result: "{receipt}"}
+```
+
+### HTTP API 请求参数
+
+**`POST /api/v1/contract/call`**
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| chain_name | string | 是 | - | 链配置名称 |
+| contract_name | string | 是 | - | 合约配置名称 |
+| method | string | 是 | - | 合约方法名 |
+| method_type | int | 否 | 1 | 1=写链(Invoke)，2=读链(Query) |
+| params | map | 否 | {} | 方法参数键值对 |
+| **sync** | bool | 否 | **false** | 是否同步等待上链确认 |
+| **tx_timeout** | int | 否 | 10 | 同步模式下的超时时间（秒，范围 5~60） |
+
+### 响应格式
+
+**异步模式响应（sync=false）：**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "tx_id": "0xabc123def456...",
+    "result": "",
+    "pending": true,
+    "duration": "1.2s"
+  }
+}
+```
+
+**同步模式响应（sync=true）：**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "tx_id": "0xabc123def456...",
+    "result": "{\"status\":1,\"blockNumber\":12345678,...}",
+    "pending": false,
+    "duration": "8.5s"
+  }
+}
+```
+
+### 交易状态查询接口
+
+**`GET /api/v1/tx/:txId?chain_name=xxx`**
+
+用于异步模式下轮询交易确认状态。
+
+**响应：**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "result": "{\"txId\":\"0x...\",\"status\":1,\"from\":\"0x...\",\"to\":\"0x...\"}",
+    "confirmed": true
+  }
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `confirmed: false` | 交易仍在 pending 状态，尚未被区块打包 |
+| `confirmed: true` | 交易已被区块确认，`result` 中包含完整交易详情 |
+
+### Web 控制台前端轮询机制
+
+Web 管理控制台的"合约调用"页面内置了自动轮询逻辑：
+
+| 状态 | 前端展示 | 说明 |
+|------|---------|------|
+| **PENDING** | 🔄 旋转图标 + "轮询确认中..." | 交易已提交，前端自动每 3 秒查询一次 |
+| **CONFIRMED** | ✅ "已确认上链" | 轮询到 `confirmed=true`，展示交易详情 |
+| **TIMEOUT** | ⚠️ "轮询超时，请手动查询交易状态" | 60 秒内未确认，停止轮询 |
+
+**轮询参数：**
+
+- 轮询间隔：3 秒
+- 最大轮询次数：20 次（约 60 秒）
+- 组件卸载时自动清除定时器，避免内存泄漏
+- 查询失败不中断轮询，继续重试
+
+### 各链确认时间参考
+
+| 链 | 典型确认时间 | 建议模式 |
+|---|---|---|
+| **Ethereum 主网** | 12~15 秒 | 异步 + 轮询 |
+| **Ethereum L2（Polygon/Arbitrum）** | 2~5 秒 | 同步（tx_timeout=10） |
+| **ChainMaker** | 1~3 秒 | 同步（tx_timeout=10） |
+| **Solana** | 0.4~2 秒 | 同步（tx_timeout=10） |
+
+### 客户端集成建议
+
+**Go 客户端异步轮询示例：**
+
+```go
+// 1. 异步提交交易
+resp, err := client.CallContract(ctx, &pb.CallContractRequest{
+    ChainName:      "ethereum01",
+    ContractName:   "notification",
+    ContractMethod: "sendMessage",
+    KvPairs:        []*pb.KeyValuePair{{Key: "msg", Value: []byte("Hello")}},
+    MethodType:     pb.MethodType_Invoke,
+    WithSyncResult: false,  // 异步模式
+})
+txId := resp.Data.TxId
+
+// 2. 轮询交易状态
+ticker := time.NewTicker(3 * time.Second)
+defer ticker.Stop()
+timeout := time.After(60 * time.Second)
+
+for {
+    select {
+    case <-ticker.C:
+        txResp, err := client.GetTxByTxId(ctx, &pb.GetTxByTxIdRequest{
+            TxId:      txId,
+            ChainName: "ethereum01",
+        })
+        if err == nil && !txResp.Data.Pending {
+            fmt.Printf("交易已确认: %s\n", txResp.Data.Content)
+            return
+        }
+    case <-timeout:
+        fmt.Println("轮询超时，请稍后手动查询")
+        return
+    }
+}
+```
+
+**curl 异步调用示例：**
+
+```bash
+# 步骤 1：异步提交交易
+TX_ID=$(curl -s -X POST http://localhost:8080/api/v1/contract/call \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{
+    "chain_name": "ethereum01",
+    "contract_name": "notification",
+    "method": "sendMessage",
+    "params": {"message": "Hello"},
+    "sync": false
+  }' | jq -r '.data.tx_id')
+
+echo "交易已提交: $TX_ID"
+
+# 步骤 2：轮询交易状态
+for i in $(seq 1 20); do
+  sleep 3
+  RESULT=$(curl -s -H "X-API-Key: your-api-key" \
+    "http://localhost:8080/api/v1/tx/${TX_ID}?chain_name=ethereum01")
+  CONFIRMED=$(echo $RESULT | jq -r '.data.confirmed')
+  if [ "$CONFIRMED" = "true" ]; then
+    echo "交易已确认！"
+    echo $RESULT | jq '.data.result'
+    break
+  fi
+  echo "第 ${i} 次轮询：交易仍在 pending..."
+done
+```
 
 ---
 
@@ -760,8 +1092,7 @@ curl -X POST http://localhost:8080/api/v1/chain-configs \
     "eth_chain_id": 1,
     "http_url": "https://mainnet.infura.io/v3/YOUR_KEY",
     "websocket_url": "wss://mainnet.infura.io/ws/v3/YOUR_KEY",
-    "private_key": "hex-私钥",
-    "gas_limit": 1000000
+    "private_key": "hex-私钥"
   }'
 
 # 创建 ChainMaker 链配置

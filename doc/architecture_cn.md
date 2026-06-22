@@ -181,7 +181,7 @@ mindmap
 |------|------|----------|
 | **合约调用** | 统一接口调用多链合约（Invoke/Query） | `internal/logic/callcontractlogic.go` |
 | **交易查询** | 根据交易 ID 查询交易状态和详情 | `internal/logic/gettxbytxidlogic.go` |
-| **事件订阅** | 订阅链上合约事件，推送到 Redis | `internal/sdk/*.go` |
+| **事件订阅** | 订阅链上合约事件，推送到 Redis，通过 gRPC 流式推送给消费端 | `internal/sdk/*.go`, `internal/logic/grpc/subscribecontracteventslogic.go` |
 | **链信息查询** | 查询可用链和合约配置 | `internal/logic/getavailablechainandcontractnameslogic.go` |
 
 ### 3.3 商业化功能模块
@@ -546,11 +546,12 @@ flowchart TD
 
 ### 10.1 gRPC 接口
 
-| 方法 | 描述 |
-|------|------|
-| `CallContract` | 调用/查询链上合约 |
-| `GetTxByTxId` | 根据交易 ID 查询交易 |
-| `GetAvailableChainAndContractNames` | 获取可用链和合约列表 |
+| 方法 | 类型 | 描述 |
+|------|------|------|
+| `CallContract` | Unary | 调用/查询链上合约 |
+| `GetTxByTxId` | Unary | 根据交易 ID 查询交易 |
+| `GetAvailableChainAndContractNames` | Unary | 获取可用链和合约列表 |
+| `SubscribeContractEvents` | Server-Side Streaming | 流式推送合约事件 |
 
 ### 10.2 RESTful HTTP API
 
@@ -573,5 +574,6 @@ flowchart TD
 | GET | `/api/v1/dashboard/overview` | 仪表盘概览 |
 | GET | `/api/v1/dashboard/call-logs` | 调用日志 |
 | GET | `/api/v1/dashboard/usage-stats` | 用量统计 |
-| GET | `/api/v1/dashboard/bills` | 账单列表 |
+| GET | `/api/v1/dashboard/usage-stats-trend` | 用量统计趋势（支持 Invoke/Query 分类） |
+| GET | `/api/v1/dashboard/bills` | 账单记录 |
 | GET | `/api/v1/dashboard/audit-logs` | 审计日志 |

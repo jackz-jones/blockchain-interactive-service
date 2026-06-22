@@ -15,6 +15,7 @@ This document provides detailed usage instructions for the Chain Interactive Ser
   - [ChainMaker](#chainmaker)
   - [Solana](#solana)
 - [Event Subscription](#event-subscription)
+- [Contract Call Sync/Async Modes](#contract-call-syncasync-modes)
 - [Multi-Tenant HTTP API](#multi-tenant-http-api)
 - [Web Dashboard](#web-dashboard)
 - [TLS Configuration](#tls-configuration)
@@ -313,7 +314,6 @@ ChainConfs:
         HttpUrl: "https://mainnet.infura.io/v3/KEY"   # HTTP RPC endpoint
         WebsocketUrl: "wss://mainnet.infura.io/ws/v3/KEY"  # WebSocket endpoint (for events)
         PrivateKey: "hex-private-key"                  # Signer private key (hex)
-        GasLimit: 1000000                              # Gas limit for transactions
 ```
 
 **CallContract behavior:**
@@ -472,20 +472,28 @@ Solana uses WebSocket-based log subscription (`logsSubscribe`) to monitor progra
 
 ### Overview
 
-The event subscription system allows you to receive real-time notifications when contract events occur on-chain.
+The event subscription system allows you to receive real-time notifications when contract events occur on-chain. The system provides two ways to manage subscriptions:
+
+1. **Contract Configuration Page**: Enable `EnableSubscribe` when creating a contract
+2. **Subscription Management Page**: Create subscriptions for contracts that don't have subscription enabled yet
+
+Consumers receive event pushes in real-time via **gRPC Server-Side Streaming**.
 
 ### Architecture
 
 ```mermaid
 sequenceDiagram
+    participant C as Consumer (gRPC Client)
     participant S as Chain Interactive Service
     participant CH as Blockchain Node
-    participant R as Redis
+    participant R as Redis Stream
     
     S->>CH: Subscribe to contract events
     CH-->>S: Event data
-    S->>R: Publish event to Redis channel
-    R-->>S: Event consumed by downstream services
+    S->>R: Publish event to Redis Stream
+    C->>S: SubscribeContractEvents (gRPC Stream)
+    S->>R: Read events from Redis Stream
+    S-->>C: Stream push events
 ```
 
 ### How It Works
@@ -496,9 +504,70 @@ sequenceDiagram
 4. If a subscription goroutine exits (error or disconnect), the `SubscribeFlag` is cleared, and the next scheduler tick will re-subscribe.
 5. On service shutdown, the root context is cancelled, which propagates to all subscription goroutines.
 
-### Redis Event Format
+### gRPC Streaming Event Consumption
 
-Subscribed events are published to Redis. The specific channel and format depend on the `chainType` and contract configuration name.
+Consumers receive events in real-time via the gRPC server-side streaming interface `SubscribeContractEvents`:
+
+```protobuf
+// Request
+message SubscribeContractEventsRequest {
+  string requestId = 1;     // Request ID (log tracing)
+  string chainName = 2;     // Chain name (required)
+  string contractName = 3;  // Contract name (optional)
+  string contractAddr = 4;  // Contract address (optional)
+}
+
+// Response stream
+message ContractEventResponse {
+  string eventName = 1;       // Event name
+  string contractAddress = 2; // Contract address
+  string txHash = 3;          // Transaction hash
+  uint64 blockNumber = 4;     // Block number
+  string data = 5;            // Event data JSON
+  int64 timestamp = 6;        // Timestamp (Unix seconds)
+}
+```
+
+**Go Client Example:**
+
+```go
+import (
+    pb "github.com/jackz-jones/blockchain-interactive-service/pb"
+)
+
+// Establish gRPC connection (authentication required)
+stream, err := client.SubscribeContractEvents(ctx, &pb.SubscribeContractEventsRequest{
+    ChainName:    "my-chain",
+    ContractName: "my-contract",
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+// Continuously receive events
+for {
+    event, err := stream.Recv()
+    if err != nil {
+        log.Printf("stream ended: %v", err)
+        break
+    }
+    log.Printf("received event: %s, data: %s", event.EventName, event.Data)
+}
+```
+
+**Notes:**
+- Maximum concurrent stream connections per tenant: 10 (configurable)
+- Clients must implement reconnection logic on disconnect
+- Contracts must have event subscription enabled (`EnableSubscribe: true`) before events can be consumed
+
+### HTTP Subscription Management API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/events/subscriptions` | List contracts with subscription enabled |
+| GET | `/api/v1/events/available-contracts` | List available contracts (subscription not enabled) |
+| POST | `/api/v1/events/subscribe-by-contract` | Enable event subscription for a contract |
+| DELETE | `/api/v1/events/subscribe-by-contract/:contractConfigId` | Cancel contract event subscription |
 
 ### Redis Deployment Modes
 
@@ -601,6 +670,44 @@ DevServer:
 
 ---
 
+### Usage Statistics
+
+The usage statistics page displays the tenant's call trends and quota usage.
+
+#### Trend Data Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| dates | string[] | Date sequence (MM/DD format) |
+| calls | int64[] | Daily total calls |
+| success | int64[] | Daily success count |
+| failed | int64[] | Daily failure count |
+| invoke | int64[] | Daily Invoke (write-chain) call count |
+| query | int64[] | Daily Query (read-chain) call count |
+| quota_limit | int64 | Monthly quota limit |
+| quota_used | int64 | Used monthly quota |
+
+#### Invoke/Query Breakdown
+
+The usage statistics trend data includes `invoke` and `query` dimensions to distinguish write-chain and read-chain operations:
+
+- **Invoke (Write-Chain)**: Contract write operations such as sending transactions or modifying on-chain state. These count toward quotas and billing.
+- **Query (Read-Chain)**: Contract read operations such as querying on-chain state or reading contract data. These do not consume quotas.
+
+Calculation: `query = calls - invoke` (set to 0 when negative).
+
+#### API Endpoint
+
+**`GET /api/v1/dashboard/usage-stats?period=30d`**
+
+Request Parameters:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| period | string | 30d | Statistics period: 7d / 30d / 90d |
+
+---
+
 ## Error Handling
 
 ### Response Code Pattern
@@ -628,6 +735,231 @@ sync to get tx receipt timeout, maybe try it later
 ```
 
 In this case, the transaction **was successfully submitted** to the node. The `txId` is included in the response data, and you can query the transaction status later using `GetTxByTxId`.
+
+---
+
+## Contract Call Sync/Async Modes
+
+### Overview
+
+Contract write calls (Invoke) support two execution modes:
+
+| Mode | Parameter | Behavior | Use Case |
+|------|-----------|----------|----------|
+| **Async** (default) | `sync=false` | Returns `tx_id` immediately after submission, without waiting for block confirmation | High-throughput, latency-sensitive scenarios |
+| **Sync** | `sync=true` | Waits for the transaction to be confirmed in a block before returning the full receipt | Scenarios requiring immediate confirmation |
+
+### Async Mode Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Backend
+    participant Blockchain
+
+    Client->>Backend: POST /api/v1/contract/call (sync=false)
+    Backend->>Blockchain: Sign and submit transaction
+    Blockchain-->>Backend: Return txId (tx entered mempool)
+    Backend-->>Client: {tx_id: "0x...", pending: true} (responds within 1~3s)
+
+    Note over Client: Start polling transaction status
+
+    loop Every 3 seconds (max 20 attempts ≈ 60s)
+        Client->>Backend: GET /api/v1/tx/{txId}?chain_name=xxx
+        Backend->>Blockchain: Query transaction status
+        Blockchain-->>Backend: pending / confirmed
+        Backend-->>Client: {confirmed: true/false, result: "..."}
+    end
+
+    Note over Client: confirmed=true → Transaction confirmed on-chain
+```
+
+### Sync Mode Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Backend
+    participant Blockchain
+
+    Client->>Backend: POST /api/v1/contract/call (sync=true, tx_timeout=30)
+    Backend->>Blockchain: Sign and submit transaction
+    Blockchain-->>Backend: Return txId
+
+    loop Wait for block confirmation (until timeout)
+        Backend->>Blockchain: Poll TransactionReceipt
+        Blockchain-->>Backend: receipt (success/failure)
+    end
+
+    Backend-->>Client: {tx_id: "0x...", pending: false, result: "{receipt}"}
+```
+
+### HTTP API Request Parameters
+
+**`POST /api/v1/contract/call`**
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| chain_name | string | Yes | - | Chain configuration name |
+| contract_name | string | Yes | - | Contract configuration name |
+| method | string | Yes | - | Contract method name |
+| method_type | int | No | 1 | 1=Write (Invoke), 2=Read (Query) |
+| params | map | No | {} | Method parameters as key-value pairs |
+| **sync** | bool | No | **false** | Whether to wait for on-chain confirmation synchronously |
+| **tx_timeout** | int | No | 10 | Timeout in seconds for sync mode (range: 5~60) |
+
+### Response Format
+
+**Async mode response (sync=false):**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "tx_id": "0xabc123def456...",
+    "result": "",
+    "pending": true,
+    "duration": "1.2s"
+  }
+}
+```
+
+**Sync mode response (sync=true):**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "tx_id": "0xabc123def456...",
+    "result": "{\"status\":1,\"blockNumber\":12345678,...}",
+    "pending": false,
+    "duration": "8.5s"
+  }
+}
+```
+
+### Transaction Status Query API
+
+**`GET /api/v1/tx/:txId?chain_name=xxx`**
+
+Used to poll transaction confirmation status in async mode.
+
+**Response:**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "result": "{\"txId\":\"0x...\",\"status\":1,\"from\":\"0x...\",\"to\":\"0x...\"}",
+    "confirmed": true
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `confirmed: false` | Transaction is still pending, not yet included in a block |
+| `confirmed: true` | Transaction has been confirmed by a block, `result` contains full transaction details |
+
+### Web Dashboard Frontend Polling Mechanism
+
+The "Contract Call" page in the Web Dashboard has built-in automatic polling logic:
+
+| Status | Frontend Display | Description |
+|--------|-----------------|-------------|
+| **PENDING** | 🔄 Spinning icon + "Polling for confirmation..." | Transaction submitted, frontend auto-queries every 3 seconds |
+| **CONFIRMED** | ✅ "Confirmed on-chain" | Polled `confirmed=true`, displays transaction details |
+| **TIMEOUT** | ⚠️ "Polling timeout, please query transaction status manually" | Not confirmed within 60 seconds, polling stopped |
+
+**Polling parameters:**
+
+- Polling interval: 3 seconds
+- Maximum polling attempts: 20 (approximately 60 seconds)
+- Timer is automatically cleared on component unmount to prevent memory leaks
+- Query failures do not interrupt polling; retries continue
+
+### Confirmation Time Reference by Chain
+
+| Chain | Typical Confirmation Time | Recommended Mode |
+|-------|--------------------------|------------------|
+| **Ethereum Mainnet** | 12~15 seconds | Async + Polling |
+| **Ethereum L2 (Polygon/Arbitrum)** | 2~5 seconds | Sync (tx_timeout=10) |
+| **ChainMaker** | 1~3 seconds | Sync (tx_timeout=10) |
+| **Solana** | 0.4~2 seconds | Sync (tx_timeout=10) |
+
+### Client Integration Examples
+
+**Go client async polling example:**
+
+```go
+// 1. Submit transaction asynchronously
+resp, err := client.CallContract(ctx, &pb.CallContractRequest{
+    ChainName:      "ethereum01",
+    ContractName:   "notification",
+    ContractMethod: "sendMessage",
+    KvPairs:        []*pb.KeyValuePair{{Key: "msg", Value: []byte("Hello")}},
+    MethodType:     pb.MethodType_Invoke,
+    WithSyncResult: false,  // Async mode
+})
+txId := resp.Data.TxId
+
+// 2. Poll transaction status
+ticker := time.NewTicker(3 * time.Second)
+defer ticker.Stop()
+timeout := time.After(60 * time.Second)
+
+for {
+    select {
+    case <-ticker.C:
+        txResp, err := client.GetTxByTxId(ctx, &pb.GetTxByTxIdRequest{
+            TxId:      txId,
+            ChainName: "ethereum01",
+        })
+        if err == nil && !txResp.Data.Pending {
+            fmt.Printf("Transaction confirmed: %s\n", txResp.Data.Content)
+            return
+        }
+    case <-timeout:
+        fmt.Println("Polling timeout, please query manually later")
+        return
+    }
+}
+```
+
+**curl async call example:**
+
+```bash
+# Step 1: Submit transaction asynchronously
+TX_ID=$(curl -s -X POST http://localhost:8080/api/v1/contract/call \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{
+    "chain_name": "ethereum01",
+    "contract_name": "notification",
+    "method": "sendMessage",
+    "params": {"message": "Hello"},
+    "sync": false
+  }' | jq -r '.data.tx_id')
+
+echo "Transaction submitted: $TX_ID"
+
+# Step 2: Poll transaction status
+for i in $(seq 1 20); do
+  sleep 3
+  RESULT=$(curl -s -H "X-API-Key: your-api-key" \
+    "http://localhost:8080/api/v1/tx/${TX_ID}?chain_name=ethereum01")
+  CONFIRMED=$(echo $RESULT | jq -r '.data.confirmed')
+  if [ "$CONFIRMED" = "true" ]; then
+    echo "Transaction confirmed!"
+    echo $RESULT | jq '.data.result'
+    break
+  fi
+  echo "Attempt ${i}: transaction still pending..."
+done
+```
 
 ---
 
@@ -681,9 +1013,10 @@ curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains
 | GET | `/api/v1/tx/:txId` | Query transaction by ID |
 | GET | `/api/v1/chains` | List available chains |
 | GET | `/api/v1/chains/:chainName/status` | Get chain connection status |
-| POST | `/api/v1/events/subscribe` | Subscribe to contract events |
-| GET | `/api/v1/events/poll` | Poll subscribed events |
-| DELETE | `/api/v1/events/subscribe/:subscriptionId` | Unsubscribe |
+| GET | `/api/v1/events/subscriptions` | List subscribed contracts |
+| GET | `/api/v1/events/available-contracts` | List available contracts for subscription |
+| POST | `/api/v1/events/subscribe-by-contract` | Enable subscription for a contract |
+| DELETE | `/api/v1/events/subscribe-by-contract/:contractConfigId` | Cancel contract subscription |
 | POST | `/api/v1/tenants` | Create tenant |
 | GET | `/api/v1/tenants/:id` | Get tenant detail |
 | GET | `/api/v1/tenants` | List tenants |
@@ -760,8 +1093,7 @@ curl -X POST http://localhost:8080/api/v1/chain-configs \
     "eth_chain_id": 1,
     "http_url": "https://mainnet.infura.io/v3/YOUR_KEY",
     "websocket_url": "wss://mainnet.infura.io/ws/v3/YOUR_KEY",
-    "private_key": "hex-private-key",
-    "gas_limit": 1000000
+    "private_key": "hex-private-key"
   }'
 
 # Create ChainMaker chain config
@@ -872,25 +1204,23 @@ curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains
 curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains/ethereum01/status
 ```
 
-### Event Subscription via HTTP
+### Event Subscription Management via HTTP
 
 ```bash
-# Subscribe to contract events
-curl -X POST http://localhost:8080/api/v1/events/subscribe \
+# List subscribed contracts
+curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/events/subscriptions
+
+# List available contracts for subscription
+curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/events/available-contracts
+
+# Enable subscription for a contract
+curl -X POST http://localhost:8080/api/v1/events/subscribe-by-contract \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
-  -d '{
-    "chain_name": "ethereum01",
-    "contract_name": "notification",
-    "contract_addr": "0x1234..."
-  }'
+  -d '{"contract_config_id": 1}'
 
-# Poll events (returns buffered events)
-curl -H "X-API-Key: your-api-key" \
-  "http://localhost:8080/api/v1/events/poll?subscription_id=sub-123&count=10"
-
-# Unsubscribe
-curl -X DELETE http://localhost:8080/api/v1/events/subscribe/sub-123 \
+# Cancel contract subscription
+curl -X DELETE http://localhost:8080/api/v1/events/subscribe-by-contract/1 \
   -H "X-API-Key: your-api-key"
 ```
 

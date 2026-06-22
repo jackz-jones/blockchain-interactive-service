@@ -1,15 +1,19 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Input, Button, Typography, Space, message, Alert, Divider, Form } from 'antd'
+import { Card, Input, Button, Typography, Space, Alert, Divider, Form } from 'antd'
 import { KeyOutlined, CheckCircleOutlined, UserAddOutlined } from '@ant-design/icons'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
+import { useApiMessage } from '@/hooks/useApiMessage'
+import { useGlobalMessage } from '@/components/GlobalMessage'
 
 const { Title, Paragraph, Text } = Typography
 
 export default function Settings() {
   const navigate = useNavigate()
   const { apiKey, setApiKey, setTenant } = useAuthStore()
+  const { message } = useGlobalMessage()
+  const { handleApiError } = useApiMessage()
   const [inputKey, setInputKey] = useState(apiKey || '')
   const [loading, setLoading] = useState(false)
   const [registerMode, setRegisterMode] = useState(false)
@@ -28,8 +32,8 @@ export default function Settings() {
       const response = await api.post('/auth/validate', {
         api_key: inputKey.trim(),
       })
-      const data = response.data as { data: { tenant_id: string; tenant_name: string; role: string } }
-      const info = data.data
+      // 响应拦截器已解包：response.data = body.data = {tenant_id, tenant_name, role, plan}
+      const info = response.data as { tenant_id: number; tenant_name: string; role: string }
       setApiKey(inputKey.trim())
       setTenant({
         id: String(info.tenant_id),
@@ -56,8 +60,8 @@ export default function Settings() {
         password: values.password,
         phone: values.phone,
       })
-      const data = response.data as { data: { api_key: string; tenant_id: string; tenant_name: string; username: string } }
-      const info = data.data
+      // 响应拦截器已解包：response.data = body.data = {api_key, tenant_id, tenant_name, username}
+      const info = response.data as { api_key: string; tenant_id: number; tenant_name: string; username: string }
 
       // 注册成功后自动填充 API Key
       setInputKey(info.api_key)
@@ -72,8 +76,8 @@ export default function Settings() {
       registerForm.resetFields()
       // 注册成功后自动跳转到概览页
       navigate('/dashboard')
-    } catch {
-      // 错误已由拦截器处理
+    } catch (err) {
+      handleApiError(err)
     } finally {
       setRegisterLoading(false)
     }
@@ -90,7 +94,7 @@ export default function Settings() {
 
       {!apiKey && (
         <Alert
-          message="首次使用"
+          title="首次使用"
           description="你还没有配置 API Key。请在下方输入已有 Key，或点击「注册新租户」创建一个新账号。"
           type="info"
           showIcon
@@ -100,7 +104,7 @@ export default function Settings() {
 
       {apiKey && (
         <Alert
-          message="已连接"
+          title="已连接"
           description={`API Key 已配置，当前租户：${useAuthStore.getState().tenant?.name || '未知'}`}
           type="success"
           icon={<CheckCircleOutlined />}
@@ -111,7 +115,7 @@ export default function Settings() {
 
       {/* 输入已有 API Key */}
       <Card title={<><KeyOutlined style={{ marginRight: 8 }} />使用已有 API Key</>}>
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+<Space orientation="vertical" size="middle" style={{ width: '100%' }}>
           <div>
             <Text strong style={{ display: 'block', marginBottom: 8 }}>
               API Key
@@ -143,7 +147,7 @@ export default function Settings() {
       {/* 注册新租户 */}
       {!registerMode ? (
         <Card>
-          <Space direction="vertical" size="middle" style={{ width: '100%', alignItems: 'center' }}>
+<Space orientation="vertical" size="middle" style={{ width: '100%', alignItems: 'center' }}>
             <UserAddOutlined style={{ fontSize: 32, color: 'var(--color-primary)' }} />
             <Text type="secondary">还没有 API Key？创建一个新租户，系统将自动为你生成初始 API Key。</Text>
             <Button

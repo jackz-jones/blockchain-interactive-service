@@ -1,18 +1,50 @@
-import { useEffect, useState } from 'react'
-import { Table, Typography, Tag, Space } from 'antd'
+import { useEffect, useState, useCallback } from 'react'
+import { Table, Typography, Tag, Tooltip } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
+import { useApiMessage } from '@/hooks/useApiMessage'
 
-const { Title, Text, Paragraph } = Typography
+const { Title, Text } = Typography
 
 interface AuditLog {
-  id: string
+  ID: number
   operator: string
   action: string
-  resource_type: string
+  resource: string
+  resource_label: string
   resource_id: string
-  changes?: { before: unknown; after: unknown }
+  resource_name: string
+  detail: string
+  ip: string
+  user_agent: string
   created_at: string
+}
+
+// 格式化 JSON 显示，对过长内容截断
+function formatDetail(raw: unknown): string {
+  try {
+    const str = JSON.stringify(raw, null, 2)
+    if (str.length > 2000) {
+      return str.substring(0, 2000) + '\n... (内容过长已截断)'
+    }
+    return str
+  } catch {
+    return String(raw)
+  }
+}
+
+// 解析 detail JSON，提取变更前后数据；无 before/after 时返回原始 detail
+function parseDetail(detail: string): { before?: unknown; after?: unknown; raw?: unknown } | null {
+  if (!detail) return null
+  try {
+    const parsed = JSON.parse(detail)
+    if (parsed.before !== undefined && parsed.after !== undefined) {
+      return { before: parsed.before, after: parsed.after }
+    }
+    return { raw: parsed }
+  } catch {
+    return null
+  }
 }
 
 export default function AuditLogs() {
@@ -20,6 +52,8 @@ export default function AuditLogs() {
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [expandedKeys, setExpandedKeys] = useState<number[]>([])
+  const { handleApiError } = useApiMessage()
 
   const fetchList = async (p = page) => {
     setLoading(true)
@@ -28,8 +62,8 @@ export default function AuditLogs() {
       const result = res.data as { items: AuditLog[]; total: number }
       setData(result.items || [])
       setTotal(result.total || 0)
-    } catch {
-      // 错误已由拦截器处理
+    } catch (err) {
+      handleApiError(err)
     } finally {
       setLoading(false)
     }
@@ -43,32 +77,167 @@ export default function AuditLogs() {
     create: 'green',
     update: 'blue',
     delete: 'red',
+    call: 'orange',
   }
 
   const columns: ColumnsType<AuditLog> = [
-    { title: '操作人', dataIndex: 'operator', key: 'operator', width: 120 },
+    { title: '操作人', dataIndex: 'operator', key: 'operator', width: 160, align: 'center' },
     {
       title: '操作',
       dataIndex: 'action',
       key: 'action',
-      width: 80,
+      width: 120,
+      align: 'center',
       render: (action: string) => <Tag color={actionColorMap[action] || 'default'}>{action}</Tag>,
     },
-    { title: '资源类型', dataIndex: 'resource_type', key: 'resource_type', width: 120 },
+    { title: '资源类型', dataIndex: 'resource_label', key: 'resource_label', width: 160, align: 'center' },
     {
-      title: '资源 ID',
-      dataIndex: 'resource_id',
-      key: 'resource_id',
-      render: (id: string) => <Text code style={{ fontSize: 12 }}>{id}</Text>,
+      title: '资源',
+      dataIndex: 'resource_name',
+      key: 'resource_name',
+      width: 240,
+      align: 'center',
+      ellipsis: { showTitle: false },
+      render: (name: string, record) => {
+        // contract_call 没有 resource_id，显示 "-" 即可
+        if (!name && !record.resource_id) {
+          return <span style={{ color: '#aaa' }}>-</span>
+        }
+        // 优先展示解析后的名称
+        if (name && name !== record.resource_id) {
+          return (
+            <Tooltip title={name} placement="topLeft">
+              <span>{name}</span>
+            </Tooltip>
+          )
+        }
+        // 没有名称解析时，展示 "ID: xxx" 格式
+        if (record.resource_id) {
+          return (
+            <Tooltip title={`ID: ${record.resource_id}`} placement="topLeft">
+              <span style={{ color: '#888' }}>ID: {record.resource_id}</span>
+            </Tooltip>
+          )
+        }
+        return <span style={{ color: '#aaa' }}>-</span>
+      },
     },
     {
       title: '时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      width: 180,
+      width: 200,
+      align: 'center',
       render: (time: string) => new Date(time).toLocaleString('zh-CN'),
     },
   ]
+
+  const expandedRowRender = useCallback((record: AuditLog) => {
+    const changes = parseDetail(record.detail)
+    if (!changes) {
+      return <Text type="secondary">无详情</Text>
+    }
+
+    if (changes.before !== undefined && changes.after !== undefined) {
+      return (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ textAlign: 'left' }}>
+            <Text type="secondary" style={{ fontSize: 12, fontWeight: 500 }}>变更前</Text>
+            <pre style={{
+              fontSize: 12, maxHeight: 240, overflow: 'auto',
+              background: '#fafafa', padding: 8, borderRadius: 4,
+              margin: '4px 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+              textAlign: 'left',
+            }}>
+              {formatDetail(changes.before)}
+            </pre>
+          </div>
+          <div style={{ textAlign: 'left' }}>
+            <Text type="secondary" style={{ fontSize: 12, fontWeight: 500 }}>变更后</Text>
+            <pre style={{
+              fontSize: 12, maxHeight: 240, overflow: 'auto',
+              background: '#fafafa', padding: 8, borderRadius: 4,
+              margin: '4px 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+              textAlign: 'left',
+            }}>
+              {formatDetail(changes.after)}
+            </pre>
+          </div>
+        </div>
+      )
+    }
+
+    // 中间件自动记录的 HTTP 请求信息（含 method/path/status_code/duration 等字段）
+    const raw = changes.raw as Record<string, unknown> | null
+    if (raw && typeof raw === 'object' && ('method' in raw || 'status_code' in raw)) {
+      const methodTagColor: Record<string, string> = {
+        GET: 'green', POST: 'blue', PUT: 'orange', PATCH: 'orange', DELETE: 'red',
+      }
+      const method = (raw.method as string) || ''
+      const path = (raw.path as string) || ''
+      const statusCode = raw.status_code as number | undefined
+      const duration = raw.duration as number | undefined
+
+      // 提取除 method/path/status_code/duration 之外的额外字段，过滤掉空值字段
+      const extraFields = Object.entries(raw).filter(
+        ([k, v]) => !['method', 'path', 'status_code', 'duration'].includes(k)
+          && v !== '' && v !== null && v !== undefined
+      )
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* 请求路径 + 方法/状态码/耗时 - 左对齐一排展示 */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap',
+          }}>
+            {path && (
+              <>
+                <Text type="secondary" style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>请求路径</Text>
+                <Text code style={{ fontSize: 13, whiteSpace: 'nowrap' }}>{path}</Text>
+              </>
+            )}
+            {method && <Tag color={methodTagColor[method] || 'default'} style={{ margin: 0, flexShrink: 0 }}>{method}</Tag>}
+            {statusCode !== undefined && (
+              <Tag color={statusCode < 400 ? 'success' : 'error'} style={{ margin: 0, flexShrink: 0 }}>
+                {statusCode}
+              </Tag>
+            )}
+            {duration !== undefined && (
+              <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>耗时 {duration}ms</Text>
+            )}
+          </div>
+          {/* 附加信息 - 仅展示非空额外字段，左对齐JSON结构 */}
+          {extraFields.length > 0 && (
+            <div style={{ textAlign: 'left' }}>
+              <Text type="secondary" style={{ fontSize: 12, fontWeight: 500 }}>附加信息</Text>
+              <pre style={{
+                fontSize: 12, maxHeight: 200, overflow: 'auto',
+                background: '#fafafa', padding: 8, borderRadius: 4,
+                margin: '4px 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                textAlign: 'left',
+              }}>
+                {formatDetail(Object.fromEntries(extraFields))}
+              </pre>
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // 其他未知格式的 detail，原始 JSON 展示
+    return (
+      <div>
+        <Text type="secondary" style={{ fontSize: 12, fontWeight: 500 }}>操作详情</Text>
+        <pre style={{
+          fontSize: 12, maxHeight: 300, overflow: 'auto',
+          background: '#fafafa', padding: 8, borderRadius: 4,
+          margin: '4px 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+        }}>
+          {formatDetail(changes.raw)}
+        </pre>
+      </div>
+    )
+  }, [])
 
   return (
     <div>
@@ -77,40 +246,27 @@ export default function AuditLogs() {
       <Table
         columns={columns}
         dataSource={data}
-        rowKey="id"
+        rowKey="ID"
         loading={loading}
         pagination={{
           current: page,
           total,
           pageSize: 20,
-          onChange: setPage,
-          showTotal: (t) => `共 ${t} 条`,
-        }}
+          onChange: (p: number) => setPage(p),
+          showTotal: (t: number) => `共 ${t} 条`,
+        } as any}
         size="middle"
         expandable={{
-          expandedRowRender: (record) =>
-            record.changes ? (
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>变更前</Text>
-                    <Paragraph code style={{ fontSize: 11, maxHeight: 200, overflow: 'auto' }}>
-                      {JSON.stringify(record.changes.before, null, 2)}
-                    </Paragraph>
-                  </div>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>变更后</Text>
-                    <Paragraph code style={{ fontSize: 11, maxHeight: 200, overflow: 'auto' }}>
-                      {JSON.stringify(record.changes.after, null, 2)}
-                    </Paragraph>
-                  </div>
-                </div>
-              </Space>
-            ) : (
-              <Text type="secondary">无变更详情</Text>
-            ),
-          rowExpandable: (record) => !!record.changes,
-        }}
+          expandedRowRender,
+          expandedRowKeys: expandedKeys,
+          onExpand: (expanded: boolean, record: AuditLog) => {
+            setExpandedKeys(
+              expanded
+                ? [...expandedKeys, record.ID]
+                : expandedKeys.filter((k) => k !== record.ID)
+            )
+          },
+        } as any}
       />
     </div>
   )

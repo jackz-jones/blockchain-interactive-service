@@ -60,9 +60,10 @@ export const theme: ThemeConfig = {
       darkItemSelectedColor: '#7cb88c',
     },
     Table: {
-      headerBg: '#fafafa',
-      headerColor: '#6b6b80',
+      headerBg: '#f5f5f7',
+      headerColor: '#4a4a5a',
       rowHoverBg: '#f8f9fa',
+      borderColor: '#ebebeb',
     },
     Button: {
       primaryShadow: 'none',

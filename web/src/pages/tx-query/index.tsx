@@ -3,21 +3,21 @@ import { Card, Form, Select, Input, Button, Typography, Space, Alert } from 'ant
 import { SearchOutlined } from '@ant-design/icons'
 import Editor from '@monaco-editor/react'
 import api from '@/services/api'
+import { useApiMessage } from '@/hooks/useApiMessage'
 
 const { Title, Text } = Typography
 
 interface ChainOption {
-  id: string
+  ID: number
   chain_name: string
 }
 
 interface TxResult {
   tx_id: string
-  status: string
-  block_height?: number
-  timestamp?: string
-  content?: unknown
+  confirmed?: boolean
+  result?: string
   error?: string
+  status?: string
 }
 
 export default function TxQuery() {
@@ -25,6 +25,7 @@ export default function TxQuery() {
   const [chains, setChains] = useState<ChainOption[]>([])
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<TxResult | null>(null)
+  const { handleApiError } = useApiMessage()
 
   useEffect(() => {
     fetchChains()
@@ -33,22 +34,25 @@ export default function TxQuery() {
   const fetchChains = async () => {
     try {
       const res = await api.get('/chain-configs')
-      setChains((res.data as { items: ChainOption[] }).items || [])
-    } catch {
-      // 错误已由拦截器处理
+      setChains((res.data as ChainOption[]) || [])
+    } catch (err) {
+      handleApiError(err)
     }
   }
 
   const handleQuery = async (values: Record<string, string>) => {
+    const txId = values.tx_id || ''
+    const chainName = values.chain_name || ''
     setLoading(true)
     setResult(null)
     try {
-      const res = await api.get('/chain/tx', {
-        params: { chain_name: values.chain_name, tx_id: values.tx_id },
+      const res = await api.get(`/tx/${encodeURIComponent(txId)}`, {
+        params: { chain_name: chainName },
       })
-      setResult(res.data as TxResult)
+      const data = res.data as { result?: string; confirmed?: boolean }
+      setResult({ tx_id: txId, result: data.result, confirmed: data.confirmed })
     } catch (err) {
-      setResult({ tx_id: values.tx_id || '', status: 'ERROR', error: err instanceof Error ? err.message : '查询失败' })
+      setResult({ tx_id: txId, status: 'ERROR', error: err instanceof Error ? err.message : '查询失败' })
     } finally {
       setLoading(false)
     }
@@ -79,43 +83,49 @@ export default function TxQuery() {
       </Card>
 
       {result?.error && (
-        <Alert type="error" message="查询失败" description={result.error} showIcon style={{ marginBottom: 16 }} />
+<Alert type="error" title="查询失败" description={result.error} showIcon style={{ marginBottom: 16 }} />
       )}
 
       {result && !result.error && (
         <Card title="交易详情">
-          <Space direction="vertical" style={{ width: '100%' }} size="middle">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div>
-                <Text type="secondary" style={{ fontSize: 12 }}>交易 ID</Text>
-                <div><Text code style={{ fontSize: 12, wordBreak: 'break-all' }}>{result.tx_id}</Text></div>
-              </div>
-              <div>
-                <Text type="secondary" style={{ fontSize: 12 }}>状态</Text>
-                <div><Text>{result.status}</Text></div>
-              </div>
-              {result.block_height !== undefined && (
-                <div>
-                  <Text type="secondary" style={{ fontSize: 12 }}>区块高度</Text>
-                  <div><Text>{String(result.block_height)}</Text></div>
+<Space orientation="vertical" style={{ width: '100%' }} size="middle">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>交易 ID</Text>
+                <div style={{ overflow: 'auto', flex: 1 }}>
+                  <Text code style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{result.tx_id}</Text>
                 </div>
-              )}
-              {result.timestamp && (
-                <div>
-                  <Text type="secondary" style={{ fontSize: 12 }}>时间</Text>
-                  <div><Text>{new Date(result.timestamp).toLocaleString('zh-CN')}</Text></div>
-                </div>
-              )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>确认状态</Text>
+                <Text>{result.confirmed ? '✅ 已确认' : '⏳ 待确认 / Pending'}</Text>
+              </div>
             </div>
 
-            {result.content !== undefined && result.content !== null && (
+            {result.result !== undefined && result.result !== null && (
               <div>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>交易内容</Text>
+                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>交易详情</Text>
                 <div style={{ border: '1px solid #d9d9d9', borderRadius: 6, overflow: 'hidden' }}>
                   <Editor
-                    height="250px"
+                    height="300px"
                     defaultLanguage="json"
-                    value={JSON.stringify(result.content, null, 2)}
+                    value={(() => {
+                      try {
+                        const obj = JSON.parse(result.result!)
+                        // logs 字段是 []byte 经 JSON 序列化的 base64 字符串，自动解码为 JSON
+                        if (obj && typeof obj.logs === 'string' && obj.logs.length > 0) {
+                          try {
+                            const decoded = atob(obj.logs)
+                            obj.logs = JSON.parse(decoded)
+                          } catch {
+                            // 解码失败保持原样
+                          }
+                        }
+                        return JSON.stringify(obj, null, 2)
+                      } catch {
+                        return result.result
+                      }
+                    })()}
                     options={{
                       readOnly: true,
                       minimap: { enabled: false },

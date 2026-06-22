@@ -12,7 +12,7 @@
 - 🔗 **多链支持**：统一接口对接 Ethereum、ChainMaker、Solana，插件化架构支持快速扩展
 - 📝 **合约调用**：支持 Invoke（写）和 Query（读）两种调用模式
 - 🔍 **交易查询**：根据交易 ID 查询交易详情和链上状态
-- 📡 **事件订阅**：通过 HTTP API 订阅合约事件，支持轮询机制
+- 📡 **事件订阅**：订阅合约事件，通过 gRPC 服务端流实时推送给消费端
 - ⚡ **同步/异步**：合约调用支持同步等待和异步返回
 
 ### 商业化功能（BaaS 平台）
@@ -241,6 +241,7 @@ SubscribeConf:
 | `CallContract` | 调用/查询链上合约 |
 | `GetTxByTxId` | 根据交易 ID 查询交易 |
 | `GetAvailableChainAndContractNames` | 获取可用链和合约列表 |
+| `SubscribeContractEvents` | 流式推送合约事件（Server-Side Streaming） |
 
 ### RESTful HTTP API（端口 8080）
 
@@ -249,7 +250,7 @@ SubscribeConf:
 | **合约** | `POST /api/v1/contract/call` | 调用/查询合约 |
 | **交易** | `GET /api/v1/tx/:txId` | 根据 ID 查询交易 |
 | **链** | `GET /api/v1/chains`, `GET /api/v1/chains/:chainName/status` | 链列表、状态查询 |
-| **事件** | `POST /api/v1/events/subscribe`, `GET /api/v1/events/poll`, `DELETE /api/v1/events/subscribe/:subscriptionId` | 事件订阅 |
+| **事件** | `GET /api/v1/events/subscriptions`, `POST /api/v1/events/subscribe-by-contract`, `DELETE .../subscribe-by-contract/:id` | 事件订阅管理 |
 | **租户** | `POST/GET /api/v1/tenants`, `POST .../disable\|enable` | 租户管理 |
 | **API Key** | `POST/GET /api/v1/api-keys` | API Key 管理 |
 | **链配置** | `CRUD /api/v1/chain-configs`, `POST .../test-connection` | 链配置管理 |
@@ -344,7 +345,7 @@ helm upgrade chain-interactive ./deploy/helm -f custom-values.yaml
 | **合约配置** | 按链管理合约（ABI、订阅设置） |
 | **合约调用** | 交互式合约调用，内置 Monaco 编辑器 |
 | **交易查询** | 查询和检视交易详情 |
-| **事件订阅** | 订阅/取消订阅合约事件，轮询结果 |
+| **事件订阅** | 订阅合约事件，gRPC 流式推送 |
 | **租户管理** | 创建/禁用/启用租户 |
 | **API Key** | 生成和管理 API Key |
 | **用户管理** | 查看和管理用户 |
