@@ -83,8 +83,8 @@ func HTTPQuotaMiddleware(billingService *billing.Service) func(http.Handler) htt
 
 			if !allowed {
 				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_, _ = w.Write([]byte(`{"code":403,"message":"quota exceeded, please upgrade your plan"}`))
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(`{"code":429,"message":"quota exceeded, please upgrade your plan"}`))
 				return
 			}
 
