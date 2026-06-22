@@ -52,7 +52,6 @@ type CreateChainConfigRequestBody struct {
 	HttpUrl      string `json:"http_url"`
 	WebsocketUrl string `json:"websocket_url"`
 	PrivateKey   string `json:"private_key"`
-	GasLimit     int64  `json:"gas_limit"`
 
 	// Solana 专属字段
 	SolRpcUrl       string `json:"sol_rpc_url"`
@@ -280,7 +279,7 @@ func ValidateChainType(chainType string) error {
 }
 
 // MaskChainConfigSensitiveFields 返回链配置的脱敏副本，不修改原始对象
-// 私钥不能出域，API 响应中直接清空私钥字段
+// 私钥不能出域，API 响应中对私钥字段进行脱敏处理，保留前后部分字符，中间用 * 替代
 func MaskChainConfigSensitiveFields(config *store.TenantChainConfig) *store.TenantChainConfig {
 	if config == nil {
 		return nil
@@ -289,12 +288,30 @@ func MaskChainConfigSensitiveFields(config *store.TenantChainConfig) *store.Tena
 	// 浅拷贝一份副本
 	masked := *config
 
-	// 私钥不出域，直接清空
-	masked.SignKey = ""
-	masked.UserTlsKey = ""
-	masked.UserEncKey = ""
-	masked.PrivateKey = ""
-	masked.SolPrivateKey = ""
+	// 私钥不出域，进行脱敏处理（保留前后部分字符，中间用 * 替代）
+	masked.SignKey = maskSensitiveString(config.SignKey)
+	masked.UserTlsKey = maskSensitiveString(config.UserTlsKey)
+	masked.UserEncKey = maskSensitiveString(config.UserEncKey)
+	masked.PrivateKey = maskSensitiveString(config.PrivateKey)
+	masked.SolPrivateKey = maskSensitiveString(config.SolPrivateKey)
 
 	return &masked
+}
+
+// maskSensitiveString 对敏感字符串进行脱敏处理
+// 如果字符串长度 <= 8，则保留前2个字符，其余用 * 替代
+// 如果字符串长度 > 8，则保留前4个和后4个字符，中间用 **** 替代
+// 如果字符串为空，则返回空字符串
+func maskSensitiveString(s string) string {
+	if s == "" {
+		return ""
+	}
+	length := len(s)
+	if length <= 8 {
+		if length <= 2 {
+			return s[:1] + strings.Repeat("*", length-1)
+		}
+		return s[:2] + strings.Repeat("*", length-2)
+	}
+	return s[:4] + "****" + s[length-4:]
 }

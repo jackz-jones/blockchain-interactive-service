@@ -100,7 +100,6 @@ func toOldChainConfigRequest(req *types.CreateChainConfigRequest) *validator.Cre
 		HttpUrl:         req.HttpUrl,
 		WebsocketUrl:    req.WebsocketUrl,
 		PrivateKey:      req.PrivateKey,
-		GasLimit:        req.GasLimit,
 		SolRpcUrl:       req.SolRpcUrl,
 		SolPrivateKey:   req.SolPrivateKey,
 		CommitmentLevel: req.CommitmentLevel,
@@ -146,7 +145,6 @@ func buildChainConfigModel(tenantID uint, req *types.CreateChainConfigRequest) *
 		config.HttpUrl = req.HttpUrl
 		config.WebsocketUrl = req.WebsocketUrl
 		config.PrivateKey = req.PrivateKey
-		config.GasLimit = req.GasLimit
 	case "solana":
 		config.SolRpcUrl = req.SolRpcUrl
 		config.SolPrivateKey = req.SolPrivateKey

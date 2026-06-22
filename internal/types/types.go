@@ -45,7 +45,11 @@ type CallContractRequest struct {
 	ChainName    string            `json:"chain_name"`
 	ContractName string            `json:"contract_name"`
 	Method       string            `json:"method"`
+	MethodType   int               `json:"method_type,optional"` // 调用类型：1-写链(Invoke) 2-读链(Query)，默认1
 	Params       map[string]string `json:"params"`
+	Sync         bool              `json:"sync,optional"`       // 是否同步等待上链确认，默认false（异步）
+	TxTimeout    int64             `json:"tx_timeout,optional"` // 同步等待超时时间（秒），默认10
+	GasLimit     int64             `json:"gas_limit,optional"`  // Gas 上限，0 表示自动估算（默认）
 }
 
 type GetTxByTxIdRequest struct {
@@ -70,6 +74,14 @@ type EventPollRequest struct {
 
 type EventUnsubscribeRequest struct {
 	SubscriptionId string `path:"subscriptionId"`
+}
+
+type SubscribeByContractRequest struct {
+	ContractConfigID uint `json:"contract_config_id"`
+}
+
+type UnsubscribeByContractRequest struct {
+	ContractConfigID string `path:"contractConfigId"`
 }
 
 type CreateTenantRequest struct {
@@ -128,7 +140,6 @@ type CreateChainConfigRequest struct {
 	HttpUrl         string       `json:"http_url,optional"`
 	WebsocketUrl    string       `json:"websocket_url,optional"`
 	PrivateKey      string       `json:"private_key,optional"`
-	GasLimit        int64        `json:"gas_limit,optional"`
 	SolRpcUrl       string       `json:"sol_rpc_url,optional"`
 	SolPrivateKey   string       `json:"sol_private_key,optional"`
 	CommitmentLevel string       `json:"commitment_level,optional"`
@@ -189,14 +200,20 @@ type ListCallLogsRequest struct {
 	PageSize     int    `form:"page_size,optional"`
 	ChainName    string `form:"chain_name,optional"`
 	ContractName string `form:"contract_name,optional"`
+	MethodType   int    `form:"method_type,optional"` // 调用类型筛选：1-写链(Invoke) 2-读链(Query)
 	Status       string `form:"status,optional"`
 	StartTime    string `form:"start_time,optional"`
 	EndTime      string `form:"end_time,optional"`
 }
 
 type ListBillsRequest struct {
-	Page     int `form:"page,optional"`
-	PageSize int `form:"page_size,optional"`
+	Page     int    `form:"page,optional"`
+	PageSize int    `form:"page_size,optional"`
+	BillType string `form:"bill_type,optional"` // 账单类型筛选：daily 或 monthly
+}
+
+type GenerateBillsRequest struct {
+	Type string `json:"type"` // daily 或 monthly
 }
 
 type ListAuditLogsRequest struct {

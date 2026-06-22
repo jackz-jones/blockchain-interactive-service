@@ -46,7 +46,7 @@ func (l *DeleteChainConfigLogic) DeleteChainConfig(req *types.ChainConfigIdPathR
 	}
 
 	if before != nil {
-		l.svcCtx.TenantSDKManager.StopAllSubscriptions(tenantID, before.ChainName)
+		l.svcCtx.TenantSDKManager.StopAllSubscriptions(tenantID, before.ChainName, before.ID)
 	} else {
 		l.svcCtx.TenantSDKManager.InvalidateAllTenantCache(tenantID)
 	}

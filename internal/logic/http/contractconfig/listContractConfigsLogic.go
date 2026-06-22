@@ -41,12 +41,38 @@ func (l *ListContractConfigsLogic) ListContractConfigs(
 		return &types.CommonResponse{Code: 500, Message: "list contract configs: " + err.Error()}, nil
 	}
 
+	// 关联查询链名称并附加到返回数据中
+	chainConfig, _ := l.svcCtx.Repo.GetChainConfigByID(l.ctx, req.ChainConfigId)
+	chainName := ""
+	if chainConfig != nil {
+		chainName = chainConfig.ChainName
+	}
+
+	items := make([]map[string]interface{}, 0, len(configs))
+	for _, cfg := range configs {
+		item := map[string]interface{}{
+			"ID":               cfg.ID,
+			"CreatedAt":        cfg.CreatedAt,
+			"UpdatedAt":        cfg.UpdatedAt,
+			"DeletedAt":        cfg.DeletedAt,
+			"tenant_id":        cfg.TenantID,
+			"chain_config_id":  cfg.ChainConfigID,
+			"contract_name":    cfg.ContractName,
+			"contract_addr":    cfg.ContractAddr,
+			"abi_json":         cfg.AbiJSON,
+			"enable_subscribe": cfg.EnableSubscribe,
+			"extra_conf":       cfg.ExtraConf,
+			"chain_name":       chainName,
+		}
+		items = append(items, item)
+	}
+
 	return &types.CommonResponse{
 		Code:    0,
 		Message: "success",
 		Data: map[string]interface{}{
 			"total": len(configs),
-			"items": configs,
+			"items": items,
 		},
 	}, nil
 }

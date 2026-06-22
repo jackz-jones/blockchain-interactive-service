@@ -44,6 +44,19 @@ func (l *ListAPIKeysLogic) ListAPIKeys(req *types.ListAPIKeysRequest) (resp *typ
 		return &types.CommonResponse{Code: 500, Message: "list api keys: " + err.Error()}, nil
 	}
 
+	// 填充 KeyMasked 虚拟字段（Key 脱敏显示：前缀+"*********"+后4位）
+	for _, key := range keys {
+		if len(key.Key) >= 8 {
+			prefix := key.Key[:8]
+			suffix := key.Key[len(key.Key)-4:]
+			key.KeyMasked = prefix + "*********" + suffix
+		} else if len(key.Key) > 0 {
+			key.KeyMasked = key.Key + "*********"
+		} else {
+			key.KeyMasked = "-"
+		}
+	}
+
 	return &types.CommonResponse{
 		Code:    0,
 		Message: "success",

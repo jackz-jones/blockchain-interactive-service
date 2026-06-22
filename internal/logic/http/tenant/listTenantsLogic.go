@@ -38,6 +38,11 @@ func (l *ListTenantsLogic) ListTenants(req *types.ListTenantsRequest) (resp *typ
 		return &types.CommonResponse{Code: 500, Message: "list tenants: " + err.Error()}, nil
 	}
 
+	// 填充 CreatedAt 虚拟字段
+	for _, tenant := range tenants {
+		tenant.CreatedAt = tenant.Model.CreatedAt
+	}
+
 	return &types.CommonResponse{
 		Code:    0,
 		Message: "success",

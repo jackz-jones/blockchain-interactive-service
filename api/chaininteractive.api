@@ -21,7 +21,10 @@ type CallContractRequest {
 	ChainName    string            `json:"chain_name"`
 	ContractName string            `json:"contract_name"`
 	Method       string            `json:"method"`
+	MethodType   int               `json:"method_type,optional"`
 	Params       map[string]string `json:"params"`
+	Sync         bool              `json:"sync,optional"`
+	TxTimeout    int64             `json:"tx_timeout,optional"`
 }
 
 // --- 交易查询 ---
@@ -112,7 +115,6 @@ type CreateChainConfigRequest {
 	HttpUrl      string `json:"http_url,optional"`
 	WebsocketUrl string `json:"websocket_url,optional"`
 	PrivateKey   string `json:"private_key,optional"`
-	GasLimit     int64  `json:"gas_limit,optional"`
 	// Solana 专属字段
 	SolRpcUrl       string `json:"sol_rpc_url,optional"`
 	SolPrivateKey   string `json:"sol_private_key,optional"`
@@ -184,8 +186,13 @@ type ListCallLogsRequest {
 }
 
 type ListBillsRequest {
-	Page     int `form:"page,optional"`
-	PageSize int `form:"page_size,optional"`
+	Page     int    `form:"page,optional"`
+	PageSize int    `form:"page_size,optional"`
+	BillType string `form:"bill_type,optional"`
+}
+
+type GenerateBillsRequest {
+	Type string `json:"type"` // daily 或 monthly
 }
 
 type ListAuditLogsRequest {
@@ -349,8 +356,14 @@ service chaininteractive-api {
 	@handler GetUsageStats
 	get /dashboard/usage-stats returns (CommonResponse)
 
+	@handler GetUsageStatsTrend
+	get /dashboard/usage-stats-trend returns (CommonResponse)
+
 	@handler ListBills
 	get /dashboard/bills (ListBillsRequest) returns (CommonResponse)
+
+	@handler GenerateBills
+	post /dashboard/bills/generate (GenerateBillsRequest) returns (CommonResponse)
 
 	@handler ListAuditLogs
 	get /dashboard/audit-logs (ListAuditLogsRequest) returns (CommonResponse)

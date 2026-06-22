@@ -38,7 +38,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 
 	server.AddRoutes(
 		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
+			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
 			[]rest.Route{
 				{
 					Method:  http.MethodPost,
@@ -67,22 +67,33 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 
 	server.AddRoutes(
 		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
+			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
 			[]rest.Route{
 				{
-					Method:  http.MethodPost,
-					Path:    "/events/subscribe",
-					Handler: event.SubscribeHandler(serverCtx),
-				},
-				{
 					Method:  http.MethodGet,
-					Path:    "/events/poll",
-					Handler: event.PollHandler(serverCtx),
+					Path:    "/events/subscriptions",
+					Handler: event.ListSubscriptionsHandler(serverCtx),
+				},
+				// 基于合约配置的订阅管理
+				{
+					Method:  http.MethodPost,
+					Path:    "/events/subscribe-by-contract",
+					Handler: event.SubscribeByContractHandler(serverCtx),
 				},
 				{
 					Method:  http.MethodDelete,
-					Path:    "/events/subscribe/:subscriptionId",
-					Handler: event.UnsubscribeHandler(serverCtx),
+					Path:    "/events/subscribe-by-contract/:contractConfigId",
+					Handler: event.UnsubscribeByContractHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
+					Path:    "/events/available-contracts",
+					Handler: event.ListAvailableContractsHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
+					Path:    "/events/recent/:contractConfigId",
+					Handler: event.RecentEventsHandler(serverCtx),
 				},
 			}...,
 		),
@@ -91,7 +102,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 
 	server.AddRoutes(
 		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
+			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
 			[]rest.Route{
 				{
 					Method:  http.MethodPost,
@@ -125,7 +136,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 
 	server.AddRoutes(
 		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
+			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
 			[]rest.Route{
 				{
 					Method:  http.MethodPost,
@@ -144,7 +155,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 
 	server.AddRoutes(
 		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
+			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
 			[]rest.Route{
 				{
 					Method:  http.MethodPost,
@@ -183,7 +194,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 
 	server.AddRoutes(
 		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
+			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
 			[]rest.Route{
 				{
 					Method:  http.MethodPost,
@@ -217,7 +228,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 
 	server.AddRoutes(
 		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
+			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
 			[]rest.Route{
 				{
 					Method:  http.MethodGet,
@@ -231,7 +242,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 
 	server.AddRoutes(
 		rest.WithMiddlewares(
-			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
+			[]rest.Middleware{serverCtx.AuthMiddleware, serverCtx.AuditMiddleware, serverCtx.RateLimitMiddleware, serverCtx.QuotaMiddleware},
 			[]rest.Route{
 				{
 					Method:  http.MethodGet,
@@ -250,8 +261,18 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 				{
 					Method:  http.MethodGet,
+					Path:    "/dashboard/usage-stats-trend",
+					Handler: dashboard.GetUsageStatsTrendHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
 					Path:    "/dashboard/bills",
 					Handler: dashboard.ListBillsHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/dashboard/bills/generate",
+					Handler: dashboard.GenerateBillsHandler(serverCtx),
 				},
 				{
 					Method:  http.MethodGet,

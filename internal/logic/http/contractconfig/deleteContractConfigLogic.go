@@ -53,9 +53,10 @@ func (l *DeleteContractConfigLogic) DeleteContractConfig(
 		return &types.CommonResponse{Code: 500, Message: "delete contract config: " + err.Error()}, nil
 	}
 
+	// 停止该合约的订阅协程
 	chainConfig, _ := l.svcCtx.Repo.GetChainConfigByID(l.ctx, req.ChainConfigId)
 	if chainConfig != nil {
-		l.svcCtx.TenantSDKManager.InvalidateTenantCache(tenantID, chainConfig.ChainName)
+		l.svcCtx.TenantSDKManager.StopContractSubscription(req.ChainConfigId, req.Id, tenantID, chainConfig.ChainName)
 	}
 
 	return &types.CommonResponse{Code: 0, Message: "success"}, nil
