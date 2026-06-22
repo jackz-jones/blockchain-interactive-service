@@ -46,6 +46,7 @@ func (l *ListCallLogsLogic) ListCallLogs(req *types.ListCallLogsRequest) (resp *
 		ChainName:    req.ChainName,
 		ContractName: req.ContractName,
 		Status:       req.Status,
+		MethodType:   store.MethodType(req.MethodType),
 	}
 
 	if req.StartTime != "" {
@@ -62,6 +63,11 @@ func (l *ListCallLogsLogic) ListCallLogs(req *types.ListCallLogsRequest) (resp *
 	logs, total, err := l.svcCtx.Repo.ListCallLogs(l.ctx, filter, (page-1)*pageSize, pageSize)
 	if err != nil {
 		return &types.CommonResponse{Code: 500, Message: "list call logs: " + err.Error()}, nil
+	}
+
+	// 填充 CreatedAt 虚拟字段（前端显示为 created_at）
+	for _, log := range logs {
+		log.CreatedAt = log.Model.CreatedAt
 	}
 
 	return &types.CommonResponse{

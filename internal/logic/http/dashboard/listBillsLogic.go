@@ -39,7 +39,7 @@ func (l *ListBillsLogic) ListBills(req *types.ListBillsRequest) (resp *types.Com
 		pageSize = 20
 	}
 
-	bills, total, err := l.svcCtx.Repo.ListBillsByTenant(l.ctx, tenantID, (page-1)*pageSize, pageSize)
+	bills, total, err := l.svcCtx.Repo.ListBillsByTenant(l.ctx, tenantID, req.BillType, (page-1)*pageSize, pageSize)
 	if err != nil {
 		return &types.CommonResponse{Code: 500, Message: "list bills: " + err.Error()}, nil
 	}

@@ -92,7 +92,47 @@ func (s *Service) RecordUsage(ctx context.Context, tenantID uint) error {
 	return nil
 }
 
-// GenerateMonthlyBills 生成月度账单（定时任务调用）
+// GenerateDailyBills 生成日账单（定时任务调用，每日24点执行）
+func (s *Service) GenerateDailyBills(ctx context.Context) error {
+	now := time.Now()
+	// 生成昨天的日账单
+	yesterday := now.AddDate(0, 0, -1)
+	year := yesterday.Year()
+	month := yesterday.Month()
+	day := yesterday.Day()
+
+	periodStart := time.Date(year, month, day, 0, 0, 0, 0, time.Local)
+	periodEnd := periodStart.AddDate(0, 0, 1)
+
+	// 获取所有租户
+	tenants, _, err := s.repo.ListTenants(ctx, 0, 10000)
+	if err != nil {
+		return fmt.Errorf("list tenants: %w", err)
+	}
+
+	generated := 0
+	for _, t := range tenants {
+		// 统计昨日 Invoke 调用量（仅计费写操作）
+		totalCalls, err := s.repo.CountCallsByTenantDay(ctx, t.ID, year, month, day)
+		if err != nil {
+			s.logger.Errorf("count daily calls for tenant %d: %v", t.ID, err)
+			continue
+		}
+		if totalCalls == 0 {
+			continue // 无调用不生成日账单
+		}
+		if err := s.generateBillForTenant(ctx, t.ID, t.Plan, periodStart, periodEnd, "daily", totalCalls); err != nil {
+			s.logger.Errorf("generate daily bill for tenant %d: %v", t.ID, err)
+			continue
+		}
+		generated++
+	}
+
+	s.logger.Infof("daily bills generated for %d-%02d-%02d, %d/%d tenants processed", year, month, day, generated, len(tenants))
+	return nil
+}
+
+// GenerateMonthlyBills 生成月度汇总账单（定时任务调用，每月1日执行）
 func (s *Service) GenerateMonthlyBills(ctx context.Context) error {
 	now := time.Now()
 	// 生成上个月的账单
@@ -113,8 +153,14 @@ func (s *Service) GenerateMonthlyBills(ctx context.Context) error {
 	}
 
 	for _, t := range tenants {
-		if err := s.generateBillForTenant(ctx, t.ID, t.Plan, periodStart, periodEnd, year, month); err != nil {
-			s.logger.Errorf("generate bill for tenant %d: %v", t.ID, err)
+		// 统计该月 Invoke 调用量（仅计费写操作）
+		totalCalls, err := s.repo.CountCallsByTenantMonth(ctx, t.ID, year, month)
+		if err != nil {
+			s.logger.Errorf("count calls for tenant %d: %v", t.ID, err)
+			continue
+		}
+		if err := s.generateBillForTenant(ctx, t.ID, t.Plan, periodStart, periodEnd, "monthly", totalCalls); err != nil {
+			s.logger.Errorf("generate monthly bill for tenant %d: %v", t.ID, err)
 			continue
 		}
 	}
@@ -193,6 +239,130 @@ type UsageStats struct {
 	UsagePercent float64 `json:"usage_percent"`
 }
 
+// UsageStatsTrend 用量统计趋势数据
+type UsageStatsTrend struct {
+	Dates      []string `json:"dates"`
+	Calls      []int64  `json:"calls"`
+	Success    []int64  `json:"success"`
+	Failed     []int64  `json:"failed"`
+	Invoke     []int64  `json:"invoke"` // Invoke 写链调用量
+	Query      []int64  `json:"query"`  // Query 读链调用量
+	QuotaLimit int64    `json:"quota_limit"`
+	QuotaUsed  int64    `json:"quota_used"`
+}
+
+// GetUsageStatsTrend 获取租户用量统计趋势（按天分组）
+func (s *Service) GetUsageStatsTrend(ctx context.Context, tenantID uint, days int) (*UsageStatsTrend, error) {
+	now := time.Now()
+	startTime := time.Date(now.Year(), now.Month(), now.Day()-days+1, 0, 0, 0, 0, now.Location())
+	endTime := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+
+	// 查询数据库中的按天统计
+	dailyStats, err := s.repo.GetDailyUsageStats(ctx, tenantID, startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+
+	// 构建日期到统计的映射
+	// 注意：GORM Scan 可能将 DATE(created_at) 解析为完整时间格式如 "2026-06-08T00:00:00+08:00"
+	// 需要统一转换为 YYYY-MM-DD 格式作为 map key
+	statMap := make(map[string]*store.DailyUsageStat, len(dailyStats))
+	for _, stat := range dailyStats {
+		// 尝试解析 Date 字段，统一转为 YYYY-MM-DD 格式
+		dateKey := stat.Date
+		if t, err := time.Parse("2006-01-02T15:04:05Z07:00", stat.Date); err == nil {
+			dateKey = t.Format("2006-01-02")
+		} else if t, err := time.Parse("2006-01-02", stat.Date); err == nil {
+			dateKey = t.Format("2006-01-02")
+		}
+		statMap[dateKey] = stat
+	}
+
+	// 查询 Invoke/Query 分类统计
+	invokeDailyStats, err := s.repo.GetDailyUsageStatsByMethodType(ctx, tenantID, startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+
+	// 构建 Invoke 日期到统计的映射
+	invokeStatMap := make(map[string]*store.DailyUsageStat, len(invokeDailyStats))
+	for _, stat := range invokeDailyStats {
+		dateKey := stat.Date
+		if t, err := time.Parse("2006-01-02T15:04:05Z07:00", stat.Date); err == nil {
+			dateKey = t.Format("2006-01-02")
+		} else if t, err := time.Parse("2006-01-02", stat.Date); err == nil {
+			dateKey = t.Format("2006-01-02")
+		}
+		invokeStatMap[dateKey] = stat
+	}
+
+	// Query 类型暂时不查库，默认为 0（后续可扩展）
+	// 当前 GetDailyUsageStatsByMethodType 仅查询 Invoke 统计
+	// Query 统计 = 总调用 - Invoke 调用
+
+	// 生成完整的日期序列（填充无数据的天）
+	trend := &UsageStatsTrend{
+		Dates:   make([]string, 0, days),
+		Calls:   make([]int64, 0, days),
+		Success: make([]int64, 0, days),
+		Failed:  make([]int64, 0, days),
+		Invoke:  make([]int64, 0, days),
+		Query:   make([]int64, 0, days),
+	}
+
+	for i := 0; i < days; i++ {
+		d := startTime.AddDate(0, 0, i)
+		dateStr := d.Format("2006-01-02")
+		// 前端显示用 MM/DD 格式
+		displayDate := d.Format("1/2")
+
+		trend.Dates = append(trend.Dates, displayDate)
+
+		if stat, ok := statMap[dateStr]; ok {
+			trend.Calls = append(trend.Calls, stat.Total)
+			trend.Success = append(trend.Success, stat.Success)
+			trend.Failed = append(trend.Failed, stat.Failed)
+		} else {
+			trend.Calls = append(trend.Calls, 0)
+			trend.Success = append(trend.Success, 0)
+			trend.Failed = append(trend.Failed, 0)
+		}
+
+		// Invoke/Query 分类统计
+		if invokeStat, ok := invokeStatMap[dateStr]; ok {
+			trend.Invoke = append(trend.Invoke, invokeStat.Total)
+		} else {
+			trend.Invoke = append(trend.Invoke, 0)
+		}
+		// Query = 总调用 - Invoke
+		var totalCalls int64
+		if stat, ok := statMap[dateStr]; ok {
+			totalCalls = stat.Total
+		}
+		var invokeCalls int64
+		if invokeStat, ok := invokeStatMap[dateStr]; ok {
+			invokeCalls = invokeStat.Total
+		}
+		queryCalls := totalCalls - invokeCalls
+		if queryCalls < 0 {
+			queryCalls = 0
+		}
+		trend.Query = append(trend.Query, queryCalls)
+	}
+
+	// 配额信息
+	quota, err := s.repo.GetQuotaByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if quota != nil {
+		trend.QuotaLimit = int64(quota.MonthlyLimit)
+		trend.QuotaUsed = int64(quota.MonthlyUsed)
+	}
+
+	return trend, nil
+}
+
 // ========== 内部方法 ==========
 
 // getDailyCount 获取租户今日调用次数
@@ -223,13 +393,7 @@ func (s *Service) incrementDailyCount(tenantID uint) {
 
 // generateBillForTenant 为单个租户生成账单
 func (s *Service) generateBillForTenant(ctx context.Context, tenantID uint, plan string,
-	periodStart, periodEnd time.Time, year int, month time.Month) error {
-
-	// 统计该月调用量
-	totalCalls, err := s.repo.CountCallsByTenantMonth(ctx, tenantID, year, month)
-	if err != nil {
-		return err
-	}
+	periodStart, periodEnd time.Time, billType string, totalCalls int64) error {
 
 	if totalCalls == 0 {
 		return nil // 无调用不生成账单
@@ -240,6 +404,7 @@ func (s *Service) generateBillForTenant(ctx context.Context, tenantID uint, plan
 
 	bill := &store.Bill{
 		TenantID:    tenantID,
+		BillType:    billType,
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,
 		TotalCalls:  uint64(totalCalls),

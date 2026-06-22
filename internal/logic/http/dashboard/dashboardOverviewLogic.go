@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/middleware"
@@ -52,9 +53,19 @@ func (l *OverviewLogic) DashboardOverview() (resp *types.CommonResponse, err err
 		EndTime:   &todayEnd,
 	}, 0, 1)
 
+	// 查询今日成功调用数
+	_, successCount, _ := l.svcCtx.Repo.ListCallLogs(l.ctx, store.CallLogFilter{
+		TenantID:  tenantID,
+		Status:    "success",
+		StartTime: &todayStart,
+		EndTime:   &todayEnd,
+	}, 0, 1)
+
 	var successRate float64
 	if totalCount > 0 {
-		successRate = 100.0
+		successRate = float64(successCount) / float64(totalCount) * 100
+		// 保留1位小数
+		successRate = math.Round(successRate*10) / 10
 	}
 
 	return &types.CommonResponse{

@@ -8,11 +8,11 @@ import (
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
-func GetUsageStatsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+func GetUsageStatsTrendHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		l := dashboardlogic.NewGetUsageStatsLogic(r.Context(), svcCtx)
+		l := dashboardlogic.NewGetUsageStatsTrendLogic(r.Context(), svcCtx)
 		l.R = r
-		resp, err := l.GetUsageStats()
+		resp, err := l.GetUsageStatsTrend()
 		if err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)
 		} else {
