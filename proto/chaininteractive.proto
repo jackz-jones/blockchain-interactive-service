@@ -14,6 +14,9 @@ service ChainInteractive {
 
   // GetAvailableChainAndContractNames 获取本地可访问的所有链名称，以及旗下的合约名称
   rpc GetAvailableChainAndContractNames(GetAvailableChainAndContractNamesRequest) returns(GetAvailableChainAndContractNamesResponse) {};
+
+  // SubscribeContractEvents 订阅合约事件（服务端流式推送）
+  rpc SubscribeContractEvents(SubscribeContractEventsRequest) returns(stream ContractEventResponse) {};
 }
 
 message GetTxByTxIdRequest {
@@ -57,6 +60,7 @@ message CallContractRequest {
   MethodType methodType = 6; // 合约调用类型
   bool withSyncResult = 7; // 异步还是同步上链
   int64 txTimeout = 8; // 交易超时时间，单位秒，默认会 30s
+  int64 gasLimit = 9; // Gas 上限，0 表示自动估算（默认）
 }
 
 message GetAvailableChainAndContractNamesRequest {
@@ -86,4 +90,22 @@ message GetAvailableChainAndContractNamesResponse {
   int32 code = 1;
   string msg = 2;
   repeated ChainAndContractName data = 3;
+}
+
+// SubscribeContractEvents 请求消息
+message SubscribeContractEventsRequest {
+  string requestId = 1; // 请求 ID，日志追踪
+  string chainName = 2; // 链名称（必填）
+  string contractName = 3; // 合约名称（可选，与 contractAddr 二选一）
+  string contractAddr = 4; // 合约地址（可选，与 contractName 二选一）
+}
+
+// ContractEventResponse 事件流响应消息
+message ContractEventResponse {
+  string eventName = 1; // 事件名称
+  string contractAddress = 2; // 合约地址
+  string txHash = 3; // 交易哈希
+  uint64 blockNumber = 4; // 区块号
+  string data = 5; // 事件数据 JSON 字符串
+  int64 timestamp = 6; // 事件时间戳（Unix 秒）
 }

@@ -22,6 +22,7 @@ const (
 	ChainInteractive_GetTxByTxId_FullMethodName                       = "/proto.ChainInteractive/GetTxByTxId"
 	ChainInteractive_CallContract_FullMethodName                      = "/proto.ChainInteractive/CallContract"
 	ChainInteractive_GetAvailableChainAndContractNames_FullMethodName = "/proto.ChainInteractive/GetAvailableChainAndContractNames"
+	ChainInteractive_SubscribeContractEvents_FullMethodName           = "/proto.ChainInteractive/SubscribeContractEvents"
 )
 
 // ChainInteractiveClient is the client API for ChainInteractive service.
@@ -34,6 +35,8 @@ type ChainInteractiveClient interface {
 	CallContract(ctx context.Context, in *CallContractRequest, opts ...grpc.CallOption) (*TxResponse, error)
 	// GetAvailableChainAndContractNames 获取本地可访问的所有链名称，以及旗下的合约名称
 	GetAvailableChainAndContractNames(ctx context.Context, in *GetAvailableChainAndContractNamesRequest, opts ...grpc.CallOption) (*GetAvailableChainAndContractNamesResponse, error)
+	// SubscribeContractEvents 订阅合约事件（服务端流式推送）
+	SubscribeContractEvents(ctx context.Context, in *SubscribeContractEventsRequest, opts ...grpc.CallOption) (ChainInteractive_SubscribeContractEventsClient, error)
 }
 
 type chainInteractiveClient struct {
@@ -71,6 +74,38 @@ func (c *chainInteractiveClient) GetAvailableChainAndContractNames(ctx context.C
 	return out, nil
 }
 
+func (c *chainInteractiveClient) SubscribeContractEvents(ctx context.Context, in *SubscribeContractEventsRequest, opts ...grpc.CallOption) (ChainInteractive_SubscribeContractEventsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &ChainInteractive_ServiceDesc.Streams[0], ChainInteractive_SubscribeContractEvents_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &chainInteractiveSubscribeContractEventsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type ChainInteractive_SubscribeContractEventsClient interface {
+	Recv() (*ContractEventResponse, error)
+	grpc.ClientStream
+}
+
+type chainInteractiveSubscribeContractEventsClient struct {
+	grpc.ClientStream
+}
+
+func (x *chainInteractiveSubscribeContractEventsClient) Recv() (*ContractEventResponse, error) {
+	m := new(ContractEventResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // ChainInteractiveServer is the server API for ChainInteractive service.
 // All implementations must embed UnimplementedChainInteractiveServer
 // for forward compatibility
@@ -81,6 +116,8 @@ type ChainInteractiveServer interface {
 	CallContract(context.Context, *CallContractRequest) (*TxResponse, error)
 	// GetAvailableChainAndContractNames 获取本地可访问的所有链名称，以及旗下的合约名称
 	GetAvailableChainAndContractNames(context.Context, *GetAvailableChainAndContractNamesRequest) (*GetAvailableChainAndContractNamesResponse, error)
+	// SubscribeContractEvents 订阅合约事件（服务端流式推送）
+	SubscribeContractEvents(*SubscribeContractEventsRequest, ChainInteractive_SubscribeContractEventsServer) error
 	mustEmbedUnimplementedChainInteractiveServer()
 }
 
@@ -96,6 +133,9 @@ func (UnimplementedChainInteractiveServer) CallContract(context.Context, *CallCo
 }
 func (UnimplementedChainInteractiveServer) GetAvailableChainAndContractNames(context.Context, *GetAvailableChainAndContractNamesRequest) (*GetAvailableChainAndContractNamesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAvailableChainAndContractNames not implemented")
+}
+func (UnimplementedChainInteractiveServer) SubscribeContractEvents(*SubscribeContractEventsRequest, ChainInteractive_SubscribeContractEventsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeContractEvents not implemented")
 }
 func (UnimplementedChainInteractiveServer) mustEmbedUnimplementedChainInteractiveServer() {}
 
@@ -164,6 +204,27 @@ func _ChainInteractive_GetAvailableChainAndContractNames_Handler(srv interface{}
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ChainInteractive_SubscribeContractEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeContractEventsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ChainInteractiveServer).SubscribeContractEvents(m, &chainInteractiveSubscribeContractEventsServer{stream})
+}
+
+type ChainInteractive_SubscribeContractEventsServer interface {
+	Send(*ContractEventResponse) error
+	grpc.ServerStream
+}
+
+type chainInteractiveSubscribeContractEventsServer struct {
+	grpc.ServerStream
+}
+
+func (x *chainInteractiveSubscribeContractEventsServer) Send(m *ContractEventResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // ChainInteractive_ServiceDesc is the grpc.ServiceDesc for ChainInteractive service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -184,6 +245,12 @@ var ChainInteractive_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ChainInteractive_GetAvailableChainAndContractNames_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SubscribeContractEvents",
+			Handler:       _ChainInteractive_SubscribeContractEvents_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "proto/chaininteractive.proto",
 }

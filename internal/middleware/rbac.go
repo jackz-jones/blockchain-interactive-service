@@ -96,5 +96,8 @@ func defaultMethodPermissions() map[string][]store.UserRole {
 		"/pb.ChainInteractive/GetAvailableChainAndContractNames": {
 			store.UserRoleAdmin, store.UserRoleDeveloper, store.UserRoleReadonly,
 		},
+
+		// 事件订阅流 - 需要 admin 或 developer 角色
+		"/proto.ChainInteractive/SubscribeContractEvents": {store.UserRoleAdmin, store.UserRoleDeveloper},
 	}
 }
