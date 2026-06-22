@@ -13,6 +13,7 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 
+	"github.com/jackz-jones/blockchain-interactive-service/internal/code"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/util"
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 
@@ -21,7 +22,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/jackz-jones/common/chain"
 	commonEvent "github.com/jackz-jones/common/event"
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -35,7 +35,6 @@ type EthereumClient struct {
 	// wg 用于等待订阅 goroutine 退出
 	wg          sync.WaitGroup
 	chainId     *big.Int
-	gasLimit    uint64
 	privateKey  *ecdsa.PrivateKey
 	fromAddress common.Address
 
@@ -111,7 +110,6 @@ func NewEthereumClient(ctx context.Context, ethConf EthConf, contractConfs map[s
 
 	return &EthereumClient{
 		chainId:          big.NewInt(ethConf.ChainId),
-		gasLimit:         ethConf.GasLimit,
 		privateKey:       privateKey,
 		fromAddress:      crypto.PubkeyToAddress(*publicKeyECDSA),
 		contractConfigs:  contractConfs,
@@ -131,7 +129,7 @@ func (c *EthereumClient) GetTxByTxId(txId string) (string, bool, error) {
 
 	// 以太坊交易简化结构
 	ethTx := EthTx{
-		TxId: txId,
+		TxHash: txId,
 	}
 
 	// 查询交易
@@ -140,7 +138,7 @@ func (c *EthereumClient) GetTxByTxId(txId string) (string, bool, error) {
 		return "", false, fmt.Errorf("failed to req TransactionByHash: %v", err)
 	}
 
-	// 如果交易未上链，返回 pending 状态
+	// 如果交易是 pending 状态，说明还没确认打包，但至少交易已经发到节点了，直接返回交易信息和未确认状态
 	if pending {
 		return ethTx.String(), true, nil
 	}
@@ -174,12 +172,22 @@ func (c *EthereumClient) GetTxByTxId(txId string) (string, bool, error) {
 		return ethTx.String(), false, nil
 	}
 
+	// 交易成功，则返回打包所在区块、以及产生的事件信息
+	ethTx.BlockHash = receipt.BlockHash.Hex()
+	ethTx.BlockNumber = receipt.BlockNumber.Uint64()
+	ethTx.TxIndex = receipt.TransactionIndex
+	ethTx.Logs, err = json.Marshal(receipt.Logs)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to marshal receipt.Logs: %v", err)
+	}
+
+	// 交易已经确认打包，非 pending
 	return ethTx.String(), false, nil
 }
 
 // CallContract 调用合约
 func (c *EthereumClient) CallContract(methodType pb.MethodType, contractConfigName, method string,
-	kvs []*pb.KeyValuePair, txTimeout int64, withSyncResult bool) (string, string, error) {
+	kvs []*pb.KeyValuePair, txTimeout int64, withSyncResult bool, gasLimit int64) (string, string, error) {
 	var (
 
 		// 以太坊的合约调用返回不是标准的 Transaction 结构
@@ -209,7 +217,7 @@ func (c *EthereumClient) CallContract(methodType pb.MethodType, contractConfigNa
 	}
 
 	// solidity 合约也支持方法传参结构体类型，这里需要将统一请求的 kvs 翻译成以太坊的 abi 参数结构
-	args, err := c.CreateArgs(method, kvs)
+	args, err := c.CreateArgs(method, kvs, abiStr)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to CreateArgs: %v", err)
 	}
@@ -218,7 +226,8 @@ func (c *EthereumClient) CallContract(methodType pb.MethodType, contractConfigNa
 
 	// 写链
 	case pb.MethodType_Invoke:
-		txId, err = c.InvokeContract(contractAddr, abiStr, method, args...)
+		// gasLimit: 0=自动估算（EstimateGas + 20%余量），>0=使用指定值
+		txId, err = c.InvokeContractWithGasLimit(contractAddr, abiStr, method, uint64(gasLimit), args...)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to InvokeContract: %v", err)
 		}
@@ -229,7 +238,12 @@ func (c *EthereumClient) CallContract(methodType pb.MethodType, contractConfigNa
 			ticker := time.NewTicker(time.Second)
 			defer ticker.Stop()
 
-			// 同步调用，需要轮训交易结果
+			// 使用独立的超时 timer，避免在 for-select 中重复创建 time.After
+			timeoutTimer := time.NewTimer(time.Duration(txTimeout) * time.Second)
+			defer timeoutTimer.Stop()
+
+			// 同步调用，需要轮询交易结果
+		syncLoop:
 			for {
 				select {
 
@@ -243,16 +257,17 @@ func (c *EthereumClient) CallContract(methodType pb.MethodType, contractConfigNa
 
 					// 成功查到返回结果
 					txResp = txReceipt
+					break syncLoop
 
 				// 查询超时返回
-				case <-time.After(time.Duration(txTimeout) * time.Second):
+				case <-timeoutTimer.C:
 					txBytes, err2 := json.Marshal(txResp)
 					if err2 != nil {
 						return "", "", fmt.Errorf("failed to json marshal tx response: %v", err2)
 					}
 
 					// 查询 receipt 超时，返回错误同时也应该返回 txId
-					return txId, string(txBytes), fmt.Errorf("sync to get tx receipt timeout, maybe try it later")
+					return txId, string(txBytes), fmt.Errorf("%s, txId: %s", code.ErrGetTxReceiptTimeoutMsg, txId)
 				}
 			}
 		}
@@ -293,7 +308,14 @@ func (c *EthereumClient) CallContract(methodType pb.MethodType, contractConfigNa
  */
 
 // InvokeContract 调用 eth_sendTransaction 方法，交易执行状态会上链，一般用于写数据类型调用
+// 默认使用自动估算 Gas（EstimateGas + 20%余量），如需指定 GasLimit 请使用 InvokeContractWithGasLimit
 func (c *EthereumClient) InvokeContract(contractAddr, abiStr, method string, args ...interface{}) (string, error) {
+	return c.InvokeContractWithGasLimit(contractAddr, abiStr, method, 0, args...)
+}
+
+// InvokeContractWithGasLimit 使用指定的 gasLimit 调用合约
+// 逻辑与 InvokeContract 相同，区别在于使用传入的 gasLimit 而不是客户端默认值
+func (c *EthereumClient) InvokeContractWithGasLimit(contractAddr, abiStr, method string, gasLimit uint64, args ...interface{}) (string, error) {
 
 	// to 为合约地址
 	toAddress := common.HexToAddress(contractAddr)
@@ -313,11 +335,26 @@ func (c *EthereumClient) InvokeContract(contractAddr, abiStr, method string, arg
 	// 构造 input data
 	data, err := c.CreateInputData(abiStr, method, args...)
 	if err != nil {
-		return "", fmt.Errorf("failed to CreateInputData in InvokeContract: %v", err)
+		return "", fmt.Errorf("failed to CreateInputData in InvokeContractWithGasLimit: %v", err)
+	}
+
+	// 如果指定的 gasLimit 为 0，则通过 EstimateGas 动态估算
+	if gasLimit == 0 {
+		estimatedGas, estErr := c.httpClient.EstimateGas(c.ctx, ethereum.CallMsg{
+			From:     c.fromAddress,
+			To:       &toAddress,
+			GasPrice: gasPrice,
+			Data:     data,
+		})
+		if estErr != nil {
+			return "", fmt.Errorf("failed to EstimateGas: %v", estErr)
+		}
+		// 在估算值基础上增加 20% 余量，防止因状态变化导致 gas 不足
+		gasLimit = estimatedGas * 120 / 100
 	}
 
 	// 构造交易
-	tx := types.NewTransaction(nonce, toAddress, nil, c.gasLimit, gasPrice, data)
+	tx := types.NewTransaction(nonce, toAddress, nil, gasLimit, gasPrice, data)
 
 	// 签名交易
 	signer := types.NewEIP155Signer(c.chainId)
@@ -329,7 +366,7 @@ func (c *EthereumClient) InvokeContract(contractAddr, abiStr, method string, arg
 	// 发送交易
 	err = c.httpClient.SendTransaction(c.ctx, signedTx)
 	if err != nil {
-		return "", fmt.Errorf("failed to CallContract: %v", err)
+		return "", fmt.Errorf("failed to SendTransaction: %v", err)
 	}
 
 	return signedTx.Hash().Hex(), nil
@@ -490,6 +527,15 @@ func (c *EthereumClient) GetHistoryEvent(contractAddr, chainConfName, contractCo
 	chainConfigID, contractConfigID uint, blockHeightKey string) error {
 
 	// 定时去获取一次历史合约事件，以太坊 2.0 是 12s 出一个块
+	// 防御性检查：interval 为 0 时使用默认值 12000ms（以太坊出块间隔）
+	if interval == 0 {
+		interval = 12000
+	}
+
+	// window 为 0 时使用默认值 100
+	if window == 0 {
+		window = 100
+	}
 
 	ticker := time.NewTicker(time.Millisecond * time.Duration(interval))
 	defer ticker.Stop()
@@ -667,11 +713,182 @@ func (c *EthereumClient) RealTimeEvent(contractAddr, chainConfName, contractConf
 	}
 }
 
-func (c *EthereumClient) CreateArgs(method string, kvs []*pb.KeyValuePair) ([]interface{}, error) {
+func (c *EthereumClient) CreateArgs(method string, kvs []*pb.KeyValuePair, abiStr string) ([]interface{}, error) {
 	params := make(map[string][]byte, 0)
 	for _, kv := range kvs {
 		params[kv.Key] = kv.Value
 	}
 
-	return chain.CreateArgs(method, params)
+	// 通用 ABI 参数解析：根据 ABI 定义动态构建参数
+	return c.createArgsFromABI(method, params, abiStr)
+}
+
+// createArgsFromABI 基于 ABI 定义动态解析合约方法参数
+func (c *EthereumClient) createArgsFromABI(method string, params map[string][]byte, abiStr string) ([]interface{}, error) {
+	if abiStr == "" {
+		return nil, fmt.Errorf("abi string is empty, cannot parse args for method: %s", method)
+	}
+
+	contractABI, err := abi.JSON(strings.NewReader(abiStr))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ABI: %v", err)
+	}
+
+	// 查找方法定义
+	abiMethod, ok := contractABI.Methods[method]
+	if !ok {
+		return nil, fmt.Errorf("method %s not found in ABI", method)
+	}
+
+	// 如果方法没有参数，直接返回空列表
+	if len(abiMethod.Inputs) == 0 {
+		return []interface{}{}, nil
+	}
+
+	// 根据 ABI 参数定义，按顺序从 params 中提取并转换参数
+	args := make([]interface{}, 0, len(abiMethod.Inputs))
+	for _, input := range abiMethod.Inputs {
+		rawValue, exists := params[input.Name]
+		if !exists {
+			return nil, fmt.Errorf("missing parameter: %s for method: %s", input.Name, method)
+		}
+
+		// 根据 ABI 类型转换参数值
+		arg, err := convertABIParam(input.Type.String(), rawValue)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert param %s (type %s): %v", input.Name, input.Type.String(), err)
+		}
+		args = append(args, arg)
+	}
+
+	return args, nil
+}
+
+// convertABIParam 根据 ABI 类型字符串将原始字节值转换为对应的 Go 类型
+func convertABIParam(abiType string, rawValue []byte) (interface{}, error) {
+	strValue := string(rawValue)
+
+	switch {
+	// uint256, uint128, uint64 等大整数类型
+	case strings.HasPrefix(abiType, "uint256") || strings.HasPrefix(abiType, "int256"):
+		n := new(big.Int)
+		_, ok := n.SetString(strValue, 10)
+		if !ok {
+			// 尝试十六进制
+			_, ok = n.SetString(strings.TrimPrefix(strValue, "0x"), 16)
+			if !ok {
+				return nil, fmt.Errorf("invalid big integer value: %s", strValue)
+			}
+		}
+		return n, nil
+
+	case abiType == "uint8":
+		val, err := parseUint(strValue, 8)
+		if err != nil {
+			return nil, err
+		}
+		return uint8(val), nil
+
+	case abiType == "uint16":
+		val, err := parseUint(strValue, 16)
+		if err != nil {
+			return nil, err
+		}
+		return uint16(val), nil
+
+	case abiType == "uint32":
+		val, err := parseUint(strValue, 32)
+		if err != nil {
+			return nil, err
+		}
+		return uint32(val), nil
+
+	case abiType == "uint64":
+		val, err := parseUint(strValue, 64)
+		if err != nil {
+			return nil, err
+		}
+		return val, nil
+
+	case abiType == "int8":
+		val, err := parseInt(strValue, 8)
+		if err != nil {
+			return nil, err
+		}
+		return int8(val), nil
+
+	case abiType == "int16":
+		val, err := parseInt(strValue, 16)
+		if err != nil {
+			return nil, err
+		}
+		return int16(val), nil
+
+	case abiType == "int32":
+		val, err := parseInt(strValue, 32)
+		if err != nil {
+			return nil, err
+		}
+		return int32(val), nil
+
+	case abiType == "int64":
+		val, err := parseInt(strValue, 64)
+		if err != nil {
+			return nil, err
+		}
+		return val, nil
+
+	// address 类型
+	case abiType == "address":
+		return common.HexToAddress(strValue), nil
+
+	// bool 类型
+	case abiType == "bool":
+		switch strings.ToLower(strValue) {
+		case "true", "1":
+			return true, nil
+		case "false", "0":
+			return false, nil
+		default:
+			return nil, fmt.Errorf("invalid bool value: %s", strValue)
+		}
+
+	// string 类型
+	case abiType == "string":
+		return strValue, nil
+
+	// bytes32, bytes20 等固定长度字节数组
+	case strings.HasPrefix(abiType, "bytes") && abiType != "bytes":
+		return common.FromHex(strValue), nil
+
+	// bytes 动态字节数组
+	case abiType == "bytes":
+		return rawValue, nil
+
+	default:
+		// 对于不认识的类型，尝试直接传字符串
+		return strValue, nil
+	}
+}
+
+// parseUint 解析无符号整数
+func parseUint(s string, bitSize int) (uint64, error) {
+	val, err := fmt.Sscanf(s, "%d", new(uint64))
+	if err != nil || val == 0 {
+		return 0, fmt.Errorf("invalid uint%d value: %s", bitSize, s)
+	}
+	var result uint64
+	_, err = fmt.Sscanf(s, "%d", &result)
+	return result, err
+}
+
+// parseInt 解析有符号整数
+func parseInt(s string, bitSize int) (int64, error) {
+	val, err := fmt.Sscanf(s, "%d", new(int64))
+	if err != nil || val == 0 {
+		return 0, fmt.Errorf("invalid int%d value: %s", bitSize, s)
+	}
+	var result int64
+	_, err = fmt.Sscanf(s, "%d", &result)
+	return result, err
 }

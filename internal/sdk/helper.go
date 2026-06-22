@@ -38,8 +38,8 @@ func BuildSubscribeLogFields(fields map[string]interface{}) []logx.LogField {
 	return logFields
 }
 
-// subscribeKeyByID 生成基于 DB ID 的 SubscribeFlag key
-func subscribeKeyByID(chainConfigID, contractConfigID uint) string {
+// SubscribeKeyByID 生成基于 DB ID 的 SubscribeFlag key
+func SubscribeKeyByID(chainConfigID, contractConfigID uint) string {
 	return fmt.Sprintf("db:%d-%d", chainConfigID, contractConfigID)
 }
 
@@ -160,7 +160,7 @@ func scheduleDBOnce(ctx context.Context, tenantMgr *TenantSDKManager, repo store
 		}
 
 		// 使用 DB ID 作为 SubscribeFlag key
-		flagKey := subscribeKeyByID(chainConfig.ID, contract.ID)
+		flagKey := SubscribeKeyByID(chainConfig.ID, contract.ID)
 
 		// 检查是否已订阅
 		if val, ok := SubscribeFlag.Load(flagKey); ok {

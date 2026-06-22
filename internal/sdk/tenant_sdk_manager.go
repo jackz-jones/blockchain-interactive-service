@@ -13,8 +13,8 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-// buildSDKConfFromDB 从数据库结构化字段构建 SDKConf
-func buildSDKConfFromDB(chainConfig *store.TenantChainConfig, nodes []*store.TenantChainNode) SDKConf {
+// BuildSDKConf 根据链配置构建 SDKConf
+func BuildSDKConf(chainConfig *store.TenantChainConfig, nodes []*store.TenantChainNode) SDKConf {
 	var sdkConf SDKConf
 
 	switch strings.ToLower(chainConfig.ChainType) {
@@ -50,7 +50,6 @@ func buildSDKConfFromDB(chainConfig *store.TenantChainConfig, nodes []*store.Ten
 			HttpUrl:      chainConfig.HttpUrl,
 			WebsocketUrl: chainConfig.WebsocketUrl,
 			PrivateKey:   chainConfig.PrivateKey,
-			GasLimit:     uint64(chainConfig.GasLimit),
 		}
 
 	case "solana":
@@ -137,7 +136,7 @@ func (m *TenantSDKManager) GetTenantSDKClient(
 	}
 
 	// 从数据库结构化字段构建 SDKConf
-	sdkConf := buildSDKConfFromDB(chainConfig, nodes)
+	sdkConf := BuildSDKConf(chainConfig, nodes)
 
 	// 加载合约配置
 	contractConfigs, err := m.repo.ListContractConfigsByChain(ctx, chainConfig.ID)
@@ -255,20 +254,35 @@ func (m *TenantSDKManager) StopSubscription(tenantID uint, chainName string) {
 	m.InvalidateTenantCache(tenantID, chainName)
 }
 
+// StopContractSubscription 停止指定合约的订阅（精确到合约级别）
+// 当合约配置被删除时调用，清理对应的 SubscribeFlag 并停止 SDK 客户端
+func (m *TenantSDKManager) StopContractSubscription(chainConfigID, contractConfigID uint, tenantID uint, chainName string) {
+	// 清理该合约的 SubscribeFlag
+	flagKey := SubscribeKeyByID(chainConfigID, contractConfigID)
+	SubscribeFlag.Delete(flagKey)
+	m.logger.Infof("stopped contract subscription: flagKey=%s, tenant=%d, chain=%s", flagKey, tenantID, chainName)
+
+	// 使缓存失效并停止客户端（会触发订阅 goroutine 退出）
+	m.InvalidateTenantCache(tenantID, chainName)
+}
+
 // StopAllSubscriptions 停止指定链下所有合约的订阅
 // 当链配置被删除时调用
-func (m *TenantSDKManager) StopAllSubscriptions(tenantID uint, chainName string) {
-	// 清除该链的 SubscribeFlag
-	prefix := fmt.Sprintf("%d_%s_", tenantID, chainName)
+func (m *TenantSDKManager) StopAllSubscriptions(tenantID uint, chainName string, chainConfigID uint) {
+	// 清除该链下所有合约的 SubscribeFlag（key 格式为 "db:chainConfigID-contractConfigID"）
+	prefix := fmt.Sprintf("db:%d-", chainConfigID)
 	SubscribeFlag.Range(func(key, value interface{}) bool {
 		if k, ok := key.(string); ok && strings.HasPrefix(k, prefix) {
 			SubscribeFlag.Delete(key)
+			m.logger.Infof("cleared SubscribeFlag: %s", k)
 		}
 		return true
 	})
 
 	// 使缓存失效并停止客户端
-	m.InvalidateTenantCache(tenantID, chainName)
+	m.InvalidateTenantCacheByID(chainConfigID)
+	m.logger.Infof("stopped all subscriptions for chain: tenant=%d, chain=%s, chainConfigID=%d",
+		tenantID, chainName, chainConfigID)
 }
 
 // RestartSubscription 重启指定链的订阅

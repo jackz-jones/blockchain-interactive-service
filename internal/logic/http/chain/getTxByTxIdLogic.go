@@ -39,7 +39,7 @@ func (l *GetTxByTxIdLogic) GetTxByTxId(req *types.GetTxByTxIdRequest) (resp *typ
 		return &types.CommonResponse{Code: 400, Message: "get sdk client: " + err.Error()}, nil
 	}
 
-	result, confirmed, err := client.GetTxByTxId(req.TxId)
+	result, isPending, err := client.GetTxByTxId(req.TxId)
 	if err != nil {
 		return &types.CommonResponse{Code: 500, Message: "get tx: " + err.Error()}, nil
 	}
@@ -49,7 +49,7 @@ func (l *GetTxByTxIdLogic) GetTxByTxId(req *types.GetTxByTxIdRequest) (resp *typ
 		Message: "success",
 		Data: map[string]interface{}{
 			"result":    result,
-			"confirmed": confirmed,
+			"confirmed": !isPending, // SDK 返回的是 isPending，取反才是 confirmed
 		},
 	}, nil
 }

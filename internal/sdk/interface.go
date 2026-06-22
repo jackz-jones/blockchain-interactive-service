@@ -23,7 +23,7 @@ type ChainSdkInterface interface {
 	 */
 
 	CallContract(methodType pb.MethodType, contractConfigName, method string, args []*pb.KeyValuePair,
-		txTimeout int64, withSyncResult bool) (string, string, error)
+		txTimeout int64, withSyncResult bool, gasLimit int64) (string, string, error)
 
 	/**
 	 * @Description: GetTxByTxId 根据交易id查询交易
@@ -31,7 +31,7 @@ type ChainSdkInterface interface {
 	 * @param txId 交易哈希
 
 	 * @return string 交易结果 json 字符串
-	 * @return bool 交易是否打包块中
+	 * @return bool 交易是否打包块中，true 表示未打包（即 pending），false 表示已打包
 	 * @return error 错误信息
 	 */
 

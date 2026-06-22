@@ -3,9 +3,15 @@ package sdk
 import "encoding/json"
 
 type EthTx struct {
-	TxId string `json:"txId"`
-	From string `json:"from"`
-	To   string `json:"to"`
+	BlockHash   string `json:"blockHash"`
+	BlockNumber uint64 `json:"blockNumber"`
+	TxHash      string `json:"txHash"`
+	TxIndex     uint   `json:"txIndex"`
+	From        string `json:"from"`
+	To          string `json:"to"`
+
+	// 交易产生的事件
+	Logs []byte `json:"logs"`
 
 	// 交易状态,0 失败 1 成功
 	Status uint64 `json:"status"`

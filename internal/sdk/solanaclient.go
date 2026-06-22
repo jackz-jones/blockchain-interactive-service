@@ -161,7 +161,7 @@ func (c *SolanaClient) GetTxByTxId(txId string) (string, bool, error) {
 
 // CallContract 调用合约
 func (c *SolanaClient) CallContract(methodType pb.MethodType, contractConfigName, method string,
-	args []*pb.KeyValuePair, txTimeout int64, withSyncResult bool) (string, string, error) {
+	args []*pb.KeyValuePair, txTimeout int64, withSyncResult bool, gasLimit int64) (string, string, error) {
 
 	var (
 		txResp interface{}

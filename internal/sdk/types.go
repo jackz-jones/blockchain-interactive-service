@@ -99,9 +99,6 @@ type EthConf struct {
 
 	// 私钥 hex 字符串，用于交易签名
 	PrivateKey string `json:"PrivateKey,omitempty"`
-
-	// gas limit
-	GasLimit uint64 `json:"GasLimit,omitempty"`
 }
 
 // SolanaConf Solana 链连接配置

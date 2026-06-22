@@ -131,13 +131,14 @@ func (c *ChainMakerClient) GetTxByTxId(txId string) (string, bool, error) {
 		return "", false, fmt.Errorf("failed to json marshal tx response: %v", err)
 	}
 
-	return string(txBytes), txInfo.BlockHeight != 0, nil
+	// 返回交易信息，以及 isPending 状态
+	return string(txBytes), txInfo.BlockHeight == 0, nil
 
 }
 
 // CallContract 调用合约
 func (c *ChainMakerClient) CallContract(methodType pb.MethodType, contractConfigName, method string,
-	args []*pb.KeyValuePair, txTimeout int64, withSyncResult bool) (string, string, error) {
+	args []*pb.KeyValuePair, txTimeout int64, withSyncResult bool, gasLimit int64) (string, string, error) {
 	var (
 		txResp *common.TxResponse
 		err    error

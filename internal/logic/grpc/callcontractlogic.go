@@ -44,6 +44,7 @@ func (l *CallContractLogic) CallContract(in *pb.CallContractRequest) (*pb.TxResp
 		"methodType":     in.MethodType,
 		"withSyncResult": in.WithSyncResult,
 		"txTimeout":      in.TxTimeout,
+		"gasLimit":       in.GasLimit,
 	}
 	l.Logger.WithFields(util.ConvertToLogFields(fields)...).Info("receive CallContract request")
 
@@ -62,7 +63,7 @@ func (l *CallContractLogic) CallContract(in *pb.CallContractRequest) (*pb.TxResp
 		txTimeout = 30
 	}
 	txId, txData, err := sdkClient.CallContract(in.MethodType, in.ContractName, in.ContractMethod,
-		in.KvPairs, txTimeout, in.WithSyncResult)
+		in.KvPairs, txTimeout, in.WithSyncResult, in.GasLimit)
 	fields["txId"] = txId
 	if err != nil {
 		fields["err"] = err
