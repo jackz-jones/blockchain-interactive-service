@@ -57,6 +57,7 @@ type Repository interface {
 	DeleteContractConfig(ctx context.Context, id uint) error
 	CheckContractNameUnique(ctx context.Context, chainConfigID uint, contractName string, excludeID uint) (bool, error)
 	ListEnabledSubscribeContracts(ctx context.Context, tenantID uint) ([]*TenantContractConfig, error)
+	ListDisabledSubscribeContracts(ctx context.Context, tenantID uint) ([]*TenantContractConfig, error)
 	ListAllEnabledSubscribeContracts(ctx context.Context) ([]*TenantContractConfig, error)
 	GetContractConfigByChainAndName(
 		ctx context.Context, tenantID uint, chainName, contractName string,
@@ -70,10 +71,13 @@ type Repository interface {
 	ListCallLogs(ctx context.Context, filter CallLogFilter, offset, limit int) ([]*CallLog, int64, error)
 	CountCallsByTenantToday(ctx context.Context, tenantID uint) (int64, error)
 	CountCallsByTenantMonth(ctx context.Context, tenantID uint, year int, month time.Month) (int64, error)
+	CountCallsByTenantDay(ctx context.Context, tenantID uint, year int, month time.Month, day int) (int64, error)
+	GetDailyUsageStats(ctx context.Context, tenantID uint, startTime, endTime time.Time) ([]*DailyUsageStat, error)
+	GetDailyUsageStatsByMethodType(ctx context.Context, tenantID uint, startTime, endTime time.Time) ([]*DailyUsageStat, error)
 
 	// 账单相关
 	CreateBill(ctx context.Context, bill *Bill) error
-	ListBillsByTenant(ctx context.Context, tenantID uint, offset, limit int) ([]*Bill, int64, error)
+	ListBillsByTenant(ctx context.Context, tenantID uint, billType string, offset, limit int) ([]*Bill, int64, error)
 	UpdateBill(ctx context.Context, bill *Bill) error
 
 	// 配额相关
@@ -89,9 +93,11 @@ type Repository interface {
 // CallLogFilter 调用记录查询过滤条件
 type CallLogFilter struct {
 	TenantID     uint
+	UserID       uint
 	ChainName    string
 	ContractName string
 	Status       string
+	MethodType   MethodType
 	StartTime    *time.Time
 	EndTime      *time.Time
 }
@@ -268,7 +274,15 @@ func (r *GormRepository) ListChainConfigsByTenant(ctx context.Context, tenantID 
 }
 
 func (r *GormRepository) UpdateChainConfig(ctx context.Context, config *TenantChainConfig) error {
-	return r.db.WithContext(ctx).Save(config).Error
+	// 使用 Select 指定要更新的字段，避免 Save() 覆盖 created_at 等不应被修改的字段
+	return r.db.WithContext(ctx).Model(config).Select(
+		"chain_name", "chain_type", "enable",
+		"chain_id", "auth_type", "org_id", "hash_type",
+		"sign_key", "sign_cert", "user_tls_key", "user_tls_cert",
+		"user_enc_key", "user_enc_cert", "proxy_url",
+		"eth_chain_id", "http_url", "websocket_url", "private_key",
+		"sol_rpc_url", "sol_private_key", "commitment_level", "skip_preflight", "max_retries",
+	).Updates(config).Error
 }
 
 func (r *GormRepository) DeleteChainConfig(ctx context.Context, id uint) error {
@@ -396,6 +410,18 @@ func (r *GormRepository) ListEnabledSubscribeContracts(
 	return configs, err
 }
 
+func (r *GormRepository) ListDisabledSubscribeContracts(
+	ctx context.Context, tenantID uint,
+) ([]*TenantContractConfig, error) {
+	var configs []*TenantContractConfig
+	db := r.db.WithContext(ctx).Where("enable_subscribe = ?", false)
+	if tenantID > 0 {
+		db = db.Where("tenant_id = ?", tenantID)
+	}
+	err := db.Preload("ChainConfig").Find(&configs).Error
+	return configs, err
+}
+
 func (r *GormRepository) ListAllEnabledSubscribeContracts(ctx context.Context) ([]*TenantContractConfig, error) {
 	var configs []*TenantContractConfig
 	err := r.db.WithContext(ctx).
@@ -455,6 +481,9 @@ func (r *GormRepository) ListCallLogs(
 	if filter.TenantID > 0 {
 		db = db.Where("tenant_id = ?", filter.TenantID)
 	}
+	if filter.UserID > 0 {
+		db = db.Where("user_id = ?", filter.UserID)
+	}
 	if filter.ChainName != "" {
 		db = db.Where("chain_name = ?", filter.ChainName)
 	}
@@ -463,6 +492,9 @@ func (r *GormRepository) ListCallLogs(
 	}
 	if filter.Status != "" {
 		db = db.Where("status = ?", filter.Status)
+	}
+	if filter.MethodType > 0 {
+		db = db.Where("method_type = ?", filter.MethodType)
 	}
 	if filter.StartTime != nil {
 		db = db.Where("created_at >= ?", *filter.StartTime)
@@ -485,7 +517,7 @@ func (r *GormRepository) CountCallsByTenantToday(ctx context.Context, tenantID u
 	now := time.Now()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	err := r.db.WithContext(ctx).Model(&CallLog{}).
-		Where("tenant_id = ? AND created_at >= ?", tenantID, todayStart).
+		Where("tenant_id = ? AND method_type = ? AND created_at >= ?", tenantID, MethodTypeInvoke, todayStart).
 		Count(&count).Error
 	return count, err
 }
@@ -497,9 +529,69 @@ func (r *GormRepository) CountCallsByTenantMonth(
 	monthStart := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
 	monthEnd := monthStart.AddDate(0, 1, 0)
 	err := r.db.WithContext(ctx).Model(&CallLog{}).
-		Where("tenant_id = ? AND created_at >= ? AND created_at < ?", tenantID, monthStart, monthEnd).
+		Where("tenant_id = ? AND method_type = ? AND created_at >= ? AND created_at < ?",
+			tenantID, MethodTypeInvoke, monthStart, monthEnd).
 		Count(&count).Error
 	return count, err
+}
+
+func (r *GormRepository) CountCallsByTenantDay(
+	ctx context.Context, tenantID uint, year int, month time.Month, day int,
+) (int64, error) {
+	var count int64
+	dayStart := time.Date(year, month, day, 0, 0, 0, 0, time.Local)
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	err := r.db.WithContext(ctx).Model(&CallLog{}).
+		Where("tenant_id = ? AND method_type = ? AND created_at >= ? AND created_at < ?",
+			tenantID, MethodTypeInvoke, dayStart, dayEnd).
+		Count(&count).Error
+	return count, err
+}
+
+func (r *GormRepository) GetDailyUsageStats(
+	ctx context.Context, tenantID uint, startTime, endTime time.Time,
+) ([]*DailyUsageStat, error) {
+	var results []DailyUsageStat
+	sql := `SELECT DATE(created_at) AS date, COUNT(*) AS total, ` +
+		`SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success, ` +
+		`SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed ` +
+		`FROM call_logs ` +
+		`WHERE tenant_id = ? AND created_at >= ? AND created_at < ? ` +
+		`GROUP BY DATE(created_at) ` +
+		`ORDER BY date ASC`
+	err := r.db.WithContext(ctx).Raw(sql, tenantID, startTime, endTime).Scan(&results).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*DailyUsageStat, len(results))
+	for i := range results {
+		out[i] = &results[i]
+	}
+	return out, nil
+}
+
+// GetDailyUsageStatsByMethodType 按调用类型（Invoke/Query）分别统计每日用量
+func (r *GormRepository) GetDailyUsageStatsByMethodType(
+	ctx context.Context, tenantID uint, startTime, endTime time.Time,
+) ([]*DailyUsageStat, error) {
+	sql := `SELECT DATE(created_at) AS date, COUNT(*) AS total, ` +
+		`SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success, ` +
+		`SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed ` +
+		`FROM call_logs ` +
+		`WHERE tenant_id = ? AND method_type = ? AND created_at >= ? AND created_at < ? ` +
+		`GROUP BY DATE(created_at) ` +
+		`ORDER BY date ASC`
+
+	// 统计 Invoke 调用
+	var invokeResults []DailyUsageStat
+	if err := r.db.WithContext(ctx).Raw(sql, tenantID, MethodTypeInvoke, startTime, endTime).Scan(&invokeResults).Error; err != nil {
+		return nil, err
+	}
+	out := make([]*DailyUsageStat, len(invokeResults))
+	for i := range invokeResults {
+		out[i] = &invokeResults[i]
+	}
+	return out, nil
 }
 
 // ========== 账单 ==========
@@ -509,11 +601,14 @@ func (r *GormRepository) CreateBill(ctx context.Context, bill *Bill) error {
 }
 
 func (r *GormRepository) ListBillsByTenant(
-	ctx context.Context, tenantID uint, offset, limit int,
+	ctx context.Context, tenantID uint, billType string, offset, limit int,
 ) ([]*Bill, int64, error) {
 	var bills []*Bill
 	var total int64
 	db := r.db.WithContext(ctx).Model(&Bill{}).Where("tenant_id = ?", tenantID)
+	if billType != "" {
+		db = db.Where("bill_type = ?", billType)
+	}
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -559,29 +654,54 @@ func (r *GormRepository) ListAuditLogs(
 ) ([]*AuditLog, int64, error) {
 	var logs []*AuditLog
 	var total int64
-	db := r.db.WithContext(ctx).Model(&AuditLog{})
+	db := r.db.WithContext(ctx).Model(&AuditLog{}).Joins("LEFT JOIN users ON users.id = audit_logs.user_id")
 
 	if filter.TenantID > 0 {
-		db = db.Where("tenant_id = ?", filter.TenantID)
+		db = db.Where("audit_logs.tenant_id = ?", filter.TenantID)
 	}
 	if filter.UserID > 0 {
-		db = db.Where("user_id = ?", filter.UserID)
+		db = db.Where("audit_logs.user_id = ?", filter.UserID)
 	}
 	if filter.Action != "" {
-		db = db.Where("action = ?", filter.Action)
+		db = db.Where("audit_logs.action = ?", filter.Action)
 	}
 	if filter.StartTime != nil {
-		db = db.Where("created_at >= ?", *filter.StartTime)
+		db = db.Where("audit_logs.created_at >= ?", *filter.StartTime)
 	}
 	if filter.EndTime != nil {
-		db = db.Where("created_at <= ?", *filter.EndTime)
+		db = db.Where("audit_logs.created_at <= ?", *filter.EndTime)
 	}
 
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	if err := db.Offset(offset).Limit(limit).Order("id DESC").Find(&logs).Error; err != nil {
+	if err := db.Offset(offset).Limit(limit).Order("audit_logs.id DESC").
+		Find(&logs).Error; err != nil {
 		return nil, 0, err
 	}
+
+	// 手动填充 operator 字段（避免 GORM 别名扫描问题）
+	if len(logs) > 0 {
+		userIDs := make([]uint, 0, len(logs))
+		for _, log := range logs {
+			if log.UserID > 0 {
+				userIDs = append(userIDs, log.UserID)
+			}
+		}
+		if len(userIDs) > 0 {
+			var users []User
+			r.db.WithContext(ctx).Select("id, username").Where("id IN ?", userIDs).Find(&users)
+			userMap := make(map[uint]string, len(users))
+			for _, u := range users {
+				userMap[u.ID] = u.Username
+			}
+			for _, log := range logs {
+				if name, ok := userMap[log.UserID]; ok {
+					log.Operator = name
+				}
+			}
+		}
+	}
+
 	return logs, total, nil
 }
