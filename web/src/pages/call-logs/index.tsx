@@ -5,6 +5,7 @@ import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { formatDateTime } from '@/utils/format'
+import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title } = Typography
 const { RangePicker } = DatePicker
@@ -25,6 +26,7 @@ interface CallLog {
 export default function CallLogs() {
   const [data, setData] = useState<CallLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<unknown>(null)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState<Record<string, string>>({})
@@ -32,6 +34,7 @@ export default function CallLogs() {
 
   const fetchList = async (p = page) => {
     setLoading(true)
+    setError(null)
     try {
       const params = { ...filters, page: String(p), page_size: '20' }
       const res = await api.get('/dashboard/call-logs', { params })
@@ -39,6 +42,7 @@ export default function CallLogs() {
       setData(result.items || [])
       setTotal(result.total || 0)
     } catch (err) {
+      setError(err)
       handleApiError(err)
     } finally {
       setLoading(false)
@@ -98,6 +102,16 @@ export default function CallLogs() {
       render: (time: string) => formatDateTime(time),
     },
   ]
+
+  // 加载失败时显示错误重试组件
+  if (error && !loading && data.length === 0) {
+    return (
+      <div>
+        <Title level={4} style={{ marginBottom: 20 }}>调用日志</Title>
+        <ErrorRetry error={error} onRetry={() => fetchList()} />
+      </div>
+    )
+  }
 
   return (
     <div>

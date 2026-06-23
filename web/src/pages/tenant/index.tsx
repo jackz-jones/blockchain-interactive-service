@@ -6,6 +6,7 @@ import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
 import { formatDateTime } from '@/utils/format'
+import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title } = Typography
 
@@ -23,6 +24,7 @@ interface Tenant {
 export default function TenantList() {
   const [data, setData] = useState<Tenant[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<unknown>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
   const { message } = useGlobalMessage()
@@ -31,10 +33,12 @@ export default function TenantList() {
 
   const fetchList = async () => {
     setLoading(true)
+    setError(null)
     try {
       const res = await api.get('/tenants')
       setData((res.data as { items: Tenant[] }).items || [])
     } catch (err) {
+      setError(err)
       handleApiError(err)
     } finally {
       setLoading(false)
@@ -112,7 +116,22 @@ export default function TenantList() {
       width: 120,
       render: (_, record) => {
         const enabled = isEnabled(record)
-        return (
+        // 加载失败时显示错误重试组件
+  if (error && !loading && data.length === 0) {
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <Title level={4} style={{ margin: 0 }}>租户管理</Title>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+            创建租户
+          </Button>
+        </div>
+        <ErrorRetry error={error} onRetry={() => fetchList()} />
+      </div>
+    )
+  }
+
+  return (
           <Popconfirm
             title={enabled ? '确认禁用？' : '确认启用？'}
             onConfirm={() => handleToggle(record.id, !enabled)}

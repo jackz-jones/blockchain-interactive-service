@@ -6,6 +6,7 @@ import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
 import { formatDateTime } from '@/utils/format'
+import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title, Text } = Typography
 
@@ -30,6 +31,7 @@ interface AvailableContract {
 export default function EventSubscription() {
   const [subscriptions, setSubscriptions] = useState<SubscriptionItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<unknown>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
   const { message } = useGlobalMessage()
@@ -46,10 +48,12 @@ export default function EventSubscription() {
 
   const fetchList = async () => {
     setLoading(true)
+    setError(null)
     try {
       const res = await api.get('/events/subscriptions')
       setSubscriptions((res.data as { items: SubscriptionItem[] }).items || [])
     } catch (err) {
+      setError(err)
       handleApiError(err)
     } finally {
       setLoading(false)
@@ -129,6 +133,18 @@ export default function EventSubscription() {
     } finally {
       setEventsLoading(false)
     }
+  }
+
+  // 加载失败时显示错误重试组件
+  if (error && !loading && subscriptions.length === 0) {
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <Title level={4} style={{ margin: 0 }}>事件订阅管理</Title>
+        </div>
+        <ErrorRetry error={error} onRetry={() => fetchList()} />
+      </div>
+    )
   }
 
   const columns: ColumnsType<SubscriptionItem> = [

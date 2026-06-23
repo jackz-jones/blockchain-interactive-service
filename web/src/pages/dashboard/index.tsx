@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
+import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title } = Typography
 
@@ -23,19 +24,24 @@ interface OverviewData {
 export default function Dashboard() {
   const [data, setData] = useState<OverviewData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<unknown>(null)
   const { handleApiError } = useApiMessage()
 
-  useEffect(() => {
-    const fetchOverview = async () => {
-      try {
-        const res = await api.get('/dashboard/overview')
-        setData(res.data as OverviewData)
-      } catch (err) {
-        handleApiError(err)
-      } finally {
-        setLoading(false)
-      }
+  const fetchOverview = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await api.get('/dashboard/overview')
+      setData(res.data as OverviewData)
+    } catch (err) {
+      setError(err)
+      handleApiError(err)
+    } finally {
+      setLoading(false)
     }
+  }
+
+  useEffect(() => {
     fetchOverview()
   }, [])
 
@@ -74,6 +80,16 @@ export default function Dashboard() {
       color: '#3d8b5e',
     },
   ]
+
+  // 加载失败时显示错误重试组件
+  if (error && !loading && !data) {
+    return (
+      <div>
+        <Title level={4} style={{ marginBottom: 24 }}>概览</Title>
+        <ErrorRetry error={error} onRetry={() => fetchOverview()} />
+      </div>
+    )
+  }
 
   return (
     <div>

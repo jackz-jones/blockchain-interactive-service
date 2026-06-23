@@ -6,6 +6,7 @@ import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
 import { formatDateTime } from '@/utils/format'
+import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -26,6 +27,7 @@ interface ApiKey {
 export default function ApiKeyList() {
   const [data, setData] = useState<ApiKey[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<unknown>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
   const [newKey, setNewKey] = useState<string | null>(null)
@@ -35,6 +37,7 @@ export default function ApiKeyList() {
 
   const fetchList = async () => {
     setLoading(true)
+    setError(null)
     try {
       const res = await api.get('/api-keys')
       const rawItems = (res.data as { items: any[] }).items || []
@@ -49,6 +52,7 @@ export default function ApiKeyList() {
       }))
       setData(items)
     } catch (err) {
+      setError(err)
       handleApiError(err)
     } finally {
       setLoading(false)
@@ -130,7 +134,22 @@ export default function ApiKeyList() {
       width: 180,
       render: (perms: string[]) => {
         if (!perms?.length) return <Text type="secondary">不限制</Text>
-        return (
+        // 加载失败时显示错误重试组件
+  if (error && !loading && data.length === 0) {
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <Title level={4} style={{ margin: 0 }}>API Key 管理</Title>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+            创建 API Key
+          </Button>
+        </div>
+        <ErrorRetry error={error} onRetry={() => fetchList()} />
+      </div>
+    )
+  }
+
+  return (
           <Space size={4} wrap>
             {perms.map((p) => <Tag key={p}>{p}</Tag>)}
           </Space>

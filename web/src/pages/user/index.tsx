@@ -4,6 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { formatDateTime } from '@/utils/format'
+import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title } = Typography
 
@@ -19,19 +20,24 @@ interface User {
 export default function UserList() {
   const [data, setData] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<unknown>(null)
   const { handleApiError } = useApiMessage()
 
-  useEffect(() => {
-    const fetchList = async () => {
-      try {
-        const res = await api.get('/users')
-        setData((res.data as { items: User[] }).items || [])
-      } catch (err) {
-        handleApiError(err)
-      } finally {
-        setLoading(false)
-      }
+  const fetchList = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await api.get('/users')
+      setData((res.data as { items: User[] }).items || [])
+    } catch (err) {
+      setError(err)
+      handleApiError(err)
+    } finally {
+      setLoading(false)
     }
+  }
+
+  useEffect(() => {
     fetchList()
   }, [])
 
@@ -70,6 +76,16 @@ export default function UserList() {
       <div>
         <Title level={4} style={{ marginBottom: 20 }}>用户管理</Title>
         <Skeleton active paragraph={{ rows: 8 }} />
+      </div>
+    )
+  }
+
+  // 加载失败时显示错误重试组件
+  if (error && data.length === 0) {
+    return (
+      <div>
+        <Title level={4} style={{ marginBottom: 20 }}>用户管理</Title>
+        <ErrorRetry error={error} onRetry={() => fetchList()} />
       </div>
     )
   }

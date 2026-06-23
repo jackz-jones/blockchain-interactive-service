@@ -3,6 +3,7 @@ import { Card, Typography, Select, Alert } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
+import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title } = Typography
 
@@ -20,16 +21,19 @@ interface UsageData {
 export default function UsageStats() {
   const [data, setData] = useState<UsageData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<unknown>(null)
   const [period, setPeriod] = useState('30d')
   const { handleApiError } = useApiMessage()
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
+      setError(null)
       try {
         const res = await api.get('/dashboard/usage-stats-trend', { params: { period } })
         setData(res.data as UsageData)
       } catch (err) {
+        setError(err)
         handleApiError(err)
       } finally {
         setLoading(false)
@@ -94,6 +98,28 @@ export default function UsageStats() {
         itemStyle: { color: '#c0392b' },
       },
     ],
+  }
+
+  // 加载失败时显示错误重试组件
+  if (error && !loading && !data) {
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <Title level={4} style={{ margin: 0 }}>用量统计</Title>
+          <Select
+            value={period}
+            onChange={setPeriod}
+            style={{ width: 120 }}
+            options={[
+              { label: '近 7 天', value: '7d' },
+              { label: '近 30 天', value: '30d' },
+              { label: '近 90 天', value: '90d' },
+            ]}
+          />
+        </div>
+        <ErrorRetry error={error} onRetry={() => { setPeriod(period) /* 触发 useEffect 重新请求 */ }} />
+      </div>
+    )
   }
 
   return (

@@ -6,6 +6,7 @@ import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
 import { formatDateTime } from '@/utils/format'
+import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title, Text } = Typography
 
@@ -29,6 +30,7 @@ export default function TxQuery() {
   const [chains, setChains] = useState<ChainOption[]>([])
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<TxResult | null>(null)
+  const [error, setError] = useState<unknown>(null)
   const { handleApiError } = useApiMessage()
   const { message } = useGlobalMessage()
 
@@ -40,7 +42,9 @@ export default function TxQuery() {
     try {
       const res = await api.get('/chain-configs')
       setChains((res.data as ChainOption[]) || [])
+      setError(null)
     } catch (err) {
+      setError(err)
       handleApiError(err)
     }
   }
@@ -76,6 +80,16 @@ export default function TxQuery() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // 初始加载链失败时显示错误重试组件
+  if (error && !loading && chains.length === 0) {
+    return (
+      <div style={{ maxWidth: 800 }}>
+        <Title level={4} style={{ marginBottom: 24 }}>交易查询</Title>
+        <ErrorRetry error={error} onRetry={() => fetchChains()} />
+      </div>
+    )
   }
 
   return (

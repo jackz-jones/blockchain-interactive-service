@@ -7,6 +7,7 @@ import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
 import { formatDateTime } from '@/utils/format'
+import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title } = Typography
 
@@ -24,11 +25,13 @@ export default function ChainConfigList() {
   const { handleApiError } = useApiMessage()
   const [data, setData] = useState<ChainConfig[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<unknown>(null)
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<string | undefined>()
 
   const fetchList = async (searchOverride?: string) => {
     setLoading(true)
+    setError(null)
     try {
       const params: Record<string, string> = {}
       const searchValue = searchOverride !== undefined ? searchOverride : search
@@ -37,6 +40,7 @@ export default function ChainConfigList() {
       const res = await api.get('/chain-configs', { params })
       setData((res.data as ChainConfig[]) || [])
     } catch (err) {
+      setError(err)
       handleApiError(err)
     } finally {
       setLoading(false)
@@ -126,6 +130,25 @@ export default function ChainConfigList() {
       ),
     },
   ]
+
+  // 加载失败时显示错误重试组件
+  if (error && !loading && data.length === 0) {
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <Title level={4} style={{ margin: 0 }}>链配置</Title>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => navigate('/chain-configs/create')}
+          >
+            新建链配置
+          </Button>
+        </div>
+        <ErrorRetry error={error} onRetry={() => fetchList()} />
+      </div>
+    )
+  }
 
   return (
     <div>

@@ -4,6 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { formatDateTime } from '@/utils/format'
+import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title, Text } = Typography
 
@@ -51,6 +52,7 @@ function parseDetail(detail: string): { before?: unknown; after?: unknown; raw?:
 export default function AuditLogs() {
   const [data, setData] = useState<AuditLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<unknown>(null)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [expandedKeys, setExpandedKeys] = useState<number[]>([])
@@ -58,12 +60,14 @@ export default function AuditLogs() {
 
   const fetchList = async (p = page) => {
     setLoading(true)
+    setError(null)
     try {
       const res = await api.get('/dashboard/audit-logs', { params: { page: p, page_size: 20 } })
       const result = res.data as { items: AuditLog[]; total: number }
       setData(result.items || [])
       setTotal(result.total || 0)
     } catch (err) {
+      setError(err)
       handleApiError(err)
     } finally {
       setLoading(false)
@@ -100,11 +104,9 @@ export default function AuditLogs() {
       align: 'center',
       ellipsis: { showTitle: false },
       render: (name: string, record) => {
-        // contract_call 没有 resource_id，显示 "-" 即可
         if (!name && !record.resource_id) {
           return <span style={{ color: '#aaa' }}>-</span>
         }
-        // 优先展示解析后的名称
         if (name && name !== record.resource_id) {
           return (
             <Tooltip title={name} placement="topLeft">
@@ -112,7 +114,6 @@ export default function AuditLogs() {
             </Tooltip>
           )
         }
-        // 没有名称解析时，展示 "ID: xxx" 格式
         if (record.resource_id) {
           return (
             <Tooltip title={`ID: ${record.resource_id}`} placement="topLeft">
@@ -239,6 +240,16 @@ export default function AuditLogs() {
       </div>
     )
   }, [])
+
+  // 加载失败时显示错误重试组件
+  if (error && !loading && data.length === 0) {
+    return (
+      <div>
+        <Title level={4} style={{ marginBottom: 20 }}>审计日志</Title>
+        <ErrorRetry error={error} onRetry={() => fetchList()} />
+      </div>
+    )
+  }
 
   return (
     <div>

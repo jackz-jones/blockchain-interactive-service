@@ -7,6 +7,7 @@ import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
 import { formatDateTime } from '@/utils/format'
+import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title } = Typography
 
@@ -31,6 +32,7 @@ export default function ContractConfigList() {
   const { handleApiError } = useApiMessage()
   const [data, setData] = useState<ContractConfig[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<unknown>(null)
   const [chains, setChains] = useState<ChainOption[]>([])
   const [selectedChainId, setSelectedChainId] = useState<string | undefined>()
   const [selectedChainName, setSelectedChainName] = useState<string | undefined>()
@@ -47,6 +49,7 @@ export default function ContractConfigList() {
         setSelectedChainName(items[0].chain_name)
       }
     } catch (err) {
+      setError(err)
       handleApiError(err)
     }
   }
@@ -119,7 +122,27 @@ export default function ContractConfigList() {
       ellipsis: { showTitle: false },
       render: (chainName: string) => {
         const name = chainName || selectedChainName || '-'
-        return (
+        // 加载失败时显示错误重试组件
+  if (error && !loading && data.length === 0 && chains.length === 0) {
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <Title level={4} style={{ margin: 0 }}>合约配置</Title>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            disabled={!selectedChainId}
+            onClick={() => navigate(`/chain-configs/${selectedChainId}/contracts/create`)}
+          >
+            新建合约配置
+          </Button>
+        </div>
+        <ErrorRetry error={error} onRetry={() => { fetchChains() }} />
+      </div>
+    )
+  }
+
+  return (
           <Tooltip title={name} placement="topLeft">
             <span>{name}</span>
           </Tooltip>
