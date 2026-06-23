@@ -83,12 +83,12 @@ export default function TxQuery() {
       </Card>
 
       {result?.error && (
-<Alert type="error" title="查询失败" description={result.error} showIcon style={{ marginBottom: 16 }} />
+<Alert type="error" message="查询失败" description={result.error} showIcon style={{ marginBottom: 16 }} />
       )}
 
       {result && !result.error && (
         <Card title="交易详情">
-<Space orientation="vertical" style={{ width: '100%' }} size="middle">
+<Space direction="vertical" style={{ width: '100%' }} size="middle">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>交易 ID</Text>

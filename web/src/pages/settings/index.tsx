@@ -94,7 +94,7 @@ export default function Settings() {
 
       {!apiKey && (
         <Alert
-          title="首次使用"
+          message="首次使用"
           description="你还没有配置 API Key。请在下方输入已有 Key，或点击「注册新租户」创建一个新账号。"
           type="info"
           showIcon
@@ -104,7 +104,7 @@ export default function Settings() {
 
       {apiKey && (
         <Alert
-          title="已连接"
+          message="已连接"
           description={`API Key 已配置，当前租户：${useAuthStore.getState().tenant?.name || '未知'}`}
           type="success"
           icon={<CheckCircleOutlined />}
@@ -115,7 +115,7 @@ export default function Settings() {
 
       {/* 输入已有 API Key */}
       <Card title={<><KeyOutlined style={{ marginRight: 8 }} />使用已有 API Key</>}>
-<Space orientation="vertical" size="middle" style={{ width: '100%' }}>
+<Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <div>
             <Text strong style={{ display: 'block', marginBottom: 8 }}>
               API Key
@@ -147,7 +147,7 @@ export default function Settings() {
       {/* 注册新租户 */}
       {!registerMode ? (
         <Card>
-<Space orientation="vertical" size="middle" style={{ width: '100%', alignItems: 'center' }}>
+<Space direction="vertical" size="middle" style={{ width: '100%', alignItems: 'center' }}>
             <UserAddOutlined style={{ fontSize: 32, color: 'var(--color-primary)' }} />
             <Text type="secondary">还没有 API Key？创建一个新租户，系统将自动为你生成初始 API Key。</Text>
             <Button

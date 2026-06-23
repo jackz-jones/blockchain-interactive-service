@@ -199,7 +199,7 @@ export default function ApiKeyList() {
       >
         <Alert
           type="warning"
-          title="请立即保存此 API Key"
+          message="请立即保存此 API Key"
           description="此 Key 仅展示一次，关闭后无法再次查看。"
           showIcon
           style={{ marginBottom: 16 }}

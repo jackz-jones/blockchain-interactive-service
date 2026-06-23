@@ -270,11 +270,11 @@ export default function ContractCall() {
           )}
 
           {result?.error && (
-<Alert type="error" title="调用失败" description={result.error} showIcon />
+<Alert type="error" message="调用失败" description={result.error} showIcon />
           )}
 
           {result && !result.error && (
-<Space orientation="vertical" style={{ width: '100%' }} size="middle">
+<Space direction="vertical" style={{ width: '100%' }} size="middle">
               {result.tx_id && (
                 <div>
                   <Text type="secondary" style={{ fontSize: 12 }}>交易 ID</Text>
