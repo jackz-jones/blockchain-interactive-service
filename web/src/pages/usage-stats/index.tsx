@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Card, Typography, Select, Alert } from 'antd'
+import { Card, Typography, Select, Alert, Table, Empty } from 'antd'
 import ReactECharts from 'echarts-for-react'
+import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
+import { formatNumber } from '@/utils/format'
 import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title } = Typography
@@ -16,6 +18,17 @@ interface UsageData {
   query: number[]
   quota_limit: number
   quota_used: number
+  // 图表下方数据表格所需
+  daily_details: DailyDetail[]
+}
+
+interface DailyDetail {
+  date: string
+  total_calls: number
+  invoke_calls: number
+  query_calls: number
+  success_count: number
+  failed_count: number
 }
 
 export default function UsageStats() {
@@ -54,6 +67,9 @@ export default function UsageStats() {
       axisLabel: { fontSize: 11 },
     },
     yAxis: { type: 'value' as const },
+    dataZoom: [
+      { type: 'inside' as const, xAxisIndex: 0 },
+    ],
     series: [
       {
         name: '总调用',
@@ -99,6 +115,16 @@ export default function UsageStats() {
       },
     ],
   }
+
+  // 数据表格列定义
+  const detailColumns: ColumnsType<DailyDetail> = [
+    { title: '日期', dataIndex: 'date', key: 'date', width: 120, align: 'center' as const },
+    { title: '总调用', dataIndex: 'total_calls', key: 'total_calls', width: 100, align: 'center' as const, render: (v: number) => formatNumber(v) },
+    { title: '写链(Invoke)', dataIndex: 'invoke_calls', key: 'invoke_calls', width: 120, align: 'center' as const, render: (v: number) => formatNumber(v) },
+    { title: '读链(Query)', dataIndex: 'query_calls', key: 'query_calls', width: 120, align: 'center' as const, render: (v: number) => formatNumber(v) },
+    { title: '成功', dataIndex: 'success_count', key: 'success_count', width: 80, align: 'center' as const, render: (v: number) => formatNumber(v) },
+    { title: '失败', dataIndex: 'failed_count', key: 'failed_count', width: 80, align: 'center' as const, render: (v: number) => formatNumber(v) },
+  ]
 
   // 加载失败时显示错误重试组件
   if (error && !loading && !data) {
@@ -149,8 +175,26 @@ export default function UsageStats() {
       )}
 
       <Card loading={loading}>
-        <ReactECharts option={chartOption} style={{ height: 360 }} />
+        {data ? (
+          <ReactECharts option={chartOption} style={{ height: 360 }} opts={{ renderer: 'svg' }} />
+        ) : (
+          <Empty description="暂无用量数据" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: '80px 0' }} />
+        )}
       </Card>
+
+      {/* 图表下方数据表格 */}
+      {data?.daily_details && data.daily_details.length > 0 && (
+        <Card title="每日明细" style={{ marginTop: 16 }}>
+          <Table
+            columns={detailColumns}
+            dataSource={data.daily_details}
+            rowKey="date"
+            size="small"
+            pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 天` }}
+            scroll={{ x: 600 }}
+          />
+        </Card>
+      )}
     </div>
   )
 }

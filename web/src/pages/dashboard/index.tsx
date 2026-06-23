@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Row, Col, Card, Statistic, Skeleton, Typography } from 'antd'
+import { Row, Col, Card, Statistic, Skeleton, Typography, Button } from 'antd'
 import {
   ThunderboltOutlined,
   CalendarOutlined,
   LinkOutlined,
   CheckCircleOutlined,
   PercentageOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
@@ -48,32 +49,32 @@ export default function Dashboard() {
   const statCards = [
     {
       title: '今日调用量',
-      value: data?.today_calls ?? 0,
+      value: data?.today_calls ?? null,
       icon: <ThunderboltOutlined />,
       color: '#4a7c59',
     },
     {
       title: '本月调用量',
-      value: data?.month_calls ?? 0,
+      value: data?.month_calls ?? null,
       icon: <CalendarOutlined />,
       color: '#2980b9',
     },
     {
       title: '配额使用率',
-      value: data?.usage_percent ?? 0,
+      value: data?.usage_percent ?? null,
       suffix: '%',
       icon: <PercentageOutlined />,
       color: (data?.usage_percent ?? 0) > 80 ? '#c0392b' : '#b8860b',
     },
     {
       title: '活跃链数',
-      value: data?.active_chains ?? 0,
+      value: data?.active_chains ?? null,
       icon: <LinkOutlined />,
       color: '#6c5ce7',
     },
     {
       title: '成功率',
-      value: data?.success_rate ?? 0,
+      value: data?.success_rate ?? null,
       suffix: '%',
       precision: 1,
       icon: <CheckCircleOutlined />,
@@ -85,7 +86,9 @@ export default function Dashboard() {
   if (error && !loading && !data) {
     return (
       <div>
-        <Title level={4} style={{ marginBottom: 24 }}>概览</Title>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <Title level={4} style={{ margin: 0 }}>概览</Title>
+        </div>
         <ErrorRetry error={error} onRetry={() => fetchOverview()} />
       </div>
     )
@@ -93,9 +96,18 @@ export default function Dashboard() {
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 24 }}>
-        概览
-      </Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <Title level={4} style={{ margin: 0 }}>概览</Title>
+        <Button
+          type="text"
+          icon={<ReloadOutlined />}
+          onClick={() => fetchOverview()}
+          loading={loading}
+          size="small"
+        >
+          刷新
+        </Button>
+      </div>
 
       <Row gutter={[16, 16]}>
         {statCards.map((card) => (
@@ -112,9 +124,9 @@ export default function Dashboard() {
                       {card.title}
                     </span>
                   }
-                  value={card.value}
-                  suffix={card.suffix}
-                  precision={card.precision}
+                  value={card.value !== null ? card.value : '-'}
+                  suffix={card.value !== null ? card.suffix : undefined}
+                  precision={card.value !== null ? card.precision : undefined}
                   prefix={
                     <span style={{ color: card.color, marginRight: 4 }}>
                       {card.icon}

@@ -9,11 +9,12 @@ import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title, Text } = Typography
 
-interface Bill {
+  interface Bill {
   id: string
   bill_type: string
   period: string
   total_calls: number
+  days: number
   amount: number
   status: string
   created_at: string
@@ -161,6 +162,14 @@ export default function Bills() {
       width: 140,
       align: 'center',
       render: (calls: number) => formatNumber(calls),
+    },
+    {
+      title: '天数',
+      dataIndex: 'days',
+      key: 'days',
+      width: 80,
+      align: 'center',
+      render: (days: number) => (days != null ? `${days} 天` : '-'),
     },
     {
       title: '金额',
