@@ -5,7 +5,7 @@ import { MinusCircleOutlined, PlusOutlined, ApiOutlined, EyeOutlined, EyeInvisib
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
-import { useBlocker } from '@/hooks/useBlocker'
+import { useBlocker, confirmLeave } from '@/hooks/useBlocker'
 
 const { Title } = Typography
 const { TextArea } = Input
@@ -528,7 +528,7 @@ export default function ChainConfigForm() {
             <Button type="primary" htmlType="submit" loading={loading}>
               {isEdit ? '保存修改' : '创建'}
             </Button>
-            <Button onClick={() => navigate('/chain-configs')}>取消</Button>
+            <Button onClick={() => confirmLeave(() => navigate('/chain-configs'), formModified)}>取消</Button>
           </Space>
         </Form>
       </Card>
