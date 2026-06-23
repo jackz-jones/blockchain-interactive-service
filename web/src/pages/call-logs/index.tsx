@@ -34,7 +34,6 @@ export default function CallLogs() {
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [contractSearch, setContractSearch] = useState('')
-  const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
   const { handleApiError } = useApiMessage()
 
   // 搜索防抖
@@ -119,34 +118,6 @@ export default function CallLogs() {
     },
   ]
 
-  // 展开行渲染：显示调用详情
-  const expandedRowRender = useCallback((record: CallLog) => {
-    return (
-      <div style={{ padding: '8px 16px', fontSize: 13 }}>
-        <div style={{ marginBottom: 8 }}>
-          <strong>输入参数：</strong>
-          <pre style={{ margin: 0, padding: 8, background: 'var(--color-bg-secondary)', borderRadius: 4, overflow: 'auto', maxHeight: 200 }}>
-            {record.input_params || '-'}
-          </pre>
-        </div>
-        <div style={{ marginBottom: 8 }}>
-          <strong>输出数据：</strong>
-          <pre style={{ margin: 0, padding: 8, background: 'var(--color-bg-secondary)', borderRadius: 4, overflow: 'auto', maxHeight: 200 }}>
-            {record.output_data || '-'}
-          </pre>
-        </div>
-        {record.error_message && (
-          <div>
-            <strong>错误信息：</strong>
-            <pre style={{ margin: 0, padding: 8, background: '#fff2f0', borderRadius: 4, color: '#cf1322', overflow: 'auto', maxHeight: 200 }}>
-              {record.error_message}
-            </pre>
-          </div>
-        )}
-      </div>
-    )
-  }, [])
-
   // 加载失败时显示错误重试组件
   if (error && !loading && data.length === 0) {
     return (
@@ -219,11 +190,6 @@ export default function CallLogs() {
           pageSize: 20,
           onChange: setPage,
           showTotal: (t) => `共 ${t} 条`,
-        }}
-        expandable={{
-          expandedRowRender,
-          expandedRowKeys: expandedRowId ? [expandedRowId] : [],
-          onExpandedRowsChange: (keys) => setExpandedRowId(keys.length > 0 ? String(keys[0]) : null),
         }}
         size="middle"
       />
