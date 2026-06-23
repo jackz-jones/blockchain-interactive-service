@@ -1,5 +1,6 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { useAuthStore } from '@/stores/auth'
+import { useQuotaWarningStore } from '@/stores/quotaWarning'
 
 /** API 基础实例 */
 const api = axios.create({
@@ -61,8 +62,8 @@ api.interceptors.response.use(
 
     // 如果有配额预警但没有业务错误，通过 response header 传递
     if (quotaWarning) {
-      // 在 response 对象上附加配额预警信息
-      ;(response as any).__quotaWarning = '调用配额即将用尽，请及时联系管理员提升限额，避免服务中断'
+      // 更新全局配额预警状态，AppLayout 横幅会自动显示
+      useQuotaWarningStore.getState().setWarning('调用配额即将用尽，请及时联系管理员提升限额，避免服务中断')
     }
 
     return response
