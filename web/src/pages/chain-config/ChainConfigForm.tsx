@@ -14,8 +14,6 @@ type ChainType = 'ethereum' | 'chainmaker' | 'solana'
 
 // URL 格式校验正则
 const urlPattern = /^https?:\/\/.+/
-// Ethereum 私钥格式校验：0x 开头的 64 位十六进制
-const ethPrivateKeyPattern = /^0x[0-9a-fA-F]{64}$/
 
 export default function ChainConfigForm() {
   const { id } = useParams()
@@ -305,20 +303,11 @@ export default function ChainConfigForm() {
               <Form.Item
                 name="private_key"
                 label="私钥"
-                rules={[
-                  {
-                    validator: (_, value) => {
-                      if (!value || isMaskedValue(value)) return Promise.resolve()
-                      if (ethPrivateKeyPattern.test(value)) return Promise.resolve()
-                      return Promise.reject(new Error('私钥格式不正确，需为 0x 开头的 64 位十六进制字符串'))
-                    },
-                  },
-                ]}
-                extra="请输入 0x 开头的 64 位十六进制字符串，切勿泄露私钥"
+                extra="请输入链上获取的私钥字符串，切勿泄露"
               >
                 <Input
                   type={privateKeyVisible ? 'text' : 'password'}
-                  placeholder={isEdit ? '不修改请留空，保留原私钥' : '0x开头的64位十六进制字符串，请妥善保管'}
+                  placeholder={isEdit ? '不修改请留空，保留原私钥' : '请输入私钥，请妥善保管'}
                   addonAfter={
                     isEdit ? (
                       <Tooltip title={privateKeyVisible ? '隐藏私钥' : '显示原私钥'}>
