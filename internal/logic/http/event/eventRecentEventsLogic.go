@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/middleware"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/svc"
@@ -119,8 +120,18 @@ func (l *RecentEventsLogic) GetRecentEvents(contractConfigIdStr string) (resp *t
 			eventDataParsed = string(crossEvent.EventData)
 		}
 
+		// 解析 Redis Stream 消息 ID 中的时间戳 (格式: milliseconds-sequence)
+		var timestamp int64
+		if msg.ID != "" {
+			parts := strings.SplitN(msg.ID, "-", 2)
+			if len(parts) > 0 {
+				timestamp, _ = strconv.ParseInt(parts[0], 10, 64)
+			}
+		}
+
 		item := map[string]interface{}{
 			"message_id": msg.ID,
+			"timestamp":  timestamp,
 			"event_name": crossEvent.EventName,
 			"data":       eventDataParsed,
 		}

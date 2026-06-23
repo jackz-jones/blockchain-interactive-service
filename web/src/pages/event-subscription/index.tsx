@@ -639,12 +639,21 @@ export default function EventSubscription() {
             scroll={{ y: 480 }}
             columns={[
               {
-                title: '事件名称',
-                dataIndex: 'event_name',
-                key: 'event_name',
-                width: 140,
-                render: (name: string) => (
-                  <Tag color="blue">{name || '未知事件'}</Tag>
+                title: '消息ID',
+                dataIndex: 'message_id',
+                key: 'message_id',
+                width: 200,
+                render: (id: string, record: any) => (
+                  <div>
+                    <Tooltip title={id} placement="topLeft">
+                      <Text style={{ fontSize: 12 }} type="secondary">{id}</Text>
+                    </Tooltip>
+                    {record.timestamp > 0 && (
+                      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                        {formatDateTime(new Date(record.timestamp).toISOString())}
+                      </Text>
+                    )}
+                  </div>
                 ),
               },
               {
@@ -658,21 +667,19 @@ export default function EventSubscription() {
                     lineHeight: 1.5,
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-all',
+                    textAlign: 'left',
                   }}>
                     {typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data || '')}
                   </pre>
                 ),
               },
               {
-                title: '消息ID',
-                dataIndex: 'message_id',
-                key: 'message_id',
-                width: 180,
-                ellipsis: { showTitle: false },
-                render: (id: string) => (
-                  <Tooltip title={id} placement="topLeft">
-                    <Text style={{ fontSize: 12 }} type="secondary">{id}</Text>
-                  </Tooltip>
+                title: '事件名称',
+                dataIndex: 'event_name',
+                key: 'event_name',
+                width: 140,
+                render: (name: string) => (
+                  <Tag color="blue">{name || '未知事件'}</Tag>
                 ),
               },
             ]}
