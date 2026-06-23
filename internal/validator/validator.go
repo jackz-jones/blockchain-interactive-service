@@ -289,20 +289,20 @@ func MaskChainConfigSensitiveFields(config *store.TenantChainConfig) *store.Tena
 	masked := *config
 
 	// 私钥不出域，进行脱敏处理（保留前后部分字符，中间用 * 替代）
-	masked.SignKey = maskSensitiveString(config.SignKey)
-	masked.UserTlsKey = maskSensitiveString(config.UserTlsKey)
-	masked.UserEncKey = maskSensitiveString(config.UserEncKey)
-	masked.PrivateKey = maskSensitiveString(config.PrivateKey)
-	masked.SolPrivateKey = maskSensitiveString(config.SolPrivateKey)
+	masked.SignKey = MaskSensitiveString(config.SignKey)
+	masked.UserTlsKey = MaskSensitiveString(config.UserTlsKey)
+	masked.UserEncKey = MaskSensitiveString(config.UserEncKey)
+	masked.PrivateKey = MaskSensitiveString(config.PrivateKey)
+	masked.SolPrivateKey = MaskSensitiveString(config.SolPrivateKey)
 
 	return &masked
 }
 
-// maskSensitiveString 对敏感字符串进行脱敏处理
+// MaskSensitiveString 对敏感字符串进行脱敏处理
 // 如果字符串长度 <= 8，则保留前2个字符，其余用 * 替代
 // 如果字符串长度 > 8，则保留前4个和后4个字符，中间用 **** 替代
 // 如果字符串为空，则返回空字符串
-func maskSensitiveString(s string) string {
+func MaskSensitiveString(s string) string {
 	if s == "" {
 		return ""
 	}

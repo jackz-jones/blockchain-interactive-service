@@ -148,9 +148,12 @@ func recordHTTPAudit(repo store.Repository, r *http.Request, statusCode int, res
 	action, resourceType, resourceID := extractAuditInfoFromRequest(r)
 
 	// 对于已在业务逻辑中主动创建审计日志的操作，中间件不再重复记录
-	// 包括：update chain_config、update contract_config
+	// 包括：create/update chain_config、update contract_config
+	if resourceType == "chain-configs" {
+		return
+	}
 	if (r.Method == http.MethodPut || r.Method == http.MethodPatch) &&
-		(resourceType == "chain-configs" || resourceType == "contract_config") {
+		resourceType == "contract_config" {
 		return
 	}
 

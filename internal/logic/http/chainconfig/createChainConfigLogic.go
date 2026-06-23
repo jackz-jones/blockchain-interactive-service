@@ -2,12 +2,14 @@ package chainconfig
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/middleware"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/svc"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/types"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/util"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/validator"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -74,6 +76,22 @@ func (l *CreateChainConfigLogic) CreateChainConfig(req *types.CreateChainConfigR
 		if err := l.svcCtx.Repo.CreateChainNodes(l.ctx, nodes); err != nil {
 			return &types.CommonResponse{Code: 500, Message: "create chain nodes: " + err.Error()}, nil
 		}
+	}
+
+	// 记录创建链配置的审计日志（使用脱敏数据）
+	auditData := l.buildCreateAuditData(config)
+	auditDetailJSON := util.BuildAuditDetailJSON(nil, auditData)
+	userID := middleware.GetUserIDFromContext(l.ctx)
+	auditLog := &store.AuditLog{
+		TenantID:   tenantID,
+		UserID:     userID,
+		Action:     "create",
+		Resource:   "chain_config",
+		ResourceID: fmt.Sprintf("%d", config.ID),
+		Detail:     auditDetailJSON,
+	}
+	if err := l.svcCtx.Repo.CreateAuditLog(context.Background(), auditLog); err != nil {
+		logx.Errorf("[Audit] failed to record chain config create audit log: %v", err)
 	}
 
 	return &types.CommonResponse{Code: 0, Message: "success", Data: config}, nil
@@ -174,4 +192,39 @@ func buildChainNodesModel(chainConfigID uint, nodeReqs []types.NodeConfig) []*st
 		})
 	}
 	return nodes
+}
+
+// buildCreateAuditData 构建创建链配置的脱敏审计数据
+func (l *CreateChainConfigLogic) buildCreateAuditData(config *store.TenantChainConfig) map[string]interface{} {
+	data := map[string]interface{}{
+		"chain_name": config.ChainName,
+		"chain_type": config.ChainType,
+		"enable":     config.Enable,
+	}
+	switch strings.ToLower(config.ChainType) {
+	case "chainmaker":
+		data["chain_id"] = config.ChainId
+		data["auth_type"] = config.AuthType
+		data["org_id"] = config.OrgId
+		data["hash_type"] = config.HashType
+		data["sign_key"] = validator.MaskSensitiveString(config.SignKey)
+		data["sign_cert"] = config.SignCert
+		data["user_tls_key"] = validator.MaskSensitiveString(config.UserTlsKey)
+		data["user_tls_cert"] = config.UserTlsCert
+		data["user_enc_key"] = validator.MaskSensitiveString(config.UserEncKey)
+		data["user_enc_cert"] = config.UserEncCert
+		data["proxy_url"] = config.ProxyUrl
+	case "ethereum":
+		data["eth_chain_id"] = config.EthChainId
+		data["http_url"] = config.HttpUrl
+		data["websocket_url"] = config.WebsocketUrl
+		data["private_key"] = validator.MaskSensitiveString(config.PrivateKey)
+	case "solana":
+		data["sol_rpc_url"] = config.SolRpcUrl
+		data["sol_private_key"] = validator.MaskSensitiveString(config.SolPrivateKey)
+		data["commitment_level"] = config.CommitmentLevel
+		data["skip_preflight"] = config.SkipPreflight
+		data["max_retries"] = config.MaxRetries
+	}
+	return data
 }
