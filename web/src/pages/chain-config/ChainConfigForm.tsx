@@ -162,7 +162,9 @@ export default function ChainConfigForm() {
     }
     setTestLoading(true)
     try {
-      const res = await api.post(`/chain-configs/${id}/test-connection`)
+      // 获取当前表单值，发送给后端以测试用户实际填写的配置
+      const formValues = form.getFieldsValue()
+      const res = await api.post(`/chain-configs/${id}/test-connection`, formValues)
       const data = res.data as { success?: boolean; error?: string; chain_name?: string; chain_type?: string }
       if (data.success) {
         message.success(`连接测试成功（${data.chain_type}: ${data.chain_name}）`)
