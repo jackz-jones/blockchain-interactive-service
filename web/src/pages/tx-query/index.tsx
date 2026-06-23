@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Card, Form, Select, Input, Button, Typography, Space, Alert } from 'antd'
-import { SearchOutlined } from '@ant-design/icons'
+import { Card, Form, Select, Input, Button, Typography, Space, Alert, Tooltip, Tag } from 'antd'
+import { SearchOutlined, CopyOutlined } from '@ant-design/icons'
 import Editor from '@monaco-editor/react'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
+import { useGlobalMessage } from '@/components/GlobalMessage'
+import { formatDateTime } from '@/utils/format'
 
 const { Title, Text } = Typography
 
@@ -18,6 +20,8 @@ interface TxResult {
   result?: string
   error?: string
   status?: string
+  created_at?: string
+  block_timestamp?: string
 }
 
 export default function TxQuery() {
@@ -26,6 +30,7 @@ export default function TxQuery() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<TxResult | null>(null)
   const { handleApiError } = useApiMessage()
+  const { message } = useGlobalMessage()
 
   useEffect(() => {
     fetchChains()
@@ -40,6 +45,15 @@ export default function TxQuery() {
     }
   }
 
+  // 复制交易 ID
+  const handleCopyTxId = (txId: string) => {
+    navigator.clipboard.writeText(txId).then(() => {
+      message.success('交易 ID 已复制到剪贴板')
+    }).catch(() => {
+      message.error('复制失败')
+    })
+  }
+
   const handleQuery = async (values: Record<string, string>) => {
     const txId = values.tx_id || ''
     const chainName = values.chain_name || ''
@@ -49,8 +63,14 @@ export default function TxQuery() {
       const res = await api.get(`/tx/${encodeURIComponent(txId)}`, {
         params: { chain_name: chainName },
       })
-      const data = res.data as { result?: string; confirmed?: boolean }
-      setResult({ tx_id: txId, result: data.result, confirmed: data.confirmed })
+      const data = res.data as { result?: string; confirmed?: boolean; created_at?: string; block_timestamp?: string }
+      setResult({
+        tx_id: txId,
+        result: data.result,
+        confirmed: data.confirmed,
+        created_at: data.created_at,
+        block_timestamp: data.block_timestamp,
+      })
     } catch (err) {
       setResult({ tx_id: txId, status: 'ERROR', error: err instanceof Error ? err.message : '查询失败' })
     } finally {
@@ -83,23 +103,48 @@ export default function TxQuery() {
       </Card>
 
       {result?.error && (
-<Alert type="error" message="查询失败" description={result.error} showIcon style={{ marginBottom: 16 }} />
+        <Alert type="error" message="查询失败" description={result.error} showIcon style={{ marginBottom: 16 }} />
       )}
 
       {result && !result.error && (
         <Card title="交易详情">
-<Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>交易 ID</Text>
-                <div style={{ overflow: 'auto', flex: 1 }}>
-                  <Text code style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{result.tx_id}</Text>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'auto', flex: 1 }}>
+                  <Tooltip title={result.tx_id} placement="topLeft">
+                    <Text code style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{result.tx_id}</Text>
+                  </Tooltip>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<CopyOutlined />}
+                    onClick={() => handleCopyTxId(result.tx_id)}
+                    title="复制交易 ID"
+                  />
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>确认状态</Text>
-                <Text>{result.confirmed ? '✅ 已确认' : '⏳ 待确认 / Pending'}</Text>
+                {result.confirmed ? (
+                  <Tag color="success">已确认</Tag>
+                ) : (
+                  <Tag color="processing">待确认 / Pending</Tag>
+                )}
               </div>
+              {result.created_at && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>创建时间</Text>
+                  <Text style={{ fontSize: 13 }}>{formatDateTime(result.created_at)}</Text>
+                </div>
+              )}
+              {result.block_timestamp && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>区块时间</Text>
+                  <Text style={{ fontSize: 13 }}>{formatDateTime(result.block_timestamp)}</Text>
+                </div>
+              )}
             </div>
 
             {result.result !== undefined && result.result !== null && (
