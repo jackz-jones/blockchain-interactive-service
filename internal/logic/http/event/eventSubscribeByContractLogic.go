@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/middleware"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/sdk"
@@ -57,6 +58,25 @@ func (l *SubscribeByContractLogic) SubscribeByContract(req *types.SubscribeByCon
 
 	// 更新 DB 字段：开启订阅
 	contract.EnableSubscribe = true
+
+	// 将订阅参数写入 extra_conf
+	extraConf := map[string]interface{}{}
+	if contract.ExtraConf != "" {
+		_ = json.Unmarshal([]byte(contract.ExtraConf), &extraConf)
+	}
+	if req.DeployBlockHeight != nil {
+		extraConf["DeployBlockHeight"] = *req.DeployBlockHeight
+	}
+	if req.GetHistoryEventInterval != nil {
+		extraConf["GetHistoryEventInterval"] = *req.GetHistoryEventInterval
+	}
+	if req.GetHistoryEventHeightWindow != nil {
+		extraConf["GetHistoryEventHeightWindow"] = *req.GetHistoryEventHeightWindow
+	}
+	if extraConfBytes, err := json.Marshal(extraConf); err == nil {
+		contract.ExtraConf = string(extraConfBytes)
+	}
+
 	if err := l.svcCtx.Repo.UpdateContractConfig(l.ctx, contract); err != nil {
 		l.Logger.Errorf("failed to update contract config: %v", err)
 		return &types.CommonResponse{Code: 500, Message: "internal error"}, nil
@@ -109,6 +129,7 @@ func (l *SubscribeByContractLogic) ListAvailableContracts() (resp *types.CommonR
 			"contract_config_id": contract.ID,
 			"chain_config_id":    contract.ChainConfigID,
 			"chain_name":         contract.ChainConfig.ChainName,
+			"chain_type":         contract.ChainConfig.ChainType,
 			"contract_name":      contract.ContractName,
 			"contract_addr":      contract.ContractAddr,
 		})

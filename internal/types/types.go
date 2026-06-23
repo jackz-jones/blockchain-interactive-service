@@ -77,7 +77,10 @@ type EventUnsubscribeRequest struct {
 }
 
 type SubscribeByContractRequest struct {
-	ContractConfigID uint `json:"contract_config_id"`
+	ContractConfigID            uint   `json:"contract_config_id"`
+	DeployBlockHeight           *int64 `json:"deploy_block_height,optional"`
+	GetHistoryEventInterval     *int64 `json:"get_history_event_interval,optional"`
+	GetHistoryEventHeightWindow *int64 `json:"get_history_event_height_window,optional"`
 }
 
 type UnsubscribeByContractRequest struct {

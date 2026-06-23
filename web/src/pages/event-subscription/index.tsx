@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Table, Button, Typography, Space, Tag, Modal, Select, Form, Tooltip, Popconfirm, Empty } from 'antd'
-import { PlusOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
+import { Table, Button, Typography, Space, Tag, Modal, Select, Form, Tooltip, Popconfirm, Empty, InputNumber, Divider } from 'antd'
+import { PlusOutlined, DeleteOutlined, EyeOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
@@ -24,6 +24,7 @@ interface AvailableContract {
   contract_config_id: number
   chain_config_id: number
   chain_name: string
+  chain_type: string
   contract_name: string
   contract_addr: string
 }
@@ -37,7 +38,9 @@ export default function EventSubscription() {
   const { message } = useGlobalMessage()
   const { handleApiError } = useApiMessage()
   const [availableContracts, setAvailableContracts] = useState<AvailableContract[]>([])
+  const [selectedChainName, setSelectedChainName] = useState<string | null>(null)
   const [selectedContractId, setSelectedContractId] = useState<number | null>(null)
+  const [selectedChainType, setSelectedChainType] = useState<string>('')
   const [form] = Form.useForm()
 
   // 查看最新事件相关状态
@@ -75,9 +78,35 @@ export default function EventSubscription() {
 
   const handleOpenCreate = () => {
     fetchAvailableContracts()
+    setSelectedChainName(null)
     setSelectedContractId(null)
+    setSelectedChainType('')
     form.resetFields()
     setCreateOpen(true)
+  }
+
+  // 获取当前选中合约的链类型
+  const getSelectedContractChainType = (contractId: number | null): string => {
+    if (!contractId) return ''
+    const contract = availableContracts.find(c => c.contract_config_id === contractId)
+    return contract?.chain_type || ''
+  }
+
+  // 当选中的链改变时，重置合约选择和表单
+  const handleChainChange = (chainName: string | null) => {
+    setSelectedChainName(chainName)
+    setSelectedContractId(null)
+    setSelectedChainType('')
+    form.resetFields(['contract', 'deploy_block_height', 'get_history_event_interval', 'get_history_event_height_window'])
+  }
+
+  // 当选中的合约改变时，更新链类型
+  const handleContractChange = (contractId: number | null) => {
+    setSelectedContractId(contractId)
+    const chainType = getSelectedContractChainType(contractId)
+    setSelectedChainType(chainType)
+    // 切换合约时重置订阅参数
+    form.resetFields(['deploy_block_height', 'get_history_event_interval', 'get_history_event_height_window'])
   }
 
   const handleCreate = async () => {
@@ -86,11 +115,34 @@ export default function EventSubscription() {
       return
     }
 
+    const values = form.getFieldsValue()
+    const payload: Record<string, unknown> = {
+      contract_config_id: selectedContractId,
+    }
+
+    // 根据链类型组装订阅参数
+    if (selectedChainType === 'ethereum' || selectedChainType === 'chainmaker') {
+      if (values.deploy_block_height !== undefined && values.deploy_block_height !== null) {
+        payload.deploy_block_height = Number(values.deploy_block_height)
+      }
+    }
+    if (selectedChainType === 'solana') {
+      if (values.deploy_block_height !== undefined && values.deploy_block_height !== null) {
+        payload.deploy_block_height = Number(values.deploy_block_height)
+      }
+    }
+    if (selectedChainType === 'ethereum') {
+      if (values.get_history_event_interval !== undefined && values.get_history_event_interval !== null) {
+        payload.get_history_event_interval = Number(values.get_history_event_interval)
+      }
+      if (values.get_history_event_height_window !== undefined && values.get_history_event_height_window !== null) {
+        payload.get_history_event_height_window = Number(values.get_history_event_height_window)
+      }
+    }
+
     setCreateLoading(true)
     try {
-      const res = await api.post('/events/subscribe-by-contract', {
-        contract_config_id: selectedContractId,
-      })
+      const res = await api.post('/events/subscribe-by-contract', payload)
       const data = res as { code?: number; message?: string }
       if (data.code === 409) {
         message.warning(data.message || '该合约已存在订阅，请勿重复创建')
@@ -223,6 +275,10 @@ export default function EventSubscription() {
 
   // 按链名称分组可选合约
   const chainNames = [...new Set(availableContracts.map(c => c.chain_name))]
+  // 根据选中的链过滤合约
+  const filteredContracts = selectedChainName
+    ? availableContracts.filter(c => c.chain_name === selectedChainName)
+    : []
 
   return (
     <div>
@@ -264,47 +320,134 @@ export default function EventSubscription() {
         onCancel={() => setCreateOpen(false)}
         onOk={handleCreate}
         confirmLoading={createLoading}
-        okText="创建"
+        okText="创建订阅"
         cancelText="取消"
+        width={640}
       >
-        <div style={{ marginBottom: 16, color: 'var(--color-muted)', fontSize: 13 }}>
-          选择一个未开启订阅的合约，系统将自动启动链上事件监听。
-        </div>
         <Form form={form} layout="vertical">
-          <Form.Item label="选择合约" required>
+          {/* 第一步：选择链 */}
+          <Form.Item label="1. 选择链" required>
             <Select
-              placeholder="请选择要订阅的合约"
-              value={selectedContractId}
-              onChange={(val) => setSelectedContractId(val)}
+              placeholder="请选择链"
+              value={selectedChainName}
+              onChange={handleChainChange}
               style={{ width: '100%' }}
-              showSearch
-              optionFilterProp="label"
-              notFoundContent={availableContracts.length === 0 ? '所有合约均已开启订阅' : '无匹配结果'}
+              notFoundContent={availableContracts.length === 0 ? '暂无可用的链' : '无匹配结果'}
             >
               {chainNames.map(chainName => (
-                <Select.OptGroup key={chainName} label={chainName}>
-                  {availableContracts
-                    .filter(c => c.chain_name === chainName)
-                    .map(c => (
-                      <Select.Option
-                        key={c.contract_config_id}
-                        value={c.contract_config_id}
-                        label={`${c.chain_name} - ${c.contract_name}`}
-                      >
-                        <div>
-                          <span style={{ fontWeight: 500 }}>{c.contract_name}</span>
-                          {c.contract_addr && (
-                            <span style={{ marginLeft: 8, fontSize: 12, color: '#999' }}>
-                              {c.contract_addr.slice(0, 10)}...
-                            </span>
-                          )}
-                        </div>
-                      </Select.Option>
-                    ))}
-                </Select.OptGroup>
+                <Select.Option key={chainName} value={chainName}>
+                  {chainName}
+                </Select.Option>
               ))}
             </Select>
           </Form.Item>
+
+          {/* 第二步：选择合约 */}
+          <Form.Item label="2. 选择合约" required>
+            <Select
+              placeholder={selectedChainName ? '请选择要订阅的合约' : '请先选择链'}
+              value={selectedContractId}
+              onChange={handleContractChange}
+              style={{ width: '100%' }}
+              showSearch
+              optionFilterProp="label"
+              disabled={!selectedChainName}
+              notFoundContent={
+                !selectedChainName
+                  ? '请先选择链'
+                  : filteredContracts.length === 0
+                    ? '该链下所有合约均已开启订阅'
+                    : '无匹配结果'
+              }
+            >
+              {filteredContracts.map(c => (
+                <Select.Option
+                  key={c.contract_config_id}
+                  value={c.contract_config_id}
+                  label={c.contract_name}
+                >
+                  <div>
+                    <span style={{ fontWeight: 500 }}>{c.contract_name}</span>
+                    {c.contract_addr && (
+                      <span style={{ marginLeft: 8, fontSize: 12, color: '#999' }}>
+                        {c.contract_addr.slice(0, 10)}...
+                      </span>
+                    )}
+                  </div>
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          {/* 第三步：订阅参数配置 */}
+          {selectedContractId && (
+            <>
+              <Divider style={{ margin: '8px 0 16px' }} />
+              <div style={{ marginBottom: 12, color: 'var(--color-muted)', fontSize: 13 }}>
+                3. 订阅参数配置
+                <Tooltip title="配置事件订阅的参数，不同链类型支持的参数可能不同">
+                  <QuestionCircleOutlined style={{ marginLeft: 4, color: '#bbb' }} />
+                </Tooltip>
+              </div>
+
+              {/* 通用参数：合约部署区块高度 */}
+              {(selectedChainType === 'ethereum' || selectedChainType === 'chainmaker' || selectedChainType === 'solana') && (
+                <Form.Item
+                  label="合约部署区块高度"
+                  name="deploy_block_height"
+                  tooltip="从哪个区块高度开始订阅事件，0 表示从最新区块开始"
+                >
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={0}
+                    placeholder="0（从最新区块开始）"
+                  />
+                </Form.Item>
+              )}
+
+              {/* Ethereum 特有参数 */}
+              {selectedChainType === 'ethereum' && (
+                <>
+                  <Form.Item
+                    label="事件轮询间隔（ms）"
+                    name="get_history_event_interval"
+                    tooltip="轮询链上事件的时间间隔，单位毫秒"
+                  >
+                    <InputNumber
+                      style={{ width: '100%' }}
+                      min={1000}
+                      placeholder="12000（默认）"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    label="区块扫描窗口"
+                    name="get_history_event_height_window"
+                    tooltip="每次轮询扫描的区块数量窗口"
+                  >
+                    <InputNumber
+                      style={{ width: '100%' }}
+                      min={1}
+                      placeholder="100（默认）"
+                    />
+                  </Form.Item>
+                </>
+              )}
+
+              {/* ChainMaker 特有参数 */}
+              {selectedChainType === 'chainmaker' && (
+                <div style={{ color: 'var(--color-muted)', fontSize: 13, padding: '8px 0' }}>
+                  长安链订阅使用节点长连接推送模式，无需配置轮询间隔和扫描窗口
+                </div>
+              )}
+
+              {/* Solana 特有参数 */}
+              {selectedChainType === 'solana' && (
+                <div style={{ color: 'var(--color-muted)', fontSize: 13, padding: '8px 0' }}>
+                  Solana 使用 WebSocket 订阅模式，无需配置轮询间隔和扫描窗口
+                </div>
+              )}
+            </>
+          )}
         </Form>
       </Modal>
 
