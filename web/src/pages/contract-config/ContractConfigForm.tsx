@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
-import { Form, Input, Switch, Button, Card, Typography, Space, Divider, InputNumber, Tooltip } from 'antd'
+import { useEffect, useState, useCallback } from 'react'
+import { Form, Input, Switch, Button, Card, Typography, Space, Divider, InputNumber, Tooltip, message as antMessage } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
-import { QuestionCircleOutlined } from '@ant-design/icons'
+import { QuestionCircleOutlined, FormatPainterOutlined } from '@ant-design/icons'
 import Editor from '@monaco-editor/react'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
+import { useBlocker, confirmLeave } from '@/hooks/useBlocker'
 
 const { Title, Text } = Typography
 
@@ -30,6 +31,19 @@ export default function ContractConfigForm() {
   const [enableSubscribe, setEnableSubscribe] = useState(false)
   const [solanaMethodsValue, setSolanaMethodsValue] = useState('')
   const isEdit = !!id
+
+  // 记录表单是否被修改（用于未保存离开确认）
+  const [formModified, setFormModified] = useState(false)
+  // 记录是否正在提交（提交后跳转不需要确认）
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // 未保存离开确认
+  useBlocker(formModified && !isSubmitting)
+
+  // 监听表单值变化
+  const handleValuesChange = useCallback(() => {
+    setFormModified(true)
+  }, [])
 
   useEffect(() => {
     fetchChains()
@@ -93,8 +107,36 @@ export default function ContractConfigForm() {
           // extra_conf 解析失败，忽略
         }
       }
+      // 编辑模式加载完数据后，标记为未修改
+      setTimeout(() => setFormModified(false), 0)
     } catch (err) {
       handleApiError(err)
+    }
+  }
+
+  // ABI 格式化处理
+  const handleFormatAbi = () => {
+    if (!abiValue.trim()) return
+    try {
+      const parsed = JSON.parse(abiValue)
+      const formatted = JSON.stringify(parsed, null, 2)
+      setAbiValue(formatted)
+      antMessage.success('格式化成功')
+    } catch {
+      antMessage.error('JSON 格式不正确，无法格式化')
+    }
+  }
+
+  // Solana 方法配置格式化处理
+  const handleFormatSolanaMethods = () => {
+    if (!solanaMethodsValue.trim()) return
+    try {
+      const parsed = JSON.parse(solanaMethodsValue)
+      const formatted = JSON.stringify(parsed, null, 2)
+      setSolanaMethodsValue(formatted)
+      antMessage.success('格式化成功')
+    } catch {
+      antMessage.error('JSON 格式不正确，无法格式化')
     }
   }
 
@@ -107,6 +149,20 @@ export default function ContractConfigForm() {
         abiJson = abiValue.trim()
       } catch {
         message.error('ABI JSON 格式不正确')
+        return
+      }
+    }
+
+    // 验证合约地址格式（如果填写了）
+    const addrValue = values.contract_addr as string | undefined
+    if (addrValue && addrValue.trim()) {
+      const addr = addrValue
+      if (chainType === 'ethereum' && !/^0x[0-9a-fA-F]{40}$/.test(addr)) {
+        message.error('合约地址格式不正确，需为 0x 开头的 40 位十六进制字符串')
+        return
+      }
+      if (chainType === 'solana' && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr)) {
+        message.error('合约地址格式不正确，需为 Base58 编码的 Solana 地址')
         return
       }
     }
@@ -146,6 +202,7 @@ export default function ContractConfigForm() {
       extra_conf: extraConfStr,
     }
 
+    setIsSubmitting(true)
     setLoading(true)
     try {
       if (isEdit) {
@@ -158,6 +215,7 @@ export default function ContractConfigForm() {
       navigate('/contract-configs')
     } catch (err) {
       handleApiError(err)
+      setIsSubmitting(false)
     } finally {
       setLoading(false)
     }
@@ -174,6 +232,7 @@ export default function ContractConfigForm() {
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
+          onValuesChange={handleValuesChange}
           initialValues={{ enable_subscribe: false }}
         >
           <Form.Item
@@ -202,12 +261,51 @@ export default function ContractConfigForm() {
           <Form.Item
             name="contract_addr"
             label="合约地址"
+            rules={[
+              {
+                validator: (_, value) => {
+                  if (!value || !value.trim()) return Promise.resolve()
+                  if (chainType === 'ethereum' && !/^0x[0-9a-fA-F]{40}$/.test(value)) {
+                    return Promise.reject(new Error('合约地址格式不正确，需为 0x 开头的 40 位十六进制字符串'))
+                  }
+                  if (chainType === 'solana' && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value)) {
+                    return Promise.reject(new Error('合约地址格式不正确，需为 Base58 编码的 Solana 地址'))
+                  }
+                  return Promise.resolve()
+                },
+              },
+            ]}
+            extra={
+              chainType === 'ethereum'
+                ? '以太坊合约地址格式：0x 开头的 40 位十六进制字符串'
+                : chainType === 'solana'
+                ? 'Solana 合约地址格式：Base58 编码的 32-44 位字符串'
+                : '请输入合约地址'
+            }
           >
-            <Input placeholder="0x..." style={{ fontFamily: 'var(--font-mono, monospace)' }} />
+            <Input
+              placeholder={
+                chainType === 'ethereum'
+                  ? '0x1234567890abcdef1234567890abcdef12345678'
+                  : chainType === 'solana'
+                  ? 'Base58 编码的 Solana 地址'
+                  : '0x...'
+              }
+              style={{ fontFamily: 'var(--font-mono, monospace)' }}
+            />
           </Form.Item>
 
           <Form.Item label="ABI (JSON)">
             <div style={{ border: '1px solid #d9d9d9', borderRadius: 6, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 8px', borderBottom: '1px solid #d9d9d9', background: '#fafafa' }}>
+                <Button
+                  size="small"
+                  icon={<FormatPainterOutlined />}
+                  onClick={handleFormatAbi}
+                >
+                  格式化
+                </Button>
+              </div>
               <Editor
                 height="300px"
                 defaultLanguage="json"
@@ -236,7 +334,7 @@ export default function ContractConfigForm() {
           {/* ========== 订阅相关扩展配置（开启订阅时展示） ========== */}
           {enableSubscribe && (
             <>
-<Divider titlePlacement="left" plain>
+              <Divider titlePlacement="left" plain>
                 <Text type="secondary" style={{ fontSize: 13 }}>订阅配置</Text>
               </Divider>
 
@@ -330,7 +428,7 @@ export default function ContractConfigForm() {
           {/* ========== Solana 方法调用规范（Solana 链始终展示） ========== */}
           {chainType === 'solana' && (
             <>
-<Divider titlePlacement="left" plain>
+              <Divider titlePlacement="left" plain>
                 <Text type="secondary" style={{ fontSize: 13 }}>
                   Solana 方法调用规范&nbsp;
                   <Tooltip title="定义合约方法的 Discriminator、参数类型和账户列表，用于 Borsh 序列化调用">
@@ -369,6 +467,15 @@ export default function ContractConfigForm() {
                 }
               >
                 <div style={{ border: '1px solid #d9d9d9', borderRadius: 6, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 8px', borderBottom: '1px solid #d9d9d9', background: '#fafafa' }}>
+                    <Button
+                      size="small"
+                      icon={<FormatPainterOutlined />}
+                      onClick={handleFormatSolanaMethods}
+                    >
+                      格式化
+                    </Button>
+                  </div>
                   <Editor
                     height="200px"
                     defaultLanguage="json"
@@ -394,7 +501,7 @@ export default function ContractConfigForm() {
             <Button type="primary" htmlType="submit" loading={loading}>
               {isEdit ? '保存修改' : '创建'}
             </Button>
-            <Button onClick={() => navigate('/contract-configs')}>取消</Button>
+            <Button onClick={() => confirmLeave(() => navigate('/contract-configs'), formModified)}>取消</Button>
           </Space>
         </Form>
       </Card>

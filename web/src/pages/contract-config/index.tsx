@@ -6,6 +6,7 @@ import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
+import { formatDateTime } from '@/utils/format'
 
 const { Title } = Typography
 
@@ -141,7 +142,7 @@ export default function ContractConfigList() {
       dataIndex: 'CreatedAt',
       key: 'CreatedAt',
       width: 180,
-      render: (time: string) => time ? new Date(time).toLocaleDateString('zh-CN') : '-',
+      render: (time: string) => formatDateTime(time),
     },
     {
       title: '操作',
@@ -174,14 +175,16 @@ export default function ContractConfigList() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <Title level={4} style={{ margin: 0 }}>合约配置</Title>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          disabled={!selectedChainId}
-          onClick={() => navigate(`/chain-configs/${selectedChainId}/contracts/create`)}
-        >
-          新建合约配置
-        </Button>
+        <Tooltip title={!selectedChainId ? '请先选择链配置' : undefined}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            disabled={!selectedChainId}
+            onClick={() => navigate(`/chain-configs/${selectedChainId}/contracts/create`)}
+          >
+            新建合约配置
+          </Button>
+        </Tooltip>
       </div>
 
       <Space style={{ marginBottom: 16 }}>
@@ -194,7 +197,10 @@ export default function ContractConfigList() {
             setSelectedChainName(option?.label)
           }}
           allowClear
-          onClear={() => setSelectedChainName(undefined)}
+          onClear={() => {
+            setSelectedChainId(undefined)
+            setSelectedChainName(undefined)
+          }}
           style={{ width: 250 }}
           options={chains.map((c) => ({ label: c.chain_name, value: String(c.ID) }))}
         />
