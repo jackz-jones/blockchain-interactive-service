@@ -134,6 +134,12 @@ type UpdateChainConfigRequest {
 	CreateChainConfigRequest
 }
 
+// --- 测试链连接（使用前端表单值） ---
+type TestChainConnectionFormRequest {
+	Id uint `path:"id"`
+	CreateChainConfigRequest
+}
+
 // --- 合约配置管理 ---
 type CreateContractConfigRequest {
 	ChainConfigId   uint   `path:"chainConfigId"`
@@ -303,7 +309,7 @@ service chaininteractive-api {
 	delete /chain-configs/:id (ChainConfigIdPathRequest) returns (CommonResponse)
 
 	@handler TestChainConnection
-	post /chain-configs/:id/test-connection (ChainConfigIdPathRequest) returns (CommonResponse)
+	post /chain-configs/:id/test-connection (TestChainConnectionFormRequest) returns (CommonResponse)
 }
 
 // 管理 API 组 — 合约配置管理

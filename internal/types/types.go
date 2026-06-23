@@ -157,6 +157,12 @@ type UpdateChainConfigRequest struct {
 	CreateChainConfigRequest
 }
 
+// TestChainConnectionFormRequest 测试链连接请求（使用前端表单值而非数据库值）
+type TestChainConnectionFormRequest struct {
+	Id uint `path:"id"`
+	CreateChainConfigRequest
+}
+
 type CreateContractConfigRequest struct {
 	ChainConfigId   uint   `path:"chainConfigId"`
 	ContractName    string `json:"contract_name"`
