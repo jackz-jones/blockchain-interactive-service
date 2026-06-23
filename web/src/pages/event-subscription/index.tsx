@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Table, Button, Typography, Space, Tag, Modal, Select, Form, Tooltip, Popconfirm, Empty, InputNumber, Divider } from 'antd'
-import { PlusOutlined, DeleteOutlined, EyeOutlined, QuestionCircleOutlined } from '@ant-design/icons'
+import { Table, Button, Typography, Space, Tag, Modal, Select, Form, Tooltip, Popconfirm, Empty, InputNumber, Divider, Switch } from 'antd'
+import { PlusOutlined, DeleteOutlined, EyeOutlined, EditOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
@@ -14,10 +14,12 @@ interface SubscriptionItem {
   contract_config_id: number
   chain_config_id: number
   chain_name: string
+  chain_type: string
   contract_name: string
   contract_addr: string
   status: string
   created_at: string
+  extra_conf?: Record<string, unknown>
 }
 
 interface AvailableContract {
@@ -48,6 +50,12 @@ export default function EventSubscription() {
   const [eventsLoading, setEventsLoading] = useState(false)
   const [recentEvents, setRecentEvents] = useState<any[]>([])
   const [eventsTitle, setEventsTitle] = useState('')
+
+  // 编辑订阅配置相关状态
+  const [editOpen, setEditOpen] = useState(false)
+  const [editLoading, setEditLoading] = useState(false)
+  const [editRecord, setEditRecord] = useState<SubscriptionItem | null>(null)
+  const [editForm] = Form.useForm()
 
   const fetchList = async () => {
     setLoading(true)
@@ -187,6 +195,52 @@ export default function EventSubscription() {
     }
   }
 
+  // 打开编辑订阅配置弹窗
+  const handleOpenEdit = (record: SubscriptionItem) => {
+    setEditRecord(record)
+    const extraConf = record.extra_conf || {}
+    editForm.setFieldsValue({
+      enable_subscribe: record.status === 'active',
+      deploy_block_height: extraConf.DeployBlockHeight ?? undefined,
+      get_history_event_interval: extraConf.GetHistoryEventInterval ?? undefined,
+      get_history_event_height_window: extraConf.GetHistoryEventHeightWindow ?? undefined,
+    })
+    setEditOpen(true)
+  }
+
+  // 提交编辑订阅配置
+  const handleEditSubmit = async () => {
+    if (!editRecord) return
+    const values = editForm.getFieldsValue()
+    const payload: Record<string, unknown> = {
+      enable_subscribe: values.enable_subscribe ?? true,
+    }
+
+    if (values.deploy_block_height !== undefined && values.deploy_block_height !== null) {
+      payload.deploy_block_height = Number(values.deploy_block_height)
+    }
+    if (editRecord.chain_type === 'ethereum') {
+      if (values.get_history_event_interval !== undefined && values.get_history_event_interval !== null) {
+        payload.get_history_event_interval = Number(values.get_history_event_interval)
+      }
+      if (values.get_history_event_height_window !== undefined && values.get_history_event_height_window !== null) {
+        payload.get_history_event_height_window = Number(values.get_history_event_height_window)
+      }
+    }
+
+    setEditLoading(true)
+    try {
+      await api.put(`/events/subscribe-by-contract/${editRecord.contract_config_id}`, payload)
+      message.success('订阅配置更新成功')
+      setEditOpen(false)
+      fetchList()
+    } catch (err) {
+      handleApiError(err)
+    } finally {
+      setEditLoading(false)
+    }
+  }
+
   // 加载失败时显示错误重试组件
   if (error && !loading && subscriptions.length === 0) {
     return (
@@ -251,11 +305,14 @@ export default function EventSubscription() {
     {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 260,
       render: (_, record) => (
         <Space size="small">
           <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => handleViewEvents(record)}>
             查看最近事件
+          </Button>
+          <Button type="text" size="small" icon={<EditOutlined />} onClick={() => handleOpenEdit(record)}>
+            编辑配置
           </Button>
           <Popconfirm
             title="确认取消订阅？"
@@ -447,6 +504,109 @@ export default function EventSubscription() {
                 </div>
               )}
             </>
+          )}
+        </Form>
+      </Modal>
+
+      {/* 编辑订阅配置弹窗 */}
+      <Modal
+        title={`编辑订阅配置 - ${editRecord?.chain_name || ''} / ${editRecord?.contract_name || ''}`}
+        open={editOpen}
+        onCancel={() => setEditOpen(false)}
+        onOk={handleEditSubmit}
+        confirmLoading={editLoading}
+        okText="保存修改"
+        cancelText="取消"
+        width={560}
+      >
+        <Form form={editForm} layout="vertical">
+          <Form.Item
+            name="enable_subscribe"
+            label="订阅开关"
+            valuePropName="checked"
+          >
+            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+          </Form.Item>
+
+          <Divider style={{ margin: '8px 0 16px' }} />
+          <div style={{ marginBottom: 12, color: 'var(--color-muted)', fontSize: 13 }}>
+            订阅参数配置
+            <Tooltip title="修改订阅参数后，系统将自动重启订阅以应用新配置">
+              <QuestionCircleOutlined style={{ marginLeft: 4, color: '#bbb' }} />
+            </Tooltip>
+          </div>
+
+          {/* 合约部署区块高度 - 所有链通用 */}
+          <Form.Item
+            name="deploy_block_height"
+            label={
+              <span>
+                {editRecord?.chain_type === 'solana' ? '合约部署 Slot 高度' : '合约部署区块高度'}&nbsp;
+                <Tooltip title={editRecord?.chain_type === 'solana' ? '从该 Slot 开始扫描，设为 0 则从最新 Slot 开始' : '从该区块高度开始扫描，设为 0 则从最新区块开始'}>
+                  <QuestionCircleOutlined style={{ color: '#999' }} />
+                </Tooltip>
+              </span>
+            }
+          >
+            <InputNumber
+              style={{ width: '100%' }}
+              min={0}
+              placeholder="0（从最新区块开始）"
+            />
+          </Form.Item>
+
+          {/* Ethereum 特有参数 */}
+          {editRecord?.chain_type === 'ethereum' && (
+            <>
+              <Form.Item
+                name="get_history_event_interval"
+                label={
+                  <span>
+                    事件轮询间隔（ms）&nbsp;
+                    <Tooltip title="每隔多少毫秒轮询一次链上历史事件，默认 12000ms">
+                      <QuestionCircleOutlined style={{ color: '#999' }} />
+                    </Tooltip>
+                  </span>
+                }
+              >
+                <InputNumber
+                  style={{ width: '100%' }}
+                  min={1000}
+                  placeholder="12000（默认）"
+                />
+              </Form.Item>
+              <Form.Item
+                name="get_history_event_height_window"
+                label={
+                  <span>
+                    区块扫描窗口&nbsp;
+                    <Tooltip title="每次轮询扫描多少个区块的事件，默认 100">
+                      <QuestionCircleOutlined style={{ color: '#999' }} />
+                    </Tooltip>
+                  </span>
+                }
+              >
+                <InputNumber
+                  style={{ width: '100%' }}
+                  min={1}
+                  placeholder="100（默认）"
+                />
+              </Form.Item>
+            </>
+          )}
+
+          {/* ChainMaker 特有说明 */}
+          {editRecord?.chain_type === 'chainmaker' && (
+            <div style={{ color: 'var(--color-muted)', fontSize: 13, padding: '8px 0' }}>
+              长安链订阅使用节点长连接推送模式，无需配置轮询间隔和扫描窗口
+            </div>
+          )}
+
+          {/* Solana 特有说明 */}
+          {editRecord?.chain_type === 'solana' && (
+            <div style={{ color: 'var(--color-muted)', fontSize: 13, padding: '8px 0' }}>
+              Solana 使用 WebSocket 订阅模式，无需配置轮询间隔和扫描窗口
+            </div>
           )}
         </Form>
       </Modal>

@@ -64,7 +64,9 @@ func (l *UpdateContractConfigLogic) UpdateContractConfig(
 	existing.ContractName = req.ContractName
 	existing.ContractAddr = req.ContractAddr
 	existing.AbiJSON = req.AbiJson
-	existing.ExtraConf = req.ExtraConf
+	// 注意：EnableSubscribe 和 ExtraConf 中的订阅参数不在合约管理页面修改
+	// 订阅相关参数的修改统一在订阅管理页面进行
+	// existing.EnableSubscribe 和 existing.ExtraConf 保持原值不变
 
 	// 构建变更后数据，与变更前对比
 	afterData := map[string]interface{}{
@@ -77,14 +79,10 @@ func (l *UpdateContractConfigLogic) UpdateContractConfig(
 		beforeData["contract_addr"] != afterData["contract_addr"] {
 		// 已在 before/after 中体现
 	}
-	// abi_json 和 extra_conf 仅标记变更状态
+	// abi_json 仅标记变更状态
 	if req.AbiJson != "" {
 		beforeData["abi_json"] = "(已变更)"
 		afterData["abi_json"] = "(已变更)"
-	}
-	if req.ExtraConf != "" {
-		beforeData["extra_conf"] = "(已变更)"
-		afterData["extra_conf"] = "(已变更)"
 	}
 
 	// 逐字段比较变更前后数据是否一致
@@ -115,6 +113,7 @@ func (l *UpdateContractConfigLogic) UpdateContractConfig(
 	}
 
 	// 若该合约已开启订阅，则中断对应的订阅协程，调度器将在下一轮询周期基于新配置自动重启
+	// （修改 ABI 后需要重启订阅以应用新的合约接口定义，但订阅参数不变）
 	if existing.EnableSubscribe {
 		chainConfig, _ := l.svcCtx.Repo.GetChainConfigByID(l.ctx, req.ChainConfigId)
 		if chainConfig != nil {

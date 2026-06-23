@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/middleware"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/svc"
@@ -39,15 +40,24 @@ func (l *ListSubscriptionsLogic) ListSubscriptions() (resp *types.CommonResponse
 
 	var items []map[string]interface{}
 	for _, contract := range contracts {
-		items = append(items, map[string]interface{}{
+		item := map[string]interface{}{
 			"contract_config_id": contract.ID,
 			"chain_config_id":    contract.ChainConfigID,
 			"chain_name":         contract.ChainConfig.ChainName,
+			"chain_type":         contract.ChainConfig.ChainType,
 			"contract_name":      contract.ContractName,
 			"contract_addr":      contract.ContractAddr,
 			"status":             "active",
 			"created_at":         contract.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		})
+		}
+		// 解析 extra_conf 返回订阅参数
+		if contract.ExtraConf != "" {
+			var extraConf map[string]interface{}
+			if err := json.Unmarshal([]byte(contract.ExtraConf), &extraConf); err == nil {
+				item["extra_conf"] = extraConf
+			}
+		}
+		items = append(items, item)
 	}
 
 	if items == nil {

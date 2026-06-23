@@ -83,6 +83,14 @@ type SubscribeByContractRequest struct {
 	GetHistoryEventHeightWindow *int64 `json:"get_history_event_height_window,optional"`
 }
 
+type UpdateSubscriptionRequest struct {
+	ContractConfigID            string `path:"contractConfigId"`
+	EnableSubscribe             *bool  `json:"enable_subscribe,optional"`
+	DeployBlockHeight           *int64 `json:"deploy_block_height,optional"`
+	GetHistoryEventInterval     *int64 `json:"get_history_event_interval,optional"`
+	GetHistoryEventHeightWindow *int64 `json:"get_history_event_height_window,optional"`
+}
+
 type UnsubscribeByContractRequest struct {
 	ContractConfigID string `path:"contractConfigId"`
 }

@@ -247,6 +247,24 @@ service chaininteractive-api {
 
 	@handler EventUnsubscribe
 	delete /events/subscribe/:subscriptionId (EventUnsubscribeRequest) returns (CommonResponse)
+
+	@handler SubscribeByContract
+	post /events/subscribe-by-contract (SubscribeByContractRequest) returns (CommonResponse)
+
+	@handler UpdateSubscription
+	put /events/subscribe-by-contract/:contractConfigId (UpdateSubscriptionRequest) returns (CommonResponse)
+
+	@handler UnsubscribeByContract
+	delete /events/subscribe-by-contract/:contractConfigId (UnsubscribeByContractRequest) returns (CommonResponse)
+
+	@handler ListSubscriptions
+	get /events/subscriptions returns (CommonResponse)
+
+	@handler ListAvailableContracts
+	get /events/available-contracts returns (CommonResponse)
+
+	@handler RecentEvents
+	get /events/recent/:contractConfigId (RecentEventsRequest) returns (CommonResponse)
 }
 
 // 管理 API 组 — 租户管理

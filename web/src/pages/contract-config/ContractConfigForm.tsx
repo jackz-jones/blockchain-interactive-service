@@ -327,8 +327,16 @@ export default function ContractConfigForm() {
             name="enable_subscribe"
             label="开启事件订阅"
             valuePropName="checked"
+            extra={isEdit ? (
+              <Text type="warning" style={{ fontSize: 12 }}>
+                订阅开关和参数修改请前往「事件订阅管理」页面操作
+              </Text>
+            ) : null}
           >
-            <Switch onChange={(checked) => setEnableSubscribe(checked)} />
+            <Switch
+              onChange={(checked) => setEnableSubscribe(checked)}
+              disabled={isEdit}
+            />
           </Form.Item>
 
           {/* ========== 订阅相关扩展配置（开启订阅时展示） ========== */}
@@ -355,6 +363,7 @@ export default function ContractConfigForm() {
                     min={0}
                     placeholder="0（从最新区块开始）"
                     style={{ width: '100%' }}
+                    disabled={isEdit}
                   />
                 </Form.Item>
               )}
@@ -378,6 +387,7 @@ export default function ContractConfigForm() {
                       step={1000}
                       placeholder="12000（默认）"
                       style={{ width: '100%' }}
+                      disabled={isEdit}
                     />
                   </Form.Item>
 
@@ -397,6 +407,7 @@ export default function ContractConfigForm() {
                       max={10000}
                       placeholder="100（默认）"
                       style={{ width: '100%' }}
+                      disabled={isEdit}
                     />
                   </Form.Item>
                 </>
@@ -419,6 +430,7 @@ export default function ContractConfigForm() {
                     min={0}
                     placeholder="0（从最新 Slot 开始）"
                     style={{ width: '100%' }}
+                    disabled={isEdit}
                   />
                 </Form.Item>
               )}

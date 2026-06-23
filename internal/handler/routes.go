@@ -114,6 +114,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/events/subscribe-by-contract/:contractConfigId",
 					Handler: event.UnsubscribeByContractHandler(serverCtx),
 				},
+				// 更新订阅配置（Web 平台操作，不计配额）
+				{
+					Method:  http.MethodPut,
+					Path:    "/events/subscribe-by-contract/:contractConfigId",
+					Handler: event.UpdateSubscriptionHandler(serverCtx),
+				},
 				// 链配置管理（平台操作，不计配额）
 				{
 					Method:  http.MethodPost,
