@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Table, Button, Typography, Space, Tag, Modal, Select, Form, Tooltip, Popconfirm } from 'antd'
+import { Table, Button, Typography, Space, Tag, Modal, Select, Form, Tooltip, Popconfirm, Empty } from 'antd'
 import { PlusOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
+import { formatDateTime } from '@/utils/format'
 
 const { Title, Text } = Typography
 
@@ -177,7 +178,7 @@ export default function EventSubscription() {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 180,
-      render: (time: string) => new Date(time).toLocaleDateString('zh-CN'),
+      render: (time: string) => formatDateTime(time),
     },
     {
       title: '操作',
@@ -223,7 +224,21 @@ export default function EventSubscription() {
         loading={loading}
         pagination={{ pageSize: 10 }}
         size="middle"
-        locale={{ emptyText: '暂无订阅，点击"新建订阅"为合约开启事件监听' }}
+        locale={{
+          emptyText: (
+            <Empty
+              description="暂无订阅"
+              style={{ padding: '40px 0' }}
+            >
+              <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+                点击"新建订阅"为合约开启链上事件监听
+              </Text>
+              <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenCreate}>
+                新建订阅
+              </Button>
+            </Empty>
+          ),
+        }}
       />
 
       {/* 创建订阅弹窗 */}
@@ -279,7 +294,7 @@ export default function EventSubscription() {
 
       {/* 查看最新事件弹窗 */}
       <Modal
-        title={`最新事件 - ${eventsTitle}`}
+        title={`最新事件 - ${eventsTitle}${!eventsLoading ? ` (${recentEvents.length} 条)` : ''}`}
         open={eventsOpen}
         onCancel={() => setEventsOpen(false)}
         footer={[
@@ -290,9 +305,12 @@ export default function EventSubscription() {
         {eventsLoading ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>加载中...</div>
         ) : recentEvents.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
-            暂无事件数据，可能订阅刚开启还未收到链上事件
-          </div>
+          <Empty
+            description="暂无事件数据"
+            style={{ padding: '40px 0' }}
+          >
+            <Text type="secondary">可能订阅刚开启还未收到链上事件</Text>
+          </Empty>
         ) : (
           <div style={{ maxHeight: 500, overflow: 'auto' }}>
             {recentEvents.map((evt, idx) => (
@@ -303,8 +321,13 @@ export default function EventSubscription() {
                 borderRadius: 6,
                 border: '1px solid #eee',
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Tag color="blue">{evt.event_name || '未知事件'}</Tag>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 4 }}>
+                  <Space size="small">
+                    <Tag color="blue">{evt.event_name || '未知事件'}</Tag>
+                    {evt.timestamp && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>{formatDateTime(evt.timestamp)}</Text>
+                    )}
+                  </Space>
                   <Text type="secondary" style={{ fontSize: 12 }}>{evt.message_id}</Text>
                 </div>
                 <pre style={{
