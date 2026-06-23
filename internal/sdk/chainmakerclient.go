@@ -96,8 +96,9 @@ func NewChainMakerClient(ctx context.Context, chainConfName string, conf ChainMa
 		contracts[configName] = c.ContractName
 	}
 
-	// 基于父 ctx 派生可取消子 ctx，用于订阅 goroutine 的生命周期控制
-	childCtx, cancel := context.WithCancel(ctx)
+	// 基于独立后台 context 派生可取消子 ctx，用于订阅 goroutine 的生命周期控制
+	// 不使用请求传入的 ctx，避免请求结束后 context 被取消导致缓存的客户端不可用
+	childCtx, cancel := context.WithCancel(context.Background())
 
 	return &ChainMakerClient{
 		ctx:             childCtx,

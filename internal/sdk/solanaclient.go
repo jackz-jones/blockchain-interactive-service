@@ -89,8 +89,9 @@ func NewSolanaClient(ctx context.Context, solanaConf SolanaConf, contractConfs m
 		commitment = rpc.CommitmentConfirmed
 	}
 
-	// 基于父 ctx 派生可取消子 ctx，用于订阅 goroutine 的生命周期控制
-	childCtx, cancel := context.WithCancel(ctx)
+	// 基于独立后台 context 派生可取消子 ctx，用于订阅 goroutine 的生命周期控制
+	// 不使用请求传入的 ctx，避免请求结束后 context 被取消导致缓存的客户端不可用
+	childCtx, cancel := context.WithCancel(context.Background())
 
 	// MaxRetries 默认值处理
 	maxRetries := uint(solanaConf.MaxRetries)
