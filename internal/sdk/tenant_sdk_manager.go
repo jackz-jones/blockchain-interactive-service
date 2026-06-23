@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
 
@@ -290,6 +291,47 @@ func (m *TenantSDKManager) StopAllSubscriptions(tenantID uint, chainName string,
 func (m *TenantSDKManager) RestartSubscription(tenantID uint, chainName string) {
 	m.InvalidateTenantCache(tenantID, chainName)
 	m.logger.Infof("restart subscription triggered: tenant=%d, chain=%s", tenantID, chainName)
+}
+
+// TestChainConnect 测试链配置的连接可用性
+// 通过临时创建 SDK 客户端来验证配置是否可用，验证后立即释放资源
+// 返回 nil 表示连接成功，否则返回错误信息
+func (m *TenantSDKManager) TestChainConnect(ctx context.Context, chainConfig *store.TenantChainConfig, nodes []*store.TenantChainNode) error {
+	sdkConf := BuildSDKConf(chainConfig, nodes)
+	client, err := m.createSDKClient(ctx, chainConfig.ChainType, chainConfig.ChainName, &sdkConf, nil)
+	if err != nil {
+		return fmt.Errorf("connection test failed: %w", err)
+	}
+	// 验证连接是否真正可用（如获取链 ID / 区块高度等轻量查询）
+	// 使用 5 秒超时避免连接验证长时间阻塞
+	verifyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := client.VerifyConnection(verifyCtx); err != nil {
+		_ = client.Stop()
+		return fmt.Errorf("connection verification failed: %w", err)
+	}
+	// 立即释放测试客户端资源
+	_ = client.Stop()
+	m.logger.Infof("chain connection test passed: chain=%s, type=%s", chainConfig.ChainName, chainConfig.ChainType)
+	return nil
+}
+
+// InvalidateChainSubscriptions 中断指定链下所有合约的订阅协程
+// 清除该链下所有合约的 SubscribeFlag，并使 SDK 缓存失效
+// 调度器将在下一个轮询周期（3s 内）基于新配置自动重启订阅
+func (m *TenantSDKManager) InvalidateChainSubscriptions(chainConfigID uint) {
+	// 清除该链下所有合约的 SubscribeFlag（key 格式为 "db:chainConfigID-contractConfigID"）
+	prefix := fmt.Sprintf("db:%d-", chainConfigID)
+	SubscribeFlag.Range(func(key, value interface{}) bool {
+		if k, ok := key.(string); ok && strings.HasPrefix(k, prefix) {
+			SubscribeFlag.Delete(key)
+			m.logger.Infof("cleared SubscribeFlag for chain update: %s", k)
+		}
+		return true
+	})
+	// 使 SDK 缓存失效，停止旧客户端（会触发订阅 goroutine 退出）
+	m.InvalidateTenantCacheByID(chainConfigID)
+	m.logger.Infof("invalidated chain subscriptions for update: chainConfigID=%d", chainConfigID)
 }
 
 // GetClientStatus 获取租户链客户端的运行状态

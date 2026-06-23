@@ -58,8 +58,14 @@ func (l *UpdateChainConfigLogic) UpdateChainConfig(req *types.UpdateChainConfigR
 		return &types.CommonResponse{Code: 404, Message: "chain config not found"}, nil
 	}
 
-	// 保存变更前数据用于审计日志（包含链类型专属字段）
+	// 保存变更前数据（明文，用于变更检测比较）
 	beforeData := map[string]interface{}{
+		"chain_name": before.ChainName,
+		"chain_type": before.ChainType,
+		"enable":     before.Enable,
+	}
+	// 保存变更前数据（脱敏，用于审计日志记录）
+	beforeAudit := map[string]interface{}{
 		"chain_name": before.ChainName,
 		"chain_type": before.ChainType,
 		"enable":     before.Enable,
@@ -78,17 +84,37 @@ func (l *UpdateChainConfigLogic) UpdateChainConfig(req *types.UpdateChainConfigR
 		beforeData["user_enc_key"] = before.UserEncKey
 		beforeData["user_enc_cert"] = before.UserEncCert
 		beforeData["proxy_url"] = before.ProxyUrl
+		beforeAudit["chain_id"] = before.ChainId
+		beforeAudit["auth_type"] = before.AuthType
+		beforeAudit["org_id"] = before.OrgId
+		beforeAudit["hash_type"] = before.HashType
+		beforeAudit["sign_key"] = validator.MaskSensitiveString(before.SignKey)
+		beforeAudit["sign_cert"] = before.SignCert
+		beforeAudit["user_tls_key"] = validator.MaskSensitiveString(before.UserTlsKey)
+		beforeAudit["user_tls_cert"] = before.UserTlsCert
+		beforeAudit["user_enc_key"] = validator.MaskSensitiveString(before.UserEncKey)
+		beforeAudit["user_enc_cert"] = before.UserEncCert
+		beforeAudit["proxy_url"] = before.ProxyUrl
 	case "ethereum":
 		beforeData["eth_chain_id"] = before.EthChainId
 		beforeData["http_url"] = before.HttpUrl
 		beforeData["websocket_url"] = before.WebsocketUrl
 		beforeData["private_key"] = before.PrivateKey
+		beforeAudit["eth_chain_id"] = before.EthChainId
+		beforeAudit["http_url"] = before.HttpUrl
+		beforeAudit["websocket_url"] = before.WebsocketUrl
+		beforeAudit["private_key"] = validator.MaskSensitiveString(before.PrivateKey)
 	case "solana":
 		beforeData["sol_rpc_url"] = before.SolRpcUrl
 		beforeData["sol_private_key"] = before.SolPrivateKey
 		beforeData["commitment_level"] = before.CommitmentLevel
 		beforeData["skip_preflight"] = before.SkipPreflight
 		beforeData["max_retries"] = before.MaxRetries
+		beforeAudit["sol_rpc_url"] = before.SolRpcUrl
+		beforeAudit["sol_private_key"] = validator.MaskSensitiveString(before.SolPrivateKey)
+		beforeAudit["commitment_level"] = before.CommitmentLevel
+		beforeAudit["skip_preflight"] = before.SkipPreflight
+		beforeAudit["max_retries"] = before.MaxRetries
 	}
 
 	// 在已有记录上修改字段，避免 created_at 被零值覆盖
@@ -116,19 +142,19 @@ func (l *UpdateChainConfigLogic) UpdateChainConfig(req *types.UpdateChainConfigR
 		if req.HashType != "" {
 			before.HashType = req.HashType
 		}
-		if req.SignKey != "" && !isMaskedValue(req.SignKey) {
+		if req.SignKey != "" && !IsMaskedValue(req.SignKey) {
 			before.SignKey = req.SignKey
 		}
 		if req.SignCert != "" {
 			before.SignCert = req.SignCert
 		}
-		if req.UserTlsKey != "" && !isMaskedValue(req.UserTlsKey) {
+		if req.UserTlsKey != "" && !IsMaskedValue(req.UserTlsKey) {
 			before.UserTlsKey = req.UserTlsKey
 		}
 		if req.UserTlsCert != "" {
 			before.UserTlsCert = req.UserTlsCert
 		}
-		if req.UserEncKey != "" && !isMaskedValue(req.UserEncKey) {
+		if req.UserEncKey != "" && !IsMaskedValue(req.UserEncKey) {
 			before.UserEncKey = req.UserEncKey
 		}
 		if req.UserEncCert != "" {
@@ -147,14 +173,14 @@ func (l *UpdateChainConfigLogic) UpdateChainConfig(req *types.UpdateChainConfigR
 		if req.WebsocketUrl != "" {
 			before.WebsocketUrl = req.WebsocketUrl
 		}
-		if req.PrivateKey != "" && !isMaskedValue(req.PrivateKey) {
+		if req.PrivateKey != "" && !IsMaskedValue(req.PrivateKey) {
 			before.PrivateKey = req.PrivateKey
 		}
 	case "solana":
 		if req.SolRpcUrl != "" {
 			before.SolRpcUrl = req.SolRpcUrl
 		}
-		if req.SolPrivateKey != "" && !isMaskedValue(req.SolPrivateKey) {
+		if req.SolPrivateKey != "" && !IsMaskedValue(req.SolPrivateKey) {
 			before.SolPrivateKey = req.SolPrivateKey
 		}
 		if req.CommitmentLevel != "" {
@@ -166,8 +192,14 @@ func (l *UpdateChainConfigLogic) UpdateChainConfig(req *types.UpdateChainConfigR
 		}
 	}
 
-	// 构建变更后数据，与变更前对比
+	// 构建变更后数据（明文，用于变更检测比较）
 	afterData := map[string]interface{}{
+		"chain_name": before.ChainName,
+		"chain_type": before.ChainType,
+		"enable":     before.Enable,
+	}
+	// 构建变更后数据（脱敏，用于审计日志记录）
+	afterAudit := map[string]interface{}{
 		"chain_name": before.ChainName,
 		"chain_type": before.ChainType,
 		"enable":     before.Enable,
@@ -186,17 +218,37 @@ func (l *UpdateChainConfigLogic) UpdateChainConfig(req *types.UpdateChainConfigR
 		afterData["user_enc_key"] = before.UserEncKey
 		afterData["user_enc_cert"] = before.UserEncCert
 		afterData["proxy_url"] = before.ProxyUrl
+		afterAudit["chain_id"] = before.ChainId
+		afterAudit["auth_type"] = before.AuthType
+		afterAudit["org_id"] = before.OrgId
+		afterAudit["hash_type"] = before.HashType
+		afterAudit["sign_key"] = validator.MaskSensitiveString(before.SignKey)
+		afterAudit["sign_cert"] = before.SignCert
+		afterAudit["user_tls_key"] = validator.MaskSensitiveString(before.UserTlsKey)
+		afterAudit["user_tls_cert"] = before.UserTlsCert
+		afterAudit["user_enc_key"] = validator.MaskSensitiveString(before.UserEncKey)
+		afterAudit["user_enc_cert"] = before.UserEncCert
+		afterAudit["proxy_url"] = before.ProxyUrl
 	case "ethereum":
 		afterData["eth_chain_id"] = before.EthChainId
 		afterData["http_url"] = before.HttpUrl
 		afterData["websocket_url"] = before.WebsocketUrl
 		afterData["private_key"] = before.PrivateKey
+		afterAudit["eth_chain_id"] = before.EthChainId
+		afterAudit["http_url"] = before.HttpUrl
+		afterAudit["websocket_url"] = before.WebsocketUrl
+		afterAudit["private_key"] = validator.MaskSensitiveString(before.PrivateKey)
 	case "solana":
 		afterData["sol_rpc_url"] = before.SolRpcUrl
 		afterData["sol_private_key"] = before.SolPrivateKey
 		afterData["commitment_level"] = before.CommitmentLevel
 		afterData["skip_preflight"] = before.SkipPreflight
 		afterData["max_retries"] = before.MaxRetries
+		afterAudit["sol_rpc_url"] = before.SolRpcUrl
+		afterAudit["sol_private_key"] = validator.MaskSensitiveString(before.SolPrivateKey)
+		afterAudit["commitment_level"] = before.CommitmentLevel
+		afterAudit["skip_preflight"] = before.SkipPreflight
+		afterAudit["max_retries"] = before.MaxRetries
 	}
 
 	// 逐字段比较变更前后数据是否一致
@@ -205,12 +257,36 @@ func (l *UpdateChainConfigLogic) UpdateChainConfig(req *types.UpdateChainConfigR
 		return &types.CommonResponse{Code: 0, Message: "no changes detected", Data: before}, nil
 	}
 
+	// 检查该链下是否存在开启订阅的合约
+	// 若存在，则在保存前对新配置进行连接可用性测试，失败则拒绝保存
+	hasActiveSubscription, err := l.hasActiveSubscriptions(before.ID)
+	if err != nil {
+		return &types.CommonResponse{Code: 500, Message: "check active subscriptions: " + err.Error()}, nil
+	}
+	if hasActiveSubscription {
+		// 查询节点配置（用于连接测试）
+		var testNodes []*store.TenantChainNode
+		if req.Nodes != nil {
+			// 使用请求中的新节点配置进行测试
+			testNodes = buildChainNodesModel(before.ID, req.Nodes)
+		} else {
+			// 使用数据库中现有的节点配置
+			testNodes, _ = l.svcCtx.Repo.ListChainNodesByConfigID(l.ctx, before.ID)
+		}
+		if connErr := l.svcCtx.TenantSDKManager.TestChainConnect(l.ctx, before, testNodes); connErr != nil {
+			return &types.CommonResponse{
+				Code:    400,
+				Message: "存在活跃订阅，新配置连接测试失败，请检查配置后重试：" + connErr.Error(),
+			}, nil
+		}
+	}
+
 	if err := l.svcCtx.Repo.UpdateChainConfig(l.ctx, before); err != nil {
 		return &types.CommonResponse{Code: 500, Message: "update chain config: " + err.Error()}, nil
 	}
 
-	// 主动创建包含变更前后对比的审计日志
-	auditDetailJSON := util.BuildAuditDetailJSON(beforeData, afterData)
+	// 主动创建包含变更前后对比的审计日志（使用脱敏数据）
+	auditDetailJSON := util.BuildAuditDetailJSON(beforeAudit, afterAudit)
 
 	userID := middleware.GetUserIDFromContext(l.ctx)
 	auditLog := &store.AuditLog{
@@ -233,12 +309,27 @@ func (l *UpdateChainConfigLogic) UpdateChainConfig(req *types.UpdateChainConfigR
 		}
 	}
 
-	l.svcCtx.TenantSDKManager.InvalidateTenantCacheByID(before.ID)
+	// 中断该链下所有活跃订阅协程，清除 SubscribeFlag，调度器将在下一轮询周期基于新配置自动重启
+	l.svcCtx.TenantSDKManager.InvalidateChainSubscriptions(before.ID)
 
 	return &types.CommonResponse{Code: 0, Message: "success", Data: before}, nil
 }
 
-// isMaskedValue 检测字符串是否为脱敏格式（包含 ****）
-func isMaskedValue(s string) bool {
+// hasActiveSubscriptions 检查指定链配置下是否存在开启订阅的合约
+func (l *UpdateChainConfigLogic) hasActiveSubscriptions(chainConfigID uint) (bool, error) {
+	contracts, err := l.svcCtx.Repo.ListContractConfigsByChain(l.ctx, chainConfigID)
+	if err != nil {
+		return false, err
+	}
+	for _, c := range contracts {
+		if c.EnableSubscribe {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// IsMaskedValue 检测字符串是否为脱敏格式（包含 ****）
+func IsMaskedValue(s string) bool {
 	return strings.Contains(s, "****")
 }

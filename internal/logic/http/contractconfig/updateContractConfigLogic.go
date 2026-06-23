@@ -114,9 +114,22 @@ func (l *UpdateContractConfigLogic) UpdateContractConfig(
 		logx.Errorf("[Audit] failed to record contract config update audit log: %v", err)
 	}
 
-	chainConfig, _ := l.svcCtx.Repo.GetChainConfigByID(l.ctx, req.ChainConfigId)
-	if chainConfig != nil {
-		l.svcCtx.TenantSDKManager.InvalidateTenantCache(tenantID, chainConfig.ChainName)
+	// 若该合约已开启订阅，则中断对应的订阅协程，调度器将在下一轮询周期基于新配置自动重启
+	if existing.EnableSubscribe {
+		chainConfig, _ := l.svcCtx.Repo.GetChainConfigByID(l.ctx, req.ChainConfigId)
+		if chainConfig != nil {
+			l.svcCtx.TenantSDKManager.StopContractSubscription(
+				req.ChainConfigId, req.Id, tenantID, chainConfig.ChainName,
+			)
+			logx.Infof("[ContractConfig] interrupted subscription for contract update: chainConfigID=%d, contractConfigID=%d",
+				req.ChainConfigId, req.Id)
+		}
+	} else {
+		// 合约未开启订阅，仅使 SDK 缓存失效以刷新合约配置
+		chainConfig, _ := l.svcCtx.Repo.GetChainConfigByID(l.ctx, req.ChainConfigId)
+		if chainConfig != nil {
+			l.svcCtx.TenantSDKManager.InvalidateTenantCache(tenantID, chainConfig.ChainName)
+		}
 	}
 
 	return &types.CommonResponse{Code: 0, Message: "success", Data: existing}, nil
