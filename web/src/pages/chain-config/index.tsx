@@ -26,11 +26,12 @@ export default function ChainConfigList() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<string | undefined>()
 
-  const fetchList = async () => {
+  const fetchList = async (searchOverride?: string) => {
     setLoading(true)
     try {
       const params: Record<string, string> = {}
-      if (search) params.search = search
+      const searchValue = searchOverride !== undefined ? searchOverride : search
+      if (searchValue) params.search = searchValue
       if (typeFilter) params.chain_type = typeFilter
       const res = await api.get('/chain-configs', { params })
       setData((res.data as ChainConfig[]) || [])
@@ -96,7 +97,7 @@ export default function ChainConfigList() {
       dataIndex: 'CreatedAt',
       key: 'CreatedAt',
       width: 180,
-      render: (time: string) => time ? new Date(time).toLocaleDateString('zh-CN') : '-',
+      render: (time: string) => time ? new Date(time).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).replace(/\//g, '-') : '-',
     },
     {
       title: '操作',
@@ -145,9 +146,13 @@ export default function ChainConfigList() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onPressEnter={fetchList}
+          onClear={() => { setSearch(''); fetchList('') }}
           style={{ width: 220 }}
           allowClear
         />
+        <Button type="primary" icon={<SearchOutlined />} onClick={fetchList}>
+          搜索
+        </Button>
         <Select
           placeholder="链类型"
           value={typeFilter}
