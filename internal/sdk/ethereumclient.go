@@ -65,14 +65,21 @@ func NewEthereumClient(ctx context.Context, ethConf EthConf, contractConfs map[s
 		return nil, fmt.Errorf("failed to connect ethereum http port: %v", err)
 	}
 
-	// 建立 websocket 连接
-	wsClient, err := ethclient.DialContext(ctx, ethConf.WebsocketUrl)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect ethereum websocket port: %v", err)
+	// 建立 websocket 连接（降级处理：连接失败不阻断客户端创建，仅在订阅事件时检查）
+	var wsClient *ethclient.Client
+	wsClient, wsErr := ethclient.DialContext(ctx, ethConf.WebsocketUrl)
+	if wsErr != nil {
+		// WebSocket 连接失败时降级处理，允许 wsClient 为 nil
+		// 后续订阅事件时会检查 wsClient 是否可用
+		logx.WithContext(ctx).Infof("websocket connection failed (degraded mode): %v", wsErr)
 	}
 
 	// 获取发送者的地址
-	privateKey, err := crypto.HexToECDSA(ethConf.PrivateKey)
+	// 去掉 0x 前缀（如果存在），crypto.HexToECDSA 要求纯十六进制字符串
+	privKeyHex := ethConf.PrivateKey
+	privKeyHex = strings.TrimPrefix(privKeyHex, "0x")
+	privKeyHex = strings.TrimPrefix(privKeyHex, "0X")
+	privateKey, err := crypto.HexToECDSA(privKeyHex)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate private key: %v", err)
 	}
@@ -582,6 +589,12 @@ func (c *EthereumClient) GetHistoryEvent(contractAddr, chainConfName, contractCo
 				ToBlock:   toBlock,
 			}
 
+			// 检查 wsClient 是否可用（WebSocket 连接可能在创建时降级为 nil）
+			if c.wsClient == nil {
+				c.Logger.WithFields(logFields...).Errorf("websocket client is nil, cannot query events")
+				return fmt.Errorf("websocket connection unavailable, cannot query contract events")
+			}
+
 			// 查询合约事件
 			logs, err := c.wsClient.FilterLogs(c.ctx, query)
 			if err != nil {
@@ -659,6 +672,12 @@ func (c *EthereumClient) RealTimeEvent(contractAddr, chainConfName, contractConf
 
 	// 创建通道以接收事件
 	logs := make(chan types.Log)
+
+	// 检查 wsClient 是否可用（WebSocket 连接可能在创建时降级为 nil）
+	if c.wsClient == nil {
+		c.Logger.WithFields(logFields...).Errorf("websocket client is nil, cannot subscribe events")
+		return fmt.Errorf("websocket connection unavailable, cannot subscribe contract events")
+	}
 
 	// 实时订阅合约事件，只会接受此时开始发生的事件，过去的历史事件不会返回
 	sub, err := c.wsClient.SubscribeFilterLogs(context.Background(), query, logs)
