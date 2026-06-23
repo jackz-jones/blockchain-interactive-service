@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Table, Button, Typography, Tag, Space, Modal, Form, Input, Select, Alert, Tooltip } from 'antd'
-import { PlusOutlined, CopyOutlined, WarningOutlined } from '@ant-design/icons'
+import { Table, Button, Typography, Tag, Space, Modal, Form, Input, Select, Alert, Tooltip, Popconfirm, Switch } from 'antd'
+import { PlusOutlined, CopyOutlined, WarningOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
+import { formatDateTime } from '@/utils/format'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -75,6 +76,27 @@ export default function ApiKeyList() {
     }
   }
 
+  const handleToggleStatus = async (record: ApiKey) => {
+    const newStatus = record.status === 'active' ? 'disabled' : 'active'
+    try {
+      await api.put(`/api-keys/${record.ID}`, { status: newStatus })
+      message.success(newStatus === 'active' ? '已启用' : '已禁用')
+      fetchList()
+    } catch (err) {
+      handleApiError(err)
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    try {
+      await api.delete(`/api-keys/${id}`)
+      message.success('删除成功')
+      fetchList()
+    } catch (err) {
+      handleApiError(err)
+    }
+  }
+
   const copyKey = () => {
     if (newKey) {
       navigator.clipboard.writeText(newKey)
@@ -83,17 +105,17 @@ export default function ApiKeyList() {
   }
 
   const isExpired = (date: string | null | undefined) => {
-    if (!date) return false // 永不过期的 Key（expires_at 为 null），不应判为已过期
+    if (!date) return false
     return new Date(date) < new Date()
   }
   const isExpiringSoon = (date: string | null | undefined) => {
     if (!date) return false
     const diff = new Date(date).getTime() - Date.now()
-    return diff > 0 && diff < 7 * 24 * 60 * 60 * 1000 // 7天内过期
+    return diff > 0 && diff < 7 * 24 * 60 * 60 * 1000
   }
 
   const columns: ColumnsType<ApiKey> = [
-    { title: '名称', dataIndex: 'name', key: 'name', width: 200 },
+    { title: '名称', dataIndex: 'name', key: 'name', width: 180 },
     {
       title: 'Key',
       dataIndex: 'key_masked',
@@ -105,7 +127,7 @@ export default function ApiKeyList() {
       title: '权限',
       dataIndex: 'permissions',
       key: 'permissions',
-      width: 200,
+      width: 180,
       render: (perms: string[]) => {
         if (!perms?.length) return <Text type="secondary">不限制</Text>
         return (
@@ -116,20 +138,13 @@ export default function ApiKeyList() {
       },
     },
     {
-      title: 'IP 白名单',
-      dataIndex: 'ip_whitelist',
-      key: 'ip_whitelist',
-      width: 220,
-      ellipsis: { showTitle: false },
-      render: (ips: string[]) => {
-        if (!ips?.length) return <Text type="secondary">不限制</Text>
-        const text = ips.join(', ')
-        return (
-          <Tooltip title={text} placement="topLeft">
-            <span>{text}</span>
-          </Tooltip>
-        )
-      },
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 100,
+      render: (status: string) => (
+        <Tag color={status === 'active' ? 'success' : 'default'}>{status === 'active' ? '启用' : '禁用'}</Tag>
+      ),
     },
     {
       title: '过期时间',
@@ -138,10 +153,43 @@ export default function ApiKeyList() {
       width: 180,
       render: (date: string | null | undefined) => {
         if (!date) return <Tag color="success">永不过期</Tag>
-        if (isExpired(date)) return <Tag color="error">已过期</Tag>
-        if (isExpiringSoon(date)) return <Tag icon={<WarningOutlined />} color="warning">即将过期</Tag>
-        return new Date(date).toLocaleDateString('zh-CN')
+        if (isExpired(date)) return <Tooltip title={formatDateTime(date)}><Tag color="error">已过期</Tag></Tooltip>
+        if (isExpiringSoon(date)) return <Tooltip title={formatDateTime(date)}><Tag icon={<WarningOutlined />} color="warning">即将过期</Tag></Tooltip>
+        return <Tooltip title={formatDateTime(date)}><span>{formatDateTime(date)}</span></Tooltip>
       },
+    },
+    {
+      title: '最后使用',
+      dataIndex: 'last_used_at',
+      key: 'last_used_at',
+      width: 180,
+      render: (time: string | null) => time ? formatDateTime(time) : <Text type="secondary">从未使用</Text>,
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 160,
+      render: (_, record) => (
+        <Space size="small">
+          <Tooltip title={record.status === 'active' ? '禁用' : '启用'}>
+            <Switch
+              size="small"
+              checked={record.status === 'active'}
+              onChange={() => handleToggleStatus(record)}
+            />
+          </Tooltip>
+          <Popconfirm
+            title="确认删除"
+            description="删除后不可恢复，确定要删除此 API Key 吗？"
+            onConfirm={() => handleDelete(record.ID)}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Space>
+      ),
     },
   ]
 
@@ -190,17 +238,25 @@ export default function ApiKeyList() {
         </Form>
       </Modal>
 
-      {/* Key 展示弹窗 */}
+      {/* Key 展示弹窗 - 强化安全提示 */}
       <Modal
         title="API Key 已创建"
         open={!!newKey}
         onCancel={() => setNewKey(null)}
-        footer={<Button type="primary" onClick={() => setNewKey(null)}>我已保存</Button>}
+        footer={<Button type="primary" onClick={() => setNewKey(null)}>我已安全保存</Button>}
+        maskClosable={false}
+        closable={false}
       >
         <Alert
           type="warning"
           message="请立即保存此 API Key"
-          description="此 Key 仅展示一次，关闭后无法再次查看。"
+          description={
+            <div>
+              <p style={{ margin: '4px 0' }}>• 此 Key 仅展示一次，关闭后<strong>无法再次查看</strong></p>
+              <p style={{ margin: '4px 0' }}>• 请勿将 Key 提交到代码仓库或分享给他人</p>
+              <p style={{ margin: '4px 0' }}>• 如果 Key 泄露，请立即删除并重新创建</p>
+            </div>
+          }
           showIcon
           style={{ marginBottom: 16 }}
         />
