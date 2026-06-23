@@ -405,6 +405,19 @@ func (c *SolanaClient) queryContract(methodSpec SolanaMethodSpec) (interface{}, 
 	return result, nil
 }
 
+// VerifyConnection 验证 Solana 连接是否真正可用
+// 通过尝试获取最新区块哈希来验证 RPC 连接的有效性
+func (c *SolanaClient) VerifyConnection(ctx context.Context) error {
+	if c.rpcClient == nil {
+		return fmt.Errorf("solana rpc client is nil")
+	}
+	_, err := c.rpcClient.GetLatestBlockhash(ctx, c.commitment)
+	if err != nil {
+		return fmt.Errorf("failed to verify solana connection: %w", err)
+	}
+	return nil
+}
+
 // Stop 停止客户端：取消内部 ctx，等待订阅 goroutine 退出，然后关闭 RPC 连接。
 func (c *SolanaClient) Stop() error {
 	if c.cancel != nil {

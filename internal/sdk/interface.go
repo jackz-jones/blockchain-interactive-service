@@ -2,10 +2,22 @@
 package sdk
 
 import (
+	"context"
+
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 )
 
 type ChainSdkInterface interface {
+
+	/**
+	 * @Description: VerifyConnection 验证链连接是否真正可用
+	 * 通过执行轻量级链查询（如获取链 ID / 最新区块高度 / 健康检查）来验证连接
+	 *
+	 * @param ctx 上下文（支持超时控制）
+	 * @return error 连接不可用时返回错误
+	 */
+
+	VerifyConnection(ctx context.Context) error
 
 	/**
 	 * @Description: CallContract 调用合约

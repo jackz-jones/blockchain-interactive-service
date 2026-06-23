@@ -191,6 +191,19 @@ func (c *ChainMakerClient) CallContract(methodType pb.MethodType, contractConfig
 	return txResp.TxId, string(txBytes), nil
 }
 
+// VerifyConnection 验证长安链连接是否真正可用
+// 通过尝试获取当前区块高度来验证连接的有效性
+func (c *ChainMakerClient) VerifyConnection(ctx context.Context) error {
+	if c.chainClient == nil {
+		return fmt.Errorf("chainmaker client is nil")
+	}
+	_, err := c.chainClient.GetCurrentBlockHeight()
+	if err != nil {
+		return fmt.Errorf("failed to verify chainmaker connection: %w", err)
+	}
+	return nil
+}
+
 // Stop 停止客户端
 func (c *ChainMakerClient) Stop() error {
 	if c.cancel != nil {

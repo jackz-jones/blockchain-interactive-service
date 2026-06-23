@@ -450,6 +450,19 @@ func (c *EthereumClient) CreateInputData(abiStr, method string, args ...interfac
 	return data, nil
 }
 
+// VerifyConnection 验证以太坊连接是否真正可用
+// 通过尝试获取链 ID 来验证 HTTP 连接的有效性
+func (c *EthereumClient) VerifyConnection(ctx context.Context) error {
+	if c.httpClient == nil {
+		return fmt.Errorf("ethereum http client is nil")
+	}
+	_, err := c.httpClient.ChainID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to verify ethereum connection: %w", err)
+	}
+	return nil
+}
+
 // Stop 停止客户端
 func (c *EthereumClient) Stop() error {
 	if c.cancel != nil {
