@@ -5,6 +5,7 @@ import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
+import { formatDateTime } from '@/utils/format'
 
 const { Title } = Typography
 
@@ -103,7 +104,7 @@ export default function TenantList() {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 180,
-      render: (time: string) => new Date(time).toLocaleDateString('zh-CN'),
+      render: (time: string) => formatDateTime(time),
     },
     {
       title: '操作',

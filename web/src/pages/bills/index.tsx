@@ -4,6 +4,7 @@ import { DollarOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
+import { formatDateTime, formatNumber } from '@/utils/format'
 
 const { Title, Text } = Typography
 
@@ -46,11 +47,6 @@ const planColorMap: Record<string, string> = {
   free: 'default',
   developer: 'blue',
   enterprise: 'purple',
-}
-
-// 格式化数字为千位分隔符
-function formatNumber(num: number): string {
-  return num.toLocaleString('zh-CN')
 }
 
 // 格式化账期显示
@@ -187,7 +183,7 @@ export default function Bills() {
       key: 'created_at',
       width: 200,
       align: 'center',
-      render: (time: string) => (time ? new Date(time).toLocaleString('zh-CN') : '-'),
+      render: (time: string) => (time ? formatDateTime(time) : '-'),
     },
   ]
 

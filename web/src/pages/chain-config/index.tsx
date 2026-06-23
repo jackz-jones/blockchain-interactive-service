@@ -6,6 +6,7 @@ import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
+import { formatDateTime } from '@/utils/format'
 
 const { Title } = Typography
 
@@ -97,7 +98,7 @@ export default function ChainConfigList() {
       dataIndex: 'CreatedAt',
       key: 'CreatedAt',
       width: 180,
-      render: (time: string) => time ? new Date(time).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).replace(/\//g, '-') : '-',
+      render: (time: string) => formatDateTime(time),
     },
     {
       title: '操作',

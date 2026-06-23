@@ -4,6 +4,7 @@ import { SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
+import { formatDateTime } from '@/utils/format'
 
 const { Title } = Typography
 const { RangePicker } = DatePicker
@@ -94,7 +95,7 @@ export default function CallLogs() {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 200,
-      render: (time: string) => new Date(time).toLocaleString('zh-CN'),
+      render: (time: string) => formatDateTime(time),
     },
   ]
 

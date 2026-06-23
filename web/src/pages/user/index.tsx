@@ -3,6 +3,7 @@ import { Table, Typography, Skeleton, Tag } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
+import { formatDateTime } from '@/utils/format'
 
 const { Title } = Typography
 
@@ -60,7 +61,7 @@ export default function UserList() {
       dataIndex: 'last_login',
       key: 'last_login',
       width: 200,
-      render: (time: string) => time ? new Date(time).toLocaleString('zh-CN') : '-',
+      render: (time: string) => time ? formatDateTime(time) : '-',
     },
   ]
 
