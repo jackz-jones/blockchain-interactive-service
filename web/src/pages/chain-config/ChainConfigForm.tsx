@@ -1,15 +1,21 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { Form, Input, Select, Switch, Button, Card, Typography, Space, Divider, InputNumber, Modal, Tooltip } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import { MinusCircleOutlined, PlusOutlined, ApiOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
 import { useGlobalMessage } from '@/components/GlobalMessage'
+import { useBlocker } from '@/hooks/useBlocker'
 
 const { Title } = Typography
 const { TextArea } = Input
 
 type ChainType = 'ethereum' | 'chainmaker' | 'solana'
+
+// URL 格式校验正则
+const urlPattern = /^https?:\/\/.+/
+// Ethereum 私钥格式校验：0x 开头的 64 位十六进制
+const ethPrivateKeyPattern = /^0x[0-9a-fA-F]{64}$/
 
 export default function ChainConfigForm() {
   const { id } = useParams()
@@ -34,6 +40,19 @@ export default function ChainConfigForm() {
   // 存储脱敏后的值（用于表单回显）
   const maskedSensitiveValues = useRef<Record<string, string>>({})
 
+  // 记录表单是否被修改（用于未保存离开确认）
+  const [formModified, setFormModified] = useState(false)
+  // 记录是否正在提交（提交后跳转不需要确认）
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // 未保存离开确认
+  useBlocker(formModified && !isSubmitting)
+
+  // 监听表单值变化
+  const handleValuesChange = useCallback(() => {
+    setFormModified(true)
+  }, [])
+
   useEffect(() => {
     if (isEdit) {
       fetchDetail()
@@ -53,20 +72,16 @@ export default function ChainConfigForm() {
       for (const field of sensitiveFields) {
         const value = formValues[field] as string
         if (value && value !== '' && value !== null && value !== undefined) {
-          // 保存脱敏后的值用于表单显示
           maskedSensitiveValues.current[field] = value
-          // 保存脱敏前的原始值（这里后端返回的就是脱敏值，原始值不出域）
-          // 由于后端只返回脱敏值，我们将其作为"原始值"存储
-          // 后端脱敏格式如 "0x1234****abcd"，提交时如果不修改则发送此值，
-          // 后端检测到脱敏格式则不更新该字段
           originalSensitiveValues.current[field] = value
         } else {
-          // 字段为空则删除以显示 placeholder
           delete formValues[field]
         }
       }
       form.setFieldsValue(formValues)
       setChainType(config.chain_type as ChainType)
+      // 编辑模式加载完数据后，标记为未修改
+      setTimeout(() => setFormModified(false), 0)
     } catch (err) {
       handleApiError(err)
     }
@@ -99,6 +114,41 @@ export default function ChainConfigForm() {
     })
   }
 
+  // 链类型切换处理：编辑模式下需确认，确认后重置链类型相关字段
+  const handleChainTypeChange = (newType: ChainType) => {
+    if (isEdit && formModified) {
+      Modal.confirm({
+        title: '切换链类型',
+        content: '切换链类型将清空当前已填写的链类型相关字段，确定要切换吗？',
+        okText: '确认切换',
+        cancelText: '取消',
+        okButtonProps: { danger: true },
+        onOk: () => {
+          resetChainTypeFields(newType)
+        },
+      })
+    } else {
+      resetChainTypeFields(newType)
+    }
+  }
+
+  // 重置链类型相关字段
+  const resetChainTypeFields = (newType: ChainType) => {
+    // 清除所有链类型相关字段
+    const fieldsToReset = [
+      'http_url', 'websocket_url', 'eth_chain_id', 'private_key',
+      'chain_id', 'org_id', 'auth_type', 'hash_type', 'sign_key', 'sign_cert',
+      'user_tls_key', 'user_enc_key', 'proxy_url', 'nodes',
+      'sol_rpc_url', 'sol_private_key', 'commitment_level', 'skip_preflight', 'max_retries',
+    ]
+    const resetValues: Record<string, undefined> = {}
+    for (const field of fieldsToReset) {
+      resetValues[field] = undefined
+    }
+    form.setFieldsValue(resetValues)
+    setChainType(newType)
+  }
+
   const handleSubmit = async (values: Record<string, unknown>) => {
 
     // 检查私钥字段是否被用户实际修改
@@ -117,17 +167,13 @@ export default function ChainConfigForm() {
     let confirmNewValue = ''
     for (const [field, label] of Object.entries(sensitiveFieldMap)) {
       const currentValue = values[field] as string
-      // 如果是脱敏值原样保留或字段为空，则不提交该字段
       if (isMaskedValue(currentValue) || currentValue === undefined || currentValue === null || currentValue === '') {
         delete values[field]
       } else if (isEdit && currentValue !== originalSensitiveValues.current[field]) {
-        // 编辑模式下，用户输入了非脱敏格式的新值（与原始值不同），需要二次确认
         needsConfirm = true
         confirmFieldName = label
         confirmNewValue = currentValue
         break
-      } else {
-        // 值未变化，正常处理
       }
     }
 
@@ -138,6 +184,7 @@ export default function ChainConfigForm() {
       }
     }
 
+    setIsSubmitting(true)
     setLoading(true)
     try {
       if (isEdit) {
@@ -150,6 +197,7 @@ export default function ChainConfigForm() {
       navigate('/chain-configs')
     } catch (err) {
       handleApiError(err)
+      setIsSubmitting(false)
     } finally {
       setLoading(false)
     }
@@ -196,6 +244,7 @@ export default function ChainConfigForm() {
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
+          onValuesChange={handleValuesChange}
           initialValues={{ chain_type: 'ethereum', enable: true }}
         >
           {/* 基础信息 */}
@@ -213,7 +262,7 @@ export default function ChainConfigForm() {
             rules={[{ required: true }]}
           >
             <Select
-              onChange={(val) => setChainType(val)}
+              onChange={handleChainTypeChange}
               options={[
                 { label: 'Ethereum', value: 'ethereum' },
                 { label: 'ChainMaker', value: 'chainmaker' },
@@ -234,20 +283,42 @@ export default function ChainConfigForm() {
               <Form.Item
                 name="http_url"
                 label="HTTP RPC URL"
-                rules={[{ required: true, message: '请输入 HTTP RPC URL' }]}
+                rules={[
+                  { required: true, message: '请输入 HTTP RPC URL' },
+                  { pattern: urlPattern, message: 'URL 格式不正确，需以 http:// 或 https:// 开头' },
+                ]}
               >
                 <Input placeholder="https://mainnet.infura.io/v3/YOUR_KEY" />
               </Form.Item>
-              <Form.Item name="websocket_url" label="WebSocket URL">
+              <Form.Item
+                name="websocket_url"
+                label="WebSocket URL"
+                rules={[
+                  { pattern: /^wss?:\/\/.+/, message: 'WebSocket URL 格式不正确，需以 ws:// 或 wss:// 开头' },
+                ]}
+              >
                 <Input placeholder="wss://mainnet.infura.io/ws/v3/YOUR_KEY" />
               </Form.Item>
               <Form.Item name="eth_chain_id" label="Chain ID">
                 <InputNumber placeholder="1" style={{ width: '100%' }} />
               </Form.Item>
-              <Form.Item name="private_key" label="私钥">
+              <Form.Item
+                name="private_key"
+                label="私钥"
+                rules={[
+                  {
+                    validator: (_, value) => {
+                      if (!value || isMaskedValue(value)) return Promise.resolve()
+                      if (ethPrivateKeyPattern.test(value)) return Promise.resolve()
+                      return Promise.reject(new Error('私钥格式不正确，需为 0x 开头的 64 位十六进制字符串'))
+                    },
+                  },
+                ]}
+                extra="请输入 0x 开头的 64 位十六进制字符串，切勿泄露私钥"
+              >
                 <Input
                   type={privateKeyVisible ? 'text' : 'password'}
-                  placeholder={isEdit ? '不修改请留空，保留原私钥' : '0x...'}
+                  placeholder={isEdit ? '不修改请留空，保留原私钥' : '0x开头的64位十六进制字符串，请妥善保管'}
                   addonAfter={
                     isEdit ? (
                       <Tooltip title={privateKeyVisible ? '隐藏私钥' : '显示原私钥'}>
@@ -298,10 +369,12 @@ export default function ChainConfigForm() {
                   ]}
                 />
               </Form.Item>
-              <Form.Item name="sign_key" label="签名私钥">
+              <Form.Item name="sign_key" label="签名私钥"
+                extra="PEM 格式私钥，请勿泄露"
+              >
                 <Input
                   type={signKeyVisible ? 'text' : 'password'}
-                  placeholder={isEdit ? '不修改请留空，保留原私钥' : 'PEM 格式私钥'}
+                  placeholder={isEdit ? '不修改请留空，保留原私钥' : 'PEM 格式签名私钥，请妥善保管'}
                   addonAfter={
                     isEdit ? (
                       <Tooltip title={signKeyVisible ? '隐藏私钥' : '显示原私钥'}>
@@ -318,10 +391,12 @@ export default function ChainConfigForm() {
               <Form.Item name="sign_cert" label="签名证书">
                 <TextArea rows={3} placeholder="PEM 格式证书" />
               </Form.Item>
-              <Form.Item name="user_tls_key" label="TLS 私钥">
+              <Form.Item name="user_tls_key" label="TLS 私钥"
+                extra="Base64 编码的 TLS 私钥，请勿泄露"
+              >
                 <Input
                   type={userTlsKeyVisible ? 'text' : 'password'}
-                  placeholder={isEdit ? '不修改请留空，保留原私钥' : 'Base64 编码 TLS 私钥'}
+                  placeholder={isEdit ? '不修改请留空，保留原私钥' : 'Base64 编码 TLS 私钥，请妥善保管'}
                   addonAfter={
                     isEdit ? (
                       <Tooltip title={userTlsKeyVisible ? '隐藏私钥' : '显示原私钥'}>
@@ -335,10 +410,12 @@ export default function ChainConfigForm() {
                   }
                 />
               </Form.Item>
-              <Form.Item name="user_enc_key" label="国密加密私钥">
+              <Form.Item name="user_enc_key" label="国密加密私钥"
+                extra="Base64 编码的国密加密私钥，请勿泄露"
+              >
                 <Input
                   type={userEncKeyVisible ? 'text' : 'password'}
-                  placeholder={isEdit ? '不修改请留空，保留原私钥' : 'Base64 编码国密加密私钥'}
+                  placeholder={isEdit ? '不修改请留空，保留原私钥' : 'Base64 编码国密加密私钥，请妥善保管'}
                   addonAfter={
                     isEdit ? (
                       <Tooltip title={userEncKeyVisible ? '隐藏私钥' : '显示原私钥'}>
@@ -352,7 +429,13 @@ export default function ChainConfigForm() {
                   }
                 />
               </Form.Item>
-              <Form.Item name="proxy_url" label="代理 URL">
+              <Form.Item
+                name="proxy_url"
+                label="代理 URL"
+                rules={[
+                  { pattern: urlPattern, message: 'URL 格式不正确，需以 http:// 或 https:// 开头' },
+                ]}
+              >
                 <Input placeholder="http://proxy:8080" />
               </Form.Item>
 
@@ -393,14 +476,21 @@ export default function ChainConfigForm() {
               <Form.Item
                 name="sol_rpc_url"
                 label="RPC URL"
-                rules={[{ required: true, message: '请输入 RPC URL' }]}
+                rules={[
+                  { required: true, message: '请输入 RPC URL' },
+                  { pattern: urlPattern, message: 'URL 格式不正确，需以 http:// 或 https:// 开头' },
+                ]}
               >
                 <Input placeholder="https://api.mainnet-beta.solana.com" />
               </Form.Item>
-              <Form.Item name="sol_private_key" label="私钥">
+              <Form.Item
+                name="sol_private_key"
+                label="私钥"
+                extra="Base58 编码的私钥，请勿泄露"
+              >
                 <Input
                   type={solPrivateKeyVisible ? 'text' : 'password'}
-                  placeholder={isEdit ? '不修改请留空，保留原私钥' : 'Base58 编码私钥'}
+                  placeholder={isEdit ? '不修改请留空，保留原私钥' : 'Base58 编码私钥，请妥善保管'}
                   addonAfter={
                     isEdit ? (
                       <Tooltip title={solPrivateKeyVisible ? '隐藏私钥' : '显示原私钥'}>

@@ -145,12 +145,12 @@ export default function ChainConfigList() {
           prefix={<SearchOutlined />}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          onPressEnter={fetchList}
+          onPressEnter={() => fetchList()}
           onClear={() => { setSearch(''); fetchList('') }}
           style={{ width: 220 }}
           allowClear
         />
-        <Button type="primary" icon={<SearchOutlined />} onClick={fetchList}>
+        <Button type="primary" icon={<SearchOutlined />} onClick={() => fetchList()}>
           搜索
         </Button>
         <Select
