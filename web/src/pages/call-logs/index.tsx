@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Table, Typography, Space, Select, DatePicker, Tag, Input } from 'antd'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Table, Typography, Space, Select, DatePicker, Tag, Input, Button } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
@@ -20,6 +20,9 @@ interface CallLog {
   call_type: string
   status: string
   duration_ms: number
+  input_params: string
+  output_data: string
+  error_message: string
   created_at: string
 }
 
@@ -30,13 +33,30 @@ export default function CallLogs() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState<Record<string, string>>({})
+  const [contractSearch, setContractSearch] = useState('')
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
   const { handleApiError } = useApiMessage()
+
+  // 搜索防抖
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const debouncedFilterUpdate = useCallback((key: string, value: string) => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    debounceTimerRef.current = setTimeout(() => {
+      setFilters((f) => ({ ...f, [key]: value }))
+    }, 300)
+  }, [])
+
+  // 当 filters 变化时触发列表刷新
+  useEffect(() => {
+    fetchList()
+  }, [page, filters])
 
   const fetchList = async (p = page) => {
     setLoading(true)
     setError(null)
     try {
-      const params = { ...filters, page: String(p), page_size: '20' }
+      const params: Record<string, string> = { page: String(p), page_size: '20' }
+      if (contractSearch) params.contract_name = contractSearch
       const res = await api.get('/dashboard/call-logs', { params })
       const result = res.data as { items: CallLog[]; total: number }
       setData(result.items || [])
@@ -48,10 +68,6 @@ export default function CallLogs() {
       setLoading(false)
     }
   }
-
-  useEffect(() => {
-    fetchList()
-  }, [page, filters])
 
   const columns: ColumnsType<CallLog> = [
     { title: '链名称', dataIndex: 'chain_name', key: 'chain_name', width: 160 },
@@ -103,6 +119,34 @@ export default function CallLogs() {
     },
   ]
 
+  // 展开行渲染：显示调用详情
+  const expandedRowRender = useCallback((record: CallLog) => {
+    return (
+      <div style={{ padding: '8px 16px', fontSize: 13 }}>
+        <div style={{ marginBottom: 8 }}>
+          <strong>输入参数：</strong>
+          <pre style={{ margin: 0, padding: 8, background: 'var(--color-bg-secondary)', borderRadius: 4, overflow: 'auto', maxHeight: 200 }}>
+            {record.input_params || '-'}
+          </pre>
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <strong>输出数据：</strong>
+          <pre style={{ margin: 0, padding: 8, background: 'var(--color-bg-secondary)', borderRadius: 4, overflow: 'auto', maxHeight: 200 }}>
+            {record.output_data || '-'}
+          </pre>
+        </div>
+        {record.error_message && (
+          <div>
+            <strong>错误信息：</strong>
+            <pre style={{ margin: 0, padding: 8, background: '#fff2f0', borderRadius: 4, color: '#cf1322', overflow: 'auto', maxHeight: 200 }}>
+              {record.error_message}
+            </pre>
+          </div>
+        )}
+      </div>
+    )
+  }, [])
+
   // 加载失败时显示错误重试组件
   if (error && !loading && data.length === 0) {
     return (
@@ -123,8 +167,20 @@ export default function CallLogs() {
           prefix={<SearchOutlined />}
           style={{ width: 160 }}
           allowClear
-          onChange={(e) => setFilters((f) => ({ ...f, chain_name: e.target.value }))}
+          onChange={(e) => debouncedFilterUpdate('chain_name', e.target.value)}
         />
+        <Input
+          placeholder="合约名称"
+          style={{ width: 160 }}
+          allowClear
+          value={contractSearch}
+          onChange={(e) => setContractSearch(e.target.value)}
+          onPressEnter={() => fetchList()}
+          onClear={() => { setContractSearch(''); fetchList() }}
+        />
+        <Button type="primary" icon={<SearchOutlined />} onClick={() => fetchList()}>
+          搜索
+        </Button>
         <Select
           placeholder="操作类型"
           allowClear
@@ -163,6 +219,11 @@ export default function CallLogs() {
           pageSize: 20,
           onChange: setPage,
           showTotal: (t) => `共 ${t} 条`,
+        }}
+        expandable={{
+          expandedRowRender,
+          expandedRowKeys: expandedRowId ? [expandedRowId] : [],
+          onExpandedRowsChange: (keys) => setExpandedRowId(keys.length > 0 ? String(keys[0]) : null),
         }}
         size="middle"
       />

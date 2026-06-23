@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Table, Typography, Tag, Tooltip } from 'antd'
+import { Table, Typography, Tag, Tooltip, Space, Input, Select, DatePicker } from 'antd'
+import { SearchOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
@@ -7,6 +9,7 @@ import { formatDateTime } from '@/utils/format'
 import ErrorRetry from '@/components/ErrorRetry'
 
 const { Title, Text } = Typography
+const { RangePicker } = DatePicker
 
 interface AuditLog {
   ID: number
@@ -56,13 +59,25 @@ export default function AuditLogs() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [expandedKeys, setExpandedKeys] = useState<number[]>([])
+  const [operatorSearch, setOperatorSearch] = useState('')
+  const [actionFilter, setActionFilter] = useState<string | undefined>()
+  const [resourceFilter, setResourceFilter] = useState<string | undefined>()
+  const [dateRange, setDateRange] = useState<[string, string] | null>(null)
   const { handleApiError } = useApiMessage()
 
   const fetchList = async (p = page) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await api.get('/dashboard/audit-logs', { params: { page: p, page_size: 20 } })
+      const params: Record<string, string> = { page: String(p), page_size: '20' }
+      if (operatorSearch) params.operator = operatorSearch
+      if (actionFilter) params.action = actionFilter
+      if (resourceFilter) params.resource = resourceFilter
+      if (dateRange) {
+        params.start_time = dateRange[0]
+        params.end_time = dateRange[1]
+      }
+      const res = await api.get('/dashboard/audit-logs', { params })
       const result = res.data as { items: AuditLog[]; total: number }
       setData(result.items || [])
       setTotal(result.total || 0)
@@ -76,7 +91,7 @@ export default function AuditLogs() {
 
   useEffect(() => {
     fetchList()
-  }, [page])
+  }, [page, actionFilter, resourceFilter, dateRange])
 
   const actionColorMap: Record<string, string> = {
     create: 'green',
@@ -254,6 +269,56 @@ export default function AuditLogs() {
   return (
     <div>
       <Title level={4} style={{ marginBottom: 20 }}>审计日志</Title>
+
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input
+          placeholder="搜索操作人"
+          prefix={<SearchOutlined />}
+          style={{ width: 160 }}
+          allowClear
+          value={operatorSearch}
+          onChange={(e) => setOperatorSearch(e.target.value)}
+          onPressEnter={() => fetchList()}
+          onClear={() => { setOperatorSearch(''); fetchList() }}
+        />
+        <Select
+          placeholder="操作类型"
+          allowClear
+          style={{ width: 140 }}
+          value={actionFilter}
+          onChange={(val) => setActionFilter(val || undefined)}
+          options={[
+            { label: '创建', value: 'create' },
+            { label: '更新', value: 'update' },
+            { label: '删除', value: 'delete' },
+            { label: '调用', value: 'call' },
+          ]}
+        />
+        <Select
+          placeholder="资源类型"
+          allowClear
+          style={{ width: 160 }}
+          value={resourceFilter}
+          onChange={(val) => setResourceFilter(val || undefined)}
+          options={[
+            { label: '链配置', value: 'chain_config' },
+            { label: '合约配置', value: 'contract_config' },
+            { label: 'API Key', value: 'api_key' },
+            { label: '租户', value: 'tenant' },
+            { label: '用户', value: 'user' },
+          ]}
+        />
+        <RangePicker
+          value={dateRange ? [dayjs(dateRange[0]), dayjs(dateRange[1])] : null}
+          onChange={(_, dateStrings) => {
+            if (dateStrings[0] && dateStrings[1]) {
+              setDateRange([dateStrings[0], dateStrings[1]])
+            } else {
+              setDateRange(null)
+            }
+          }}
+        />
+      </Space>
 
       <Table
         columns={columns}

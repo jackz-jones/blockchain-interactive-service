@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Input, Button, Typography, Space, Alert, Divider, Form } from 'antd'
-import { KeyOutlined, CheckCircleOutlined, UserAddOutlined } from '@ant-design/icons'
+import { Card, Input, Button, Typography, Space, Alert, Divider, Form, Popconfirm } from 'antd'
+import { KeyOutlined, CheckCircleOutlined, UserAddOutlined, DisconnectOutlined } from '@ant-design/icons'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
 import { useApiMessage } from '@/hooks/useApiMessage'
@@ -11,7 +11,7 @@ const { Title, Paragraph, Text } = Typography
 
 export default function Settings() {
   const navigate = useNavigate()
-  const { apiKey, setApiKey, setTenant } = useAuthStore()
+  const { apiKey, setApiKey, setTenant, logout } = useAuthStore()
   const { message } = useGlobalMessage()
   const { handleApiError } = useApiMessage()
   const [inputKey, setInputKey] = useState(apiKey || '')
@@ -83,6 +83,13 @@ export default function Settings() {
     }
   }
 
+  // 断开连接
+  const handleDisconnect = () => {
+    logout()
+    message.success('已断开连接')
+    navigate('/settings')
+  }
+
   return (
     <div style={{ maxWidth: 560, margin: '0 auto', paddingTop: 40 }}>
       <Title level={3} style={{ marginBottom: 8 }}>
@@ -109,13 +116,27 @@ export default function Settings() {
           type="success"
           icon={<CheckCircleOutlined />}
           showIcon
+          action={
+            <Popconfirm
+              title="断开连接"
+              description="确定要断开当前 API Key 的连接吗？断开后需重新配置。"
+              onConfirm={handleDisconnect}
+              okText="断开"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+            >
+              <Button icon={<DisconnectOutlined />} size="small">
+                断开连接
+              </Button>
+            </Popconfirm>
+          }
           style={{ marginBottom: 24 }}
         />
       )}
 
       {/* 输入已有 API Key */}
       <Card title={<><KeyOutlined style={{ marginRight: 8 }} />使用已有 API Key</>}>
-<Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <div>
             <Text strong style={{ display: 'block', marginBottom: 8 }}>
               API Key
@@ -128,6 +149,9 @@ export default function Settings() {
               onPressEnter={handleSave}
               size="large"
             />
+            <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+              API Key 格式：以 cis_ 开头，由字母、数字和下划线组成，长度 32~64 位
+            </Text>
           </div>
 
           <Button
@@ -147,7 +171,7 @@ export default function Settings() {
       {/* 注册新租户 */}
       {!registerMode ? (
         <Card>
-<Space direction="vertical" size="middle" style={{ width: '100%', alignItems: 'center' }}>
+          <Space direction="vertical" size="middle" style={{ width: '100%', alignItems: 'center' }}>
             <UserAddOutlined style={{ fontSize: 32, color: 'var(--color-primary)' }} />
             <Text type="secondary">还没有 API Key？创建一个新租户，系统将自动为你生成初始 API Key。</Text>
             <Button
@@ -200,6 +224,25 @@ export default function Settings() {
               ]}
             >
               <Input.Password placeholder="至少 6 位" size="large" />
+            </Form.Item>
+
+            <Form.Item
+              name="confirmPassword"
+              label="确认密码"
+              dependencies={['password']}
+              rules={[
+                { required: true, message: '请确认密码' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    if (!value || getFieldValue('password') === value) {
+                      return Promise.resolve()
+                    }
+                    return Promise.reject(new Error('两次输入的密码不一致'))
+                  },
+                }),
+              ]}
+            >
+              <Input.Password placeholder="再次输入密码" size="large" />
             </Form.Item>
 
             <Space style={{ width: '100%' }}>
