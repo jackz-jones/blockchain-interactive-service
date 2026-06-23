@@ -212,13 +212,9 @@ func recordHTTPAudit(repo store.Repository, r *http.Request, statusCode int, res
 					contractDetail["method_type"] = callReq.MethodType
 					contractDetail["method_type_label"] = methodTypeLabel
 				}
-				// params 不记录完整内容，仅记录参数key列表
+				// 记录参数键值对
 				if len(callReq.Params) > 0 {
-					paramKeys := make([]string, 0, len(callReq.Params))
-					for k := range callReq.Params {
-						paramKeys = append(paramKeys, k)
-					}
-					contractDetail["param_keys"] = paramKeys
+					contractDetail["params"] = callReq.Params
 				}
 			}
 		}
