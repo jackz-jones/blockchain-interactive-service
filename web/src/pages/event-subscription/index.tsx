@@ -203,7 +203,7 @@ export default function EventSubscription() {
       render: (_, record) => (
         <Space size="small">
           <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => handleViewEvents(record)}>
-            查看事件
+            查看最近事件
           </Button>
           <Popconfirm
             title="确认取消订阅？"
@@ -308,15 +308,15 @@ export default function EventSubscription() {
         </Form>
       </Modal>
 
-      {/* 查看最新事件弹窗 */}
+      {/* 查看最近事件弹窗 */}
       <Modal
-        title={`最新事件 - ${eventsTitle}${!eventsLoading ? ` (${recentEvents.length} 条)` : ''}`}
+        title={`最近事件 - ${eventsTitle}${!eventsLoading ? ` (最多10条)` : ''}`}
         open={eventsOpen}
         onCancel={() => setEventsOpen(false)}
         footer={[
           <Button key="close" onClick={() => setEventsOpen(false)}>关闭</Button>
         ]}
-        width={720}
+        width={900}
       >
         {eventsLoading ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>加载中...</div>
@@ -328,40 +328,52 @@ export default function EventSubscription() {
             <Text type="secondary">可能订阅刚开启还未收到链上事件</Text>
           </Empty>
         ) : (
-          <div style={{ maxHeight: 500, overflow: 'auto' }}>
-            {recentEvents.map((evt, idx) => (
-              <div key={evt.message_id || idx} style={{
-                marginBottom: 12,
-                padding: '12px 16px',
-                background: '#f9f9f9',
-                borderRadius: 6,
-                border: '1px solid #eee',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 4 }}>
-                  <Space size="small">
-                    <Tag color="blue">{evt.event_name || '未知事件'}</Tag>
-                    {evt.timestamp && (
-                      <Text type="secondary" style={{ fontSize: 12 }}>{formatDateTime(evt.timestamp)}</Text>
-                    )}
-                  </Space>
-                  <Text type="secondary" style={{ fontSize: 12 }}>{evt.message_id}</Text>
-                </div>
-                <pre style={{
-                  margin: 0,
-                  fontSize: 12,
-                  background: '#fff',
-                  padding: '8px 12px',
-                  borderRadius: 4,
-                  maxHeight: 150,
-                  overflow: 'auto',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                }}>
-                  {typeof evt.data === 'object' ? JSON.stringify(evt.data, null, 2) : String(evt.data || '')}
-                </pre>
-              </div>
-            ))}
-          </div>
+          <Table
+            dataSource={recentEvents}
+            rowKey={(record, idx) => record.message_id || idx}
+            pagination={false}
+            size="small"
+            scroll={{ y: 480 }}
+            columns={[
+              {
+                title: '事件名称',
+                dataIndex: 'event_name',
+                key: 'event_name',
+                width: 140,
+                render: (name: string) => (
+                  <Tag color="blue">{name || '未知事件'}</Tag>
+                ),
+              },
+              {
+                title: '事件数据',
+                dataIndex: 'data',
+                key: 'data',
+                render: (data: unknown) => (
+                  <pre style={{
+                    margin: 0,
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-all',
+                  }}>
+                    {typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data || '')}
+                  </pre>
+                ),
+              },
+              {
+                title: '消息ID',
+                dataIndex: 'message_id',
+                key: 'message_id',
+                width: 180,
+                ellipsis: { showTitle: false },
+                render: (id: string) => (
+                  <Tooltip title={id} placement="topLeft">
+                    <Text style={{ fontSize: 12 }} type="secondary">{id}</Text>
+                  </Tooltip>
+                ),
+              },
+            ]}
+          />
         )}
       </Modal>
     </div>
