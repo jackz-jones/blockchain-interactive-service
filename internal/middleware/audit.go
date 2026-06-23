@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -103,6 +105,14 @@ func HTTPAuditMiddleware(repo store.Repository) func(http.Handler) http.Handler 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 
+			// 提前读取请求体，用于审计日志记录合约调用信息
+			var bodyBytes []byte
+			if r.Body != nil && r.Method != http.MethodGet {
+				bodyBytes, _ = io.ReadAll(r.Body)
+				// 恢复 r.Body 供后续 handler 读取
+				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			}
+
 			// 包装 ResponseWriter 以捕获状态码和响应体
 			wrapped := &bodyResponseWriter{
 				ResponseWriter: w,
@@ -114,13 +124,13 @@ func HTTPAuditMiddleware(repo store.Repository) func(http.Handler) http.Handler 
 			duration := time.Since(start)
 
 			// 异步记录审计日志
-			go recordHTTPAudit(repo, r, wrapped.statusCode, wrapped.body.String(), duration)
+			go recordHTTPAudit(repo, r, wrapped.statusCode, wrapped.body.String(), duration, bodyBytes)
 		})
 	}
 }
 
 // recordHTTPAudit 记录 HTTP 审计日志
-func recordHTTPAudit(repo store.Repository, r *http.Request, statusCode int, responseBody string, duration time.Duration) {
+func recordHTTPAudit(repo store.Repository, r *http.Request, statusCode int, responseBody string, duration time.Duration, bodyBytes []byte) {
 	// 只审计写操作（非 GET 请求）
 	if r.Method == http.MethodGet {
 		return
@@ -167,13 +177,52 @@ func recordHTTPAudit(repo store.Repository, r *http.Request, statusCode int, res
 
 	// 合约调用特殊脱敏：detail 不含完整参数，仅记录方法名、合约名、链名、状态、耗时
 	if resourceType == "contract_call" {
-		detail = map[string]interface{}{
-			"method":        r.Method,
-			"path":          r.URL.Path,
-			"status_code":   statusCode,
-			"duration":      duration.Milliseconds(),
-			"contract_call": true,
+		// 从请求体中提取合约调用的关键信息
+		contractDetail := map[string]interface{}{
+			"method":      r.Method,
+			"path":        r.URL.Path,
+			"status_code": statusCode,
+			"duration":    duration.Milliseconds(),
 		}
+
+		// 解析请求体，提取链名、合约名、方法等信息（不对params做记录以避免泄露敏感数据）
+		if len(bodyBytes) > 0 {
+			var callReq struct {
+				ChainName    string            `json:"chain_name"`
+				ContractName string            `json:"contract_name"`
+				Method       string            `json:"method"`
+				MethodType   int               `json:"method_type"`
+				Params       map[string]string `json:"params"`
+			}
+			if json.Unmarshal(bodyBytes, &callReq) == nil {
+				if callReq.ChainName != "" {
+					contractDetail["chain_name"] = callReq.ChainName
+				}
+				if callReq.ContractName != "" {
+					contractDetail["contract_name"] = callReq.ContractName
+				}
+				if callReq.Method != "" {
+					contractDetail["contract_method"] = callReq.Method
+				}
+				if callReq.MethodType > 0 {
+					methodTypeLabel := "读链(Query)"
+					if callReq.MethodType == 1 {
+						methodTypeLabel = "写链(Invoke)"
+					}
+					contractDetail["method_type"] = callReq.MethodType
+					contractDetail["method_type_label"] = methodTypeLabel
+				}
+				// params 不记录完整内容，仅记录参数key列表
+				if len(callReq.Params) > 0 {
+					paramKeys := make([]string, 0, len(callReq.Params))
+					for k := range callReq.Params {
+						paramKeys = append(paramKeys, k)
+					}
+					contractDetail["param_keys"] = paramKeys
+				}
+			}
+		}
+		detail = contractDetail
 	}
 
 	detailBytes, _ := json.Marshal(detail)
