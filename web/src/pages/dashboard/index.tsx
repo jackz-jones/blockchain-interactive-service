@@ -63,6 +63,7 @@ export default function Dashboard() {
       title: '配额使用率',
       value: data?.usage_percent ?? null,
       suffix: '%',
+      precision: 2,
       icon: <PercentageOutlined />,
       color: (data?.usage_percent ?? 0) > 80 ? '#c0392b' : '#b8860b',
     },

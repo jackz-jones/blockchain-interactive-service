@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -223,7 +224,7 @@ func (s *Service) GetUsageStats(ctx context.Context, tenantID uint) (*UsageStats
 		stats.MonthlyLimit = int64(quota.MonthlyLimit)
 		stats.DailyLimit = int64(quota.DailyLimit)
 		if quota.MonthlyLimit > 0 {
-			stats.UsagePercent = float64(monthCount) / float64(quota.MonthlyLimit) * 100
+			stats.UsagePercent = math.Round(float64(monthCount)/float64(quota.MonthlyLimit)*100*10000) / 10000
 		}
 	}
 
@@ -408,7 +409,7 @@ func (s *Service) GetRealtimeCost(ctx context.Context, tenantID uint, plan strin
 		monthlyLimit = int64(quota.MonthlyLimit)
 		monthlyUsed = int64(quota.MonthlyUsed)
 		if quota.MonthlyLimit > 0 {
-			usagePercent = float64(monthlyUsed) / float64(quota.MonthlyLimit) * 100
+			usagePercent = math.Round(float64(monthlyUsed)/float64(quota.MonthlyLimit)*100*10000) / 10000
 		}
 	}
 
