@@ -1009,13 +1009,21 @@ curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains
 
 | 方法 | 路径 | 描述 |
 |------|------|------|
+| POST | `/api/v1/auth/register` | 用户注册 |
+| POST | `/api/v1/auth/validate` | 校验 API Key |
 | POST | `/api/v1/contract/call` | 调用/查询合约 |
 | GET | `/api/v1/tx/:txId` | 根据 ID 查询交易 |
 | GET | `/api/v1/chains` | 获取可用链列表 |
 | GET | `/api/v1/chains/:chainName/status` | 获取链连接状态 |
-| POST | `/api/v1/events/subscribe` | 订阅合约事件 |
-| GET | `/api/v1/events/poll` | 轮询已订阅事件 |
-| DELETE | `/api/v1/events/subscribe/:subscriptionId` | 取消订阅 |
+| POST | `/api/v1/events/subscribe` | 订阅合约事件（旧接口） |
+| GET | `/api/v1/events/poll` | 轮询已订阅事件（旧接口） |
+| DELETE | `/api/v1/events/subscribe/:subscriptionId` | 取消订阅（旧接口） |
+| GET | `/api/v1/events/subscriptions` | 已开启订阅的合约列表 |
+| GET | `/api/v1/events/available-contracts` | 可订阅的合约列表 |
+| GET | `/api/v1/events/recent/:contractConfigId` | 最近事件记录 |
+| POST | `/api/v1/events/subscribe-by-contract` | 为合约开启事件订阅 |
+| PUT | `/api/v1/events/subscribe-by-contract/:contractConfigId` | 更新订阅配置 |
+| DELETE | `/api/v1/events/subscribe-by-contract/:contractConfigId` | 取消合约事件订阅 |
 | POST | `/api/v1/tenants` | 创建租户 |
 | GET | `/api/v1/tenants/:id` | 获取租户详情 |
 | GET | `/api/v1/tenants` | 租户列表 |
@@ -1031,14 +1039,17 @@ curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains
 | POST | `/api/v1/chain-configs/:id/test-connection` | 测试链连接 |
 | POST | `/api/v1/chain-configs/:chainConfigId/contracts` | 创建合约配置 |
 | GET | `/api/v1/chain-configs/:chainConfigId/contracts` | 合约配置列表 |
-| GET | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | 获取合约配置 |
+| GET | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | 获取合约配置详情 |
 | PUT | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | 更新合约配置 |
 | DELETE | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | 删除合约配置 |
 | GET | `/api/v1/users` | 用户列表 |
 | GET | `/api/v1/dashboard/overview` | 仪表盘概览 |
 | GET | `/api/v1/dashboard/call-logs` | 调用日志（可筛选） |
 | GET | `/api/v1/dashboard/usage-stats` | 用量统计 |
+| GET | `/api/v1/dashboard/usage-stats-trend` | 用量统计趋势 |
 | GET | `/api/v1/dashboard/bills` | 账单记录 |
+| GET | `/api/v1/dashboard/realtime-cost` | 实时费用 |
+| POST | `/api/v1/dashboard/bills/generate` | 生成账单 |
 | GET | `/api/v1/dashboard/audit-logs` | 审计日志 |
 
 ### 租户管理

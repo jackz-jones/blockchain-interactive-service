@@ -26,7 +26,7 @@ graph TB
 
     subgraph "接入层"
         HTTPGateway[HTTP API Gateway<br/>:8080]
-        GRPCServer[gRPC Server<br/>:9000]
+        GRPCServer[gRPC Server<br/>:8085]
     end
 
     subgraph "中间件层"
@@ -179,22 +179,22 @@ mindmap
 
 | 模块 | 描述 | 关键文件 |
 |------|------|----------|
-| **合约调用** | 统一接口调用多链合约（Invoke/Query） | `internal/logic/callcontractlogic.go` |
-| **交易查询** | 根据交易 ID 查询交易状态和详情 | `internal/logic/gettxbytxidlogic.go` |
+| **合约调用** | 统一接口调用多链合约（Invoke/Query） | `internal/logic/grpc/callcontractlogic.go`, `internal/logic/http/chain/callContractLogic.go` |
+| **交易查询** | 根据交易 ID 查询交易状态和详情 | `internal/logic/grpc/gettxbytxidlogic.go`, `internal/logic/http/chain/getTxByTxIdLogic.go` |
 | **事件订阅** | 订阅链上合约事件，推送到 Redis，通过 gRPC 流式推送给消费端 | `internal/sdk/*.go`, `internal/logic/grpc/subscribecontracteventslogic.go` |
-| **链信息查询** | 查询可用链和合约配置 | `internal/logic/getavailablechainandcontractnameslogic.go` |
+| **链信息查询** | 查询可用链和合约配置 | `internal/logic/grpc/getavailablechainandcontractnameslogic.go`, `internal/logic/http/chain/getAvailableChainsLogic.go` |
 
 ### 3.3 商业化功能模块
 
 | 模块 | 描述 | 关键文件 |
 |------|------|----------|
 | **多租户管理** | 租户创建/禁用/启用、子账号、API Key 管理 | `internal/tenant/service.go` |
-| **认证鉴权** | API Key 认证 + RBAC 权限控制 | `internal/middleware/auth.go`, `rbac.go` |
+| **认证鉴权** | API Key 认证 + RBAC 权限控制 | `internal/middleware/auth.go`, `internal/middleware/rbac.go` |
 | **计费配额** | 配额检查、用量记录、账单生成 | `internal/billing/service.go` |
 | **限流** | 基于滑动窗口的 QPS 限流 | `internal/middleware/ratelimit.go` |
 | **审计日志** | 自动记录所有操作的审计日志 | `internal/middleware/audit.go` |
 | **异常检测** | 失败频率监控、自动封禁 | `internal/middleware/anomaly.go` |
-| **管理后台 API** | 仪表盘、日志查询、账单查询 | `internal/gateway/admin_handlers.go` |
+| **管理后台 API** | 仪表盘、日志查询、账单查询 | `internal/logic/http/dashboard/` |
 
 ---
 
@@ -202,15 +202,40 @@ mindmap
 
 ```
 chain-interactive-service/
-├── chaininteractive.go              # 服务主入口
-├── chaininteractive/                # goctl 生成的业务逻辑层
+├── chaininteractive.go              # 服务主入口（gRPC + HTTP Gateway）
+├── api/
+│   └── chaininteractive.api         # go-zero API 定义文件（goctl 生成）
 ├── internal/
 │   ├── config/
-│   │   └── config.go               # 配置定义与校验
-│   ├── logic/                       # gRPC 业务逻辑
-│   │   ├── callcontractlogic.go     # 合约调用逻辑
-│   │   ├── gettxbytxidlogic.go      # 交易查询逻辑
-│   │   └── getavailablechainandcontractnameslogic.go
+│   │   └── config.go               # 配置定义
+│   ├── handler/                     # HTTP 路由处理器（goctl 生成）
+│   │   ├── routes.go               # 路由注册
+│   │   ├── auth/                   # 认证（注册/校验）
+│   │   ├── chain/                  # 合约调用 & 交易查询
+│   │   ├── chainconfig/            # 链配置 CRUD
+│   │   ├── contractconfig/         # 合约配置 CRUD
+│   │   ├── event/                  # 事件订阅管理
+│   │   ├── tenant/                 # 租户管理
+│   │   ├── apikey/                 # API Key 管理
+│   │   ├── user/                   # 用户管理
+│   │   └── dashboard/              # 仪表盘 & 分析
+│   ├── logic/
+│   │   ├── grpc/                   # gRPC 业务逻辑
+│   │   │   ├── callcontractlogic.go
+│   │   │   ├── gettxbytxidlogic.go
+│   │   │   ├── getavailablechainandcontractnameslogic.go
+│   │   │   └── subscribecontracteventslogic.go
+│   │   └── http/                   # HTTP 业务逻辑（按模块划分）
+│   │       ├── auth/
+│   │       ├── chain/
+│   │       ├── chainconfig/
+│   │       ├── contractconfig/
+│   │       ├── event/
+│   │       ├── tenant/
+│   │       ├── apikey/
+│   │       ├── user/
+│   │       └── dashboard/
+│   ├── types/                       # HTTP 请求/响应类型定义
 │   ├── sdk/                         # 链 SDK 客户端
 │   │   ├── interface.go             # 统一链接口定义
 │   │   ├── helper.go               # SDK 客户端管理与订阅调度
@@ -223,11 +248,8 @@ chain-interactive-service/
 │   │   ├── model.go                # 数据模型定义
 │   │   ├── db.go                   # 数据库连接
 │   │   └── repository.go          # Repository 接口与实现
-│   ├── gateway/                     # HTTP API Gateway
-│   │   ├── server.go              # Gateway 服务启动
-│   │   ├── routes.go              # 路由注册
-│   │   ├── handlers.go            # 核心 API Handler
-│   │   └── admin_handlers.go      # 管理后台 API Handler
+│   ├── service/                     # 配置解析器（DB → 运行时配置）
+│   │   └── config_resolver.go
 │   ├── middleware/                  # 中间件
 │   │   ├── auth.go                # gRPC 认证拦截器
 │   │   ├── http_auth.go           # HTTP 认证中间件
@@ -248,7 +270,17 @@ chain-interactive-service/
 │   ├── server/                      # gRPC 服务注册
 │   ├── svc/                         # 服务上下文
 │   │   └── servicecontext.go      # ServiceContext 依赖注入
+│   ├── validator/                   # 配置校验
 │   └── code/                        # 响应码定义
+├── web/                             # Web 管理控制台（React + Vite + Ant Design）
+│   └── src/
+│       ├── pages/                  # 页面组件
+│       ├── components/             # 共享布局 & 通用组件
+│       ├── services/               # API 客户端（axios）
+│       ├── stores/                 # 状态管理（zustand）
+│       ├── router/                 # React Router 路由配置
+│       ├── hooks/                  # 自定义 Hooks
+│       └── styles/                 # 全局 CSS & 主题 Token
 ├── proto/                           # Protobuf 定义
 │   └── chaininteractive.proto
 ├── pb/                              # 生成的 Protobuf Go 代码
@@ -420,7 +452,7 @@ graph TB
         end
 
         subgraph ServiceLayer["Service"]
-            SVC[ClusterIP Service<br/>gRPC:9000 / HTTP:8080]
+        SVC[ClusterIP Service<br/>gRPC:8085 / HTTP:8080]
         end
 
         subgraph DeploymentLayer["Deployment (HPA: 2~10)"]
@@ -557,10 +589,20 @@ flowchart TD
 
 | 方法 | 路径 | 描述 |
 |------|------|------|
-| POST | `/api/v1/contract/call` | 调用合约 |
-| GET | `/api/v1/transaction/:txId` | 查询交易 |
+| POST | `/api/v1/auth/register` | 注册用户 |
+| POST | `/api/v1/auth/validate` | 校验 API Key |
+| POST | `/api/v1/contract/call` | 调用合约（计配额） |
+| GET | `/api/v1/tx/:txId` | 查询交易 |
 | GET | `/api/v1/chains` | 获取可用链列表 |
+| GET | `/api/v1/chains/:chainName/status` | 获取链连接状态 |
+| GET | `/api/v1/events/subscriptions` | 已开启订阅的合约列表 |
+| GET | `/api/v1/events/available-contracts` | 可订阅的合约列表 |
+| GET | `/api/v1/events/recent/:contractConfigId` | 最近事件记录 |
+| POST | `/api/v1/events/subscribe-by-contract` | 为合约开启事件订阅（计配额） |
+| PUT | `/api/v1/events/subscribe-by-contract/:contractConfigId` | 更新订阅配置 |
+| DELETE | `/api/v1/events/subscribe-by-contract/:contractConfigId` | 取消合约事件订阅 |
 | POST | `/api/v1/tenants` | 创建租户 |
+| GET | `/api/v1/tenants/:id` | 获取租户详情 |
 | GET | `/api/v1/tenants` | 租户列表 |
 | POST | `/api/v1/tenants/:id/disable` | 禁用租户 |
 | POST | `/api/v1/tenants/:id/enable` | 启用租户 |
@@ -568,12 +610,21 @@ flowchart TD
 | GET | `/api/v1/api-keys` | API Key 列表 |
 | POST | `/api/v1/chain-configs` | 创建链配置 |
 | GET | `/api/v1/chain-configs` | 链配置列表 |
+| GET | `/api/v1/chain-configs/:id` | 获取链配置详情 |
 | PUT | `/api/v1/chain-configs/:id` | 更新链配置 |
 | DELETE | `/api/v1/chain-configs/:id` | 删除链配置 |
+| POST | `/api/v1/chain-configs/:id/test-connection` | 测试链连接 |
+| POST | `/api/v1/chain-configs/:chainConfigId/contracts` | 创建合约配置 |
+| GET | `/api/v1/chain-configs/:chainConfigId/contracts` | 合约配置列表 |
+| GET | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | 获取合约配置详情 |
+| PUT | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | 更新合约配置 |
+| DELETE | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | 删除合约配置 |
 | GET | `/api/v1/users` | 用户列表 |
 | GET | `/api/v1/dashboard/overview` | 仪表盘概览 |
 | GET | `/api/v1/dashboard/call-logs` | 调用日志 |
 | GET | `/api/v1/dashboard/usage-stats` | 用量统计 |
 | GET | `/api/v1/dashboard/usage-stats-trend` | 用量统计趋势（支持 Invoke/Query 分类） |
 | GET | `/api/v1/dashboard/bills` | 账单记录 |
+| GET | `/api/v1/dashboard/realtime-cost` | 实时费用 |
+| POST | `/api/v1/dashboard/bills/generate` | 生成账单 |
 | GET | `/api/v1/dashboard/audit-logs` | 审计日志 |

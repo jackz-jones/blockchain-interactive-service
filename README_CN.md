@@ -110,10 +110,11 @@ graph TB
 │   ├── config/                   # 配置定义
 │   ├── handler/                  # HTTP 路由处理器（goctl 生成）
 │   │   ├── routes.go            # 路由注册
+│   │   ├── auth/                # 认证（注册/校验）
 │   │   ├── chain/               # 合约调用 & 交易查询
 │   │   ├── chainconfig/         # 链配置 CRUD
 │   │   ├── contractconfig/      # 合约配置 CRUD
-│   │   ├── event/               # 事件订阅
+│   │   ├── event/               # 事件订阅管理
 │   │   ├── tenant/              # 租户管理
 │   │   ├── apikey/              # API Key 管理
 │   │   ├── user/                # 用户管理
@@ -121,6 +122,7 @@ graph TB
 │   ├── logic/
 │   │   ├── grpc/                # gRPC 业务逻辑
 │   │   └── http/                # HTTP 业务逻辑（按模块划分）
+│   │       ├── auth/
 │   │       ├── chain/
 │   │       ├── chainconfig/
 │   │       ├── contractconfig/
@@ -140,23 +142,25 @@ graph TB
 │   ├── deploy/                   # Leader 选举（高可用）
 │   ├── server/                   # gRPC 服务注册
 │   ├── svc/                      # 服务上下文（依赖注入容器）
-│   └── validator/                # 配置校验
+│   ├── validator/                # 配置校验
+│   └── code/                     # 响应码定义
 ├── web/                          # Web 管理控制台（React + Vite + Ant Design）
-│   ├── src/
-│   │   ├── pages/               # 页面组件（仪表盘、链配置等）
-│   │   ├── components/          # 共享布局 & 通用组件
-│   │   ├── services/            # API 客户端（axios）
-│   │   ├── stores/              # 状态管理（zustand）
-│   │   ├── router/              # React Router 路由配置
-│   │   ├── hooks/               # 自定义 Hooks
-│   │   └── styles/              # 全局 CSS & 主题 Token
-│   ├── package.json
-│   └── vite.config.ts
+│   └── src/
+│       ├── pages/               # 页面组件（仪表盘、链配置等）
+│       ├── components/          # 共享布局 & 通用组件
+│       ├── services/            # API 客户端（axios）
+│       ├── stores/              # 状态管理（zustand）
+│       ├── router/              # React Router 路由配置
+│       ├── hooks/               # 自定义 Hooks
+│       └── styles/              # 全局 CSS & 主题 Token
 ├── proto/                        # Protobuf 服务定义
 ├── pb/                           # 生成的 Protobuf Go 代码
 ├── deploy/helm/                  # Kubernetes Helm Chart
 ├── docker/                       # Docker 构建文件
 ├── etc/                          # 配置文件
+├── scripts/                      # 工具脚本
+└── doc/                          # 文档
+```
 ├── scripts/                      # 工具脚本
 └── doc/                          # 文档
 ```
@@ -247,16 +251,17 @@ SubscribeConf:
 
 | 分类 | 接口 | 描述 |
 |------|------|------|
+| **认证** | `POST /api/v1/auth/register`, `POST /api/v1/auth/validate` | 用户注册、API Key 校验 |
 | **合约** | `POST /api/v1/contract/call` | 调用/查询合约 |
 | **交易** | `GET /api/v1/tx/:txId` | 根据 ID 查询交易 |
 | **链** | `GET /api/v1/chains`, `GET /api/v1/chains/:chainName/status` | 链列表、状态查询 |
-| **事件** | `GET /api/v1/events/subscriptions`, `POST /api/v1/events/subscribe-by-contract`, `DELETE .../subscribe-by-contract/:id` | 事件订阅管理 |
-| **租户** | `POST/GET /api/v1/tenants`, `POST .../disable\|enable` | 租户管理 |
+| **事件** | `GET /api/v1/events/subscriptions`, `GET .../available-contracts`, `GET .../recent/:contractConfigId`, `POST .../subscribe-by-contract`, `PUT/DELETE .../subscribe-by-contract/:contractConfigId` | 事件订阅管理 |
+| **租户** | `POST/GET /api/v1/tenants`, `GET .../tenants/:id`, `POST .../disable\|enable` | 租户管理 |
 | **API Key** | `POST/GET /api/v1/api-keys` | API Key 管理 |
 | **链配置** | `CRUD /api/v1/chain-configs`, `POST .../test-connection` | 链配置管理 |
 | **合约配置** | `CRUD /api/v1/chain-configs/:chainConfigId/contracts` | 合约配置管理 |
 | **用户** | `GET /api/v1/users` | 用户管理 |
-| **仪表盘** | `GET /api/v1/dashboard/overview\|call-logs\|usage-stats\|bills\|audit-logs` | 分析与监控 |
+| **仪表盘** | `GET /api/v1/dashboard/overview\|call-logs\|usage-stats\|usage-stats-trend\|bills\|realtime-cost\|audit-logs`, `POST .../bills/generate` | 分析与监控 |
 
 > 📖 完整 API 参考请查看 **[使用指南](doc/USAGE_CN.md)**
 

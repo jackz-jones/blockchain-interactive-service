@@ -1009,13 +1009,20 @@ curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/v1/contract/call` | Call/query contract |
+| POST | `/api/v1/auth/register` | Register user |
+| POST | `/api/v1/auth/validate` | Validate API Key |
+| POST | `/api/v1/contract/call` | Call/query contract (quota counted) |
 | GET | `/api/v1/tx/:txId` | Query transaction by ID |
 | GET | `/api/v1/chains` | List available chains |
 | GET | `/api/v1/chains/:chainName/status` | Get chain connection status |
+| POST | `/api/v1/events/subscribe` | Subscribe to contract events (legacy) |
+| GET | `/api/v1/events/poll` | Poll subscribed events (legacy) |
+| DELETE | `/api/v1/events/subscribe/:subscriptionId` | Unsubscribe (legacy) |
 | GET | `/api/v1/events/subscriptions` | List subscribed contracts |
 | GET | `/api/v1/events/available-contracts` | List available contracts for subscription |
-| POST | `/api/v1/events/subscribe-by-contract` | Enable subscription for a contract |
+| GET | `/api/v1/events/recent/:contractConfigId` | Recent event records |
+| POST | `/api/v1/events/subscribe-by-contract` | Enable subscription for a contract (quota counted) |
+| PUT | `/api/v1/events/subscribe-by-contract/:contractConfigId` | Update subscription config |
 | DELETE | `/api/v1/events/subscribe-by-contract/:contractConfigId` | Cancel contract subscription |
 | POST | `/api/v1/tenants` | Create tenant |
 | GET | `/api/v1/tenants/:id` | Get tenant detail |
@@ -1032,14 +1039,17 @@ curl -H "X-API-Key: your-api-key" http://localhost:8080/api/v1/chains
 | POST | `/api/v1/chain-configs/:id/test-connection` | Test chain connection |
 | POST | `/api/v1/chain-configs/:chainConfigId/contracts` | Create contract config |
 | GET | `/api/v1/chain-configs/:chainConfigId/contracts` | List contract configs |
-| GET | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | Get contract config |
+| GET | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | Get contract config detail |
 | PUT | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | Update contract config |
 | DELETE | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | Delete contract config |
 | GET | `/api/v1/users` | List users |
 | GET | `/api/v1/dashboard/overview` | Dashboard overview |
 | GET | `/api/v1/dashboard/call-logs` | Call logs (filterable) |
 | GET | `/api/v1/dashboard/usage-stats` | Usage statistics |
+| GET | `/api/v1/dashboard/usage-stats-trend` | Usage statistics trend (Invoke/Query breakdown) |
 | GET | `/api/v1/dashboard/bills` | Billing records |
+| GET | `/api/v1/dashboard/realtime-cost` | Realtime cost |
+| POST | `/api/v1/dashboard/bills/generate` | Generate bills |
 | GET | `/api/v1/dashboard/audit-logs` | Audit logs |
 
 ### Tenant Management

@@ -26,7 +26,7 @@ graph TB
 
     subgraph "Access Layer"
         HTTPGateway[HTTP API Gateway<br/>:8080]
-        GRPCServer[gRPC Server<br/>:9000]
+        GRPCServer[gRPC Server<br/>:8085]
     end
 
     subgraph "Middleware Layer"
@@ -178,23 +178,23 @@ mindmap
 ### 3.2 Core Function Modules
 
 | Module | Description | Key Files |
-|--------|-------------|-----------|
-| **Contract Call** | Unified interface for multi-chain contract calls (Invoke/Query) | `internal/logic/callcontractlogic.go` |
-| **Transaction Query** | Query transaction status and details by TX ID | `internal/logic/gettxbytxidlogic.go` |
+|--------|-------------|----------|
+| **Contract Call** | Unified interface for multi-chain contract calls (Invoke/Query) | `internal/logic/grpc/callcontractlogic.go`, `internal/logic/http/chain/callContractLogic.go` |
+| **Transaction Query** | Query transaction status and details by TX ID | `internal/logic/grpc/gettxbytxidlogic.go`, `internal/logic/http/chain/getTxByTxIdLogic.go` |
 | **Event Subscription** | Subscribe to on-chain contract events, push to Redis, stream to consumers via gRPC | `internal/sdk/*.go`, `internal/logic/grpc/subscribecontracteventslogic.go` |
-| **Chain Info Query** | Query available chains and contract configurations | `internal/logic/getavailablechainandcontractnameslogic.go` |
+| **Chain Info Query** | Query available chains and contract configurations | `internal/logic/grpc/getavailablechainandcontractnameslogic.go`, `internal/logic/http/chain/getAvailableChainsLogic.go` |
 
 ### 3.3 Commercial Feature Modules
 
 | Module | Description | Key Files |
-|--------|-------------|-----------|
+|--------|-------------|----------|
 | **Multi-Tenant Management** | Tenant CRUD, sub-accounts, API Key management | `internal/tenant/service.go` |
-| **Authentication** | API Key auth + RBAC access control | `internal/middleware/auth.go`, `rbac.go` |
+| **Authentication** | API Key auth + RBAC access control | `internal/middleware/auth.go`, `internal/middleware/rbac.go` |
 | **Billing & Quota** | Quota check, usage recording, bill generation | `internal/billing/service.go` |
 | **Rate Limiting** | Sliding window QPS rate limiting | `internal/middleware/ratelimit.go` |
 | **Audit Logging** | Automatic audit log recording for all operations | `internal/middleware/audit.go` |
 | **Anomaly Detection** | Failure rate monitoring, auto-banning | `internal/middleware/anomaly.go` |
-| **Admin Dashboard API** | Dashboard overview, log queries, billing queries | `internal/gateway/admin_handlers.go` |
+| **Admin Dashboard API** | Dashboard overview, log queries, billing queries | `internal/logic/http/dashboard/` |
 
 ---
 
@@ -202,15 +202,40 @@ mindmap
 
 ```
 chain-interactive-service/
-├── chaininteractive.go              # Service entry point
-├── chaininteractive/                # goctl generated business logic
+├── chaininteractive.go              # Service entry point (gRPC + HTTP Gateway)
+├── api/
+│   └── chaininteractive.api         # go-zero API definition (goctl generated)
 ├── internal/
 │   ├── config/
-│   │   └── config.go               # Configuration definitions & validation
-│   ├── logic/                       # gRPC business logic
-│   │   ├── callcontractlogic.go     # Contract call logic
-│   │   ├── gettxbytxidlogic.go      # Transaction query logic
-│   │   └── getavailablechainandcontractnameslogic.go
+│   │   └── config.go               # Configuration definitions
+│   ├── handler/                     # HTTP route handlers (goctl generated)
+│   │   ├── routes.go               # Route registration
+│   │   ├── auth/                   # Authentication (register/validate)
+│   │   ├── chain/                  # Contract call & tx query
+│   │   ├── chainconfig/            # Chain config CRUD
+│   │   ├── contractconfig/         # Contract config CRUD
+│   │   ├── event/                  # Event subscription management
+│   │   ├── tenant/                 # Tenant management
+│   │   ├── apikey/                 # API Key management
+│   │   ├── user/                   # User management
+│   │   └── dashboard/              # Dashboard & analytics
+│   ├── logic/
+│   │   ├── grpc/                   # gRPC business logic
+│   │   │   ├── callcontractlogic.go
+│   │   │   ├── gettxbytxidlogic.go
+│   │   │   ├── getavailablechainandcontractnameslogic.go
+│   │   │   └── subscribecontracteventslogic.go
+│   │   └── http/                   # HTTP business logic (by module)
+│   │       ├── auth/
+│   │       ├── chain/
+│   │       ├── chainconfig/
+│   │       ├── contractconfig/
+│   │       ├── event/
+│   │       ├── tenant/
+│   │       ├── apikey/
+│   │       ├── user/
+│   │       └── dashboard/
+│   ├── types/                       # HTTP request/response type definitions
 │   ├── sdk/                         # Chain SDK clients
 │   │   ├── interface.go             # Unified chain interface
 │   │   ├── helper.go               # SDK client management & subscription scheduling
@@ -223,11 +248,8 @@ chain-interactive-service/
 │   │   ├── model.go                # Data model definitions
 │   │   ├── db.go                   # Database connection
 │   │   └── repository.go          # Repository interface & implementation
-│   ├── gateway/                     # HTTP API Gateway
-│   │   ├── server.go              # Gateway server startup
-│   │   ├── routes.go              # Route registration
-│   │   ├── handlers.go            # Core API handlers
-│   │   └── admin_handlers.go      # Admin dashboard API handlers
+│   ├── service/                     # Config resolver (DB → runtime config)
+│   │   └── config_resolver.go
 │   ├── middleware/                  # Middleware
 │   │   ├── auth.go                # gRPC auth interceptor
 │   │   ├── http_auth.go           # HTTP auth middleware
@@ -248,7 +270,17 @@ chain-interactive-service/
 │   ├── server/                      # gRPC server registration
 │   ├── svc/                         # Service context
 │   │   └── servicecontext.go      # ServiceContext dependency injection
+│   ├── validator/                   # Configuration validation
 │   └── code/                        # Response code definitions
+├── web/                             # Web Dashboard (React + Vite + Ant Design)
+│   └── src/
+│       ├── pages/                  # Page components
+│       ├── components/             # Shared layout & common components
+│       ├── services/               # API client (axios)
+│       ├── stores/                 # State management (zustand)
+│       ├── router/                 # React Router configuration
+│       ├── hooks/                  # Custom hooks
+│       └── styles/                 # Global CSS & theme tokens
 ├── proto/                           # Protobuf definitions
 │   └── chaininteractive.proto
 ├── pb/                              # Generated Protobuf Go code
@@ -420,7 +452,7 @@ graph TB
         end
 
         subgraph ServiceLayer["Service"]
-            SVC[ClusterIP Service<br/>gRPC:9000 / HTTP:8080]
+        SVC[ClusterIP Service<br/>gRPC:8085 / HTTP:8080]
         end
 
         subgraph DeploymentLayer["Deployment (HPA: 2~10)"]
@@ -557,10 +589,20 @@ flowchart TD
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/v1/contract/call` | Call contract |
-| GET | `/api/v1/transaction/:txId` | Query transaction |
+| POST | `/api/v1/auth/register` | Register user |
+| POST | `/api/v1/auth/validate` | Validate API Key |
+| POST | `/api/v1/contract/call` | Call contract (quota counted) |
+| GET | `/api/v1/tx/:txId` | Query transaction |
 | GET | `/api/v1/chains` | Get available chains |
+| GET | `/api/v1/chains/:chainName/status` | Get chain connection status |
+| GET | `/api/v1/events/subscriptions` | List subscribed contracts |
+| GET | `/api/v1/events/available-contracts` | List subscribable contracts |
+| GET | `/api/v1/events/recent/:contractConfigId` | Recent event records |
+| POST | `/api/v1/events/subscribe-by-contract` | Enable event subscription for contract (quota counted) |
+| PUT | `/api/v1/events/subscribe-by-contract/:contractConfigId` | Update subscription config |
+| DELETE | `/api/v1/events/subscribe-by-contract/:contractConfigId` | Cancel contract event subscription |
 | POST | `/api/v1/tenants` | Create tenant |
+| GET | `/api/v1/tenants/:id` | Get tenant detail |
 | GET | `/api/v1/tenants` | List tenants |
 | POST | `/api/v1/tenants/:id/disable` | Disable tenant |
 | POST | `/api/v1/tenants/:id/enable` | Enable tenant |
@@ -568,12 +610,21 @@ flowchart TD
 | GET | `/api/v1/api-keys` | List API Keys |
 | POST | `/api/v1/chain-configs` | Create chain config |
 | GET | `/api/v1/chain-configs` | List chain configs |
+| GET | `/api/v1/chain-configs/:id` | Get chain config detail |
 | PUT | `/api/v1/chain-configs/:id` | Update chain config |
 | DELETE | `/api/v1/chain-configs/:id` | Delete chain config |
+| POST | `/api/v1/chain-configs/:id/test-connection` | Test chain connection |
+| POST | `/api/v1/chain-configs/:chainConfigId/contracts` | Create contract config |
+| GET | `/api/v1/chain-configs/:chainConfigId/contracts` | List contract configs |
+| GET | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | Get contract config detail |
+| PUT | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | Update contract config |
+| DELETE | `/api/v1/chain-configs/:chainConfigId/contracts/:id` | Delete contract config |
 | GET | `/api/v1/users` | List users |
 | GET | `/api/v1/dashboard/overview` | Dashboard overview |
 | GET | `/api/v1/dashboard/call-logs` | Call logs |
 | GET | `/api/v1/dashboard/usage-stats` | Usage statistics |
 | GET | `/api/v1/dashboard/usage-stats-trend` | Usage statistics trend (with Invoke/Query breakdown) |
 | GET | `/api/v1/dashboard/bills` | Bill list |
+| GET | `/api/v1/dashboard/realtime-cost` | Realtime cost |
+| POST | `/api/v1/dashboard/bills/generate` | Generate bills |
 | GET | `/api/v1/dashboard/audit-logs` | Audit logs |

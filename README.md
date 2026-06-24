@@ -110,6 +110,7 @@ graph TB
 │   ├── config/                   # Configuration definitions
 │   ├── handler/                  # HTTP route handlers (goctl generated)
 │   │   ├── routes.go            # Route registration
+│   │   ├── auth/                # Auth handlers (register/validate)
 │   │   ├── chain/               # Contract call & tx query handlers
 │   │   ├── chainconfig/         # Chain config CRUD handlers
 │   │   ├── contractconfig/      # Contract config CRUD handlers
@@ -121,6 +122,7 @@ graph TB
 │   ├── logic/
 │   │   ├── grpc/                # gRPC business logic
 │   │   └── http/                # HTTP business logic (by module)
+│   │       ├── auth/
 │   │       ├── chain/
 │   │       ├── chainconfig/
 │   │       ├── contractconfig/
@@ -140,23 +142,25 @@ graph TB
 │   ├── deploy/                   # Leader election (HA)
 │   ├── server/                   # gRPC server registration
 │   ├── svc/                      # Service context (DI container)
-│   └── validator/                # Configuration validation
+│   ├── validator/                # Configuration validation
+│   └── code/                     # Response code definitions
 ├── web/                          # Web Dashboard (React + Vite + Ant Design)
-│   ├── src/
-│   │   ├── pages/               # Page components (dashboard, chain-config, etc.)
-│   │   ├── components/          # Shared layout & common components
-│   │   ├── services/            # API client (axios)
-│   │   ├── stores/              # State management (zustand)
-│   │   ├── router/              # React Router configuration
-│   │   ├── hooks/               # Custom hooks
-│   │   └── styles/              # Global CSS & theme tokens
-│   ├── package.json
-│   └── vite.config.ts
+│   └── src/
+│       ├── pages/               # Page components (dashboard, chain-config, etc.)
+│       ├── components/          # Shared layout & common components
+│       ├── services/            # API client (axios)
+│       ├── stores/              # State management (zustand)
+│       ├── router/              # React Router configuration
+│       ├── hooks/               # Custom hooks
+│       └── styles/              # Global CSS & theme tokens
 ├── proto/                        # Protobuf service definitions
 ├── pb/                           # Generated Protobuf Go code
 ├── deploy/helm/                  # Kubernetes Helm Chart
 ├── docker/                       # Docker build files
 ├── etc/                          # Configuration files
+├── scripts/                      # Utility scripts
+└── doc/                          # Documentation
+```
 ├── scripts/                      # Utility scripts
 └── doc/                          # Documentation
 ```
@@ -247,16 +251,17 @@ SubscribeConf:
 
 | Category | Endpoints | Description |
 |----------|-----------|-------------|
+| **Auth** | `POST /api/v1/auth/register`, `POST /api/v1/auth/validate` | User registration, API Key validation |
 | **Contract** | `POST /api/v1/contract/call` | Call/query contracts |
 | **Transaction** | `GET /api/v1/tx/:txId` | Query transaction by ID |
 | **Chain** | `GET /api/v1/chains`, `GET /api/v1/chains/:chainName/status` | List chains, check status |
-| **Event** | `GET /api/v1/events/subscriptions`, `POST /api/v1/events/subscribe-by-contract`, `DELETE .../subscribe-by-contract/:id` | Event subscription management |
-| **Tenant** | `POST/GET /api/v1/tenants`, `POST .../disable\|enable` | Tenant management |
+| **Event** | `GET /api/v1/events/subscriptions`, `GET .../available-contracts`, `GET .../recent/:contractConfigId`, `POST .../subscribe-by-contract`, `PUT/DELETE .../subscribe-by-contract/:contractConfigId` | Event subscription management |
+| **Tenant** | `POST/GET /api/v1/tenants`, `GET .../tenants/:id`, `POST .../disable\|enable` | Tenant management |
 | **API Key** | `POST/GET /api/v1/api-keys` | API Key management |
 | **Chain Config** | `CRUD /api/v1/chain-configs`, `POST .../test-connection` | Chain configuration |
 | **Contract Config** | `CRUD /api/v1/chain-configs/:chainConfigId/contracts` | Contract configuration |
 | **User** | `GET /api/v1/users` | User management |
-| **Dashboard** | `GET /api/v1/dashboard/overview\|call-logs\|usage-stats\|bills\|audit-logs` | Analytics & monitoring |
+| **Dashboard** | `GET /api/v1/dashboard/overview\|call-logs\|usage-stats\|usage-stats-trend\|bills\|realtime-cost\|audit-logs`, `POST .../bills/generate` | Analytics & monitoring |
 
 > 📖 For complete API reference, see **[Usage Guide](doc/USAGE.md)**
 
