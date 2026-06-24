@@ -447,12 +447,12 @@ export default function EventSubscription() {
                 </Tooltip>
               </div>
 
-              {/* 通用参数：合约部署区块高度 */}
+              {/* 通用参数：合约初始订阅开始高度 */}
               {(selectedChainType === 'ethereum' || selectedChainType === 'chainmaker' || selectedChainType === 'solana') && (
                 <Form.Item
-                  label="合约部署区块高度"
+                  label="合约初始订阅开始高度"
                   name="deploy_block_height"
-                  tooltip="从哪个区块高度开始订阅事件，0 表示从最新区块开始"
+                  tooltip="首次订阅时从该区块高度开始扫描事件，通常设为合约部署高度；设为 0 则从最新区块开始"
                 >
                   <InputNumber
                     style={{ width: '100%' }}
@@ -536,13 +536,13 @@ export default function EventSubscription() {
             </Tooltip>
           </div>
 
-          {/* 合约部署区块高度 - 所有链通用 */}
+          {/* 合约初始订阅开始高度 - 所有链通用 */}
           <Form.Item
             name="deploy_block_height"
             label={
               <span>
-                {editRecord?.chain_type === 'solana' ? '合约部署 Slot 高度' : '合约部署区块高度'}&nbsp;
-                <Tooltip title={editRecord?.chain_type === 'solana' ? '从该 Slot 开始扫描，设为 0 则从最新 Slot 开始' : '从该区块高度开始扫描，设为 0 则从最新区块开始'}>
+                {editRecord?.chain_type === 'solana' ? '合约初始订阅开始 Slot 高度' : '合约初始订阅开始高度'}&nbsp;
+                <Tooltip title={editRecord?.chain_type === 'solana' ? '首次订阅时从该 Slot 开始扫描事件，通常设为合约部署 Slot；设为 0 则从最新 Slot 开始' : '首次订阅时从该区块高度开始扫描事件，通常设为合约部署高度；设为 0 则从最新区块开始'}>
                   <QuestionCircleOutlined style={{ color: '#999' }} />
                 </Tooltip>
               </span>

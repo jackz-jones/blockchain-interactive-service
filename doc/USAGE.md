@@ -330,7 +330,7 @@ ContractConfs:
     EnableSubscribe: true
     ContractAddr: "0x..."                    # Contract address
     Abi: ./etc/notification.json             # ABI JSON file path
-    DeployBlockHeight: 0                     # Block height at deployment
+    DeployBlockHeight: 0                     # Initial subscription start block height
     GetHistoryEventInterval: 500             # Polling interval in ms
     GetHistoryEventHeightWindow: 100         # Blocks per poll batch
 ```
@@ -338,7 +338,7 @@ ContractConfs:
 **Event subscription mechanism:**
 
 The Ethereum client uses a polling strategy to subscribe to events:
-1. On startup, it fetches historical events from `DeployBlockHeight` to the current block height in batches.
+1. On startup, it fetches historical events from `DeployBlockHeight` (initial subscription start height) to the current block height in batches.
 2. After catching up, it switches to WebSocket-based real-time event subscription.
 3. If the WebSocket connection drops, it automatically reconnects and resumes from the last processed block.
 4. Events are published to Redis for downstream consumers.
@@ -371,7 +371,7 @@ ContractConfs:
   notification:
     EnableSubscribe: true
     ContractName: "notificationv100"   # On-chain contract name
-    DeployBlockHeight: 5               # Block height at deployment
+    DeployBlockHeight: 5               # Initial subscription start block height
 ```
 
 **Event subscription mechanism:**
@@ -459,7 +459,7 @@ ContractConfs:
   notification:
     EnableSubscribe: true
     ContractAddr: "program-id-base58"   # Solana program ID (base58)
-    DeployBlockHeight: 0                 # Slot number at deployment
+    DeployBlockHeight: 0                 # Initial subscription start slot number
 ```
 
 **Event subscription mechanism:**

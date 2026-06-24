@@ -330,7 +330,7 @@ ContractConfs:
     EnableSubscribe: true
     ContractAddr: "0x..."                    # 合约地址
     Abi: ./etc/notification.json             # ABI JSON 文件路径
-    DeployBlockHeight: 0                     # 合约部署区块高度
+    DeployBlockHeight: 0                     # 合约初始订阅开始高度
     GetHistoryEventInterval: 500             # 轮询历史事件间隔（毫秒）
     GetHistoryEventHeightWindow: 100         # 每次轮询的区块高度窗口
 ```
@@ -338,7 +338,7 @@ ContractConfs:
 **事件订阅机制：**
 
 Ethereum 客户端使用轮询策略订阅事件：
-1. 启动时，从 `DeployBlockHeight` 到当前区块高度批量获取历史事件。
+1. 启动时，从 `DeployBlockHeight`（合约初始订阅开始高度）到当前区块高度批量获取历史事件。
 2. 追上最新区块后，切换到基于 WebSocket 的实时事件订阅。
 3. 如果 WebSocket 连接断开，会自动重连并从上次处理的区块继续。
 4. 事件发布到 Redis，供下游消费者使用。
@@ -371,7 +371,7 @@ ContractConfs:
   notification:
     EnableSubscribe: true
     ContractName: "notificationv100"   # 链上合约名称
-    DeployBlockHeight: 5               # 合约部署高度
+    DeployBlockHeight: 5               # 合约初始订阅开始高度
 ```
 
 **事件订阅机制：**
@@ -459,7 +459,7 @@ ContractConfs:
   notification:
     EnableSubscribe: true
     ContractAddr: "program-id-base58"   # Solana 程序 ID（base58 格式）
-    DeployBlockHeight: 0                 # 部署时的 Slot 编号
+    DeployBlockHeight: 0                 # 初始订阅开始 Slot 编号
 ```
 
 **事件订阅机制：**

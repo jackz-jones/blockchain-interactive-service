@@ -346,14 +346,14 @@ export default function ContractConfigForm() {
                 <Text type="secondary" style={{ fontSize: 13 }}>订阅配置</Text>
               </Divider>
 
-              {/* 通用字段：合约部署区块高度（以太坊 & 长安链都需要） */}
+              {/* 通用字段：合约初始订阅开始高度（以太坊 & 长安链都需要） */}
               {(chainType === 'ethereum' || chainType === 'chainmaker') && (
                 <Form.Item
                   name="deploy_block_height"
                   label={
                     <span>
-                      合约部署区块高度&nbsp;
-                      <Tooltip title="从该区块高度开始扫描历史事件，设为 0 则从最新区块开始">
+                      合约初始订阅开始高度&nbsp;
+                      <Tooltip title="首次订阅时从该区块高度开始扫描事件，通常设为合约部署高度；设为 0 则从最新区块开始">
                         <QuestionCircleOutlined style={{ color: '#999' }} />
                       </Tooltip>
                     </span>
@@ -413,14 +413,14 @@ export default function ContractConfigForm() {
                 </>
               )}
 
-              {/* Solana 专属：合约部署高度 */}
+              {/* Solana 专属：合约初始订阅开始高度 */}
               {chainType === 'solana' && (
                 <Form.Item
                   name="deploy_block_height"
                   label={
                     <span>
-                      合约部署 Slot 高度&nbsp;
-                      <Tooltip title="从该 Slot 开始扫描历史事件，设为 0 则从最新 Slot 开始">
+                      合约初始订阅开始 Slot 高度&nbsp;
+                      <Tooltip title="首次订阅时从该 Slot 开始扫描事件，通常设为合约部署 Slot；设为 0 则从最新 Slot 开始">
                         <QuestionCircleOutlined style={{ color: '#999' }} />
                       </Tooltip>
                     </span>
