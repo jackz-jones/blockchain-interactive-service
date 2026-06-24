@@ -150,6 +150,7 @@ type CallLog struct {
 	APIKeyID     uint       `gorm:"not null;index" json:"api_key_id"`                   // 使用的 API Key
 	ChainName    string     `gorm:"size:64;not null;index" json:"chain_name"`           // 链名称
 	ChainType    string     `gorm:"size:32;not null" json:"call_type"`                  // 链类型（前端显示为 call_type）
+	TxId         string     `gorm:"size:256;index" json:"tx_id"`                        // 交易ID（合约写链调用时产生，便于用户去链上查看）
 	Method       string     `gorm:"size:128;not null" json:"method"`                    // 调用方法
 	MethodType   MethodType `gorm:"type:tinyint;not null;default:1" json:"method_type"` // 调用类型：1-Invoke写链 2-Query读链
 	ContractName string     `gorm:"size:128" json:"contract_name"`                      // 合约名称

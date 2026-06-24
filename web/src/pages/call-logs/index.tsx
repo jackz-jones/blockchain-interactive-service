@@ -14,6 +14,7 @@ interface CallLog {
   id: string
   chain_name: string
   contract_name: string
+  tx_id: string
   method: string
   method_type: number
   method_type_label: string
@@ -71,6 +72,14 @@ export default function CallLogs() {
   const columns: ColumnsType<CallLog> = [
     { title: '链名称', dataIndex: 'chain_name', key: 'chain_name', width: 160 },
     { title: '合约', dataIndex: 'contract_name', key: 'contract_name', width: 200 },
+    {
+      title: '交易ID',
+      dataIndex: 'tx_id',
+      key: 'tx_id',
+      width: 200,
+      ellipsis: { showTitle: false },
+      render: (txId: string) => txId || '-',
+    },
     { title: '方法', dataIndex: 'method', key: 'method', width: 200, ellipsis: { showTitle: false } },
     {
       title: '操作类型',

@@ -68,12 +68,12 @@ func (l *CallContractLogic) CallContract(req *types.CallContractRequest) (resp *
 
 	if err != nil {
 		// 记录调用日志
-		go l.recordCallLog(tenantID, req, "failed", err.Error(), duration)
+		go l.recordCallLog(tenantID, req, txId, "failed", err.Error(), duration)
 		return &types.CommonResponse{Code: 500, Message: "invoke contract: " + err.Error()}, nil
 	}
 
 	// 记录调用日志
-	go l.recordCallLog(tenantID, req, "success", "", duration)
+	go l.recordCallLog(tenantID, req, txId, "success", "", duration)
 
 	// 写链异步调用时 pending=true（交易已提交但未确认），同步调用完成后 pending=false
 	pending := methodType == pb.MethodType_Invoke && !req.Sync
@@ -92,7 +92,7 @@ func (l *CallContractLogic) CallContract(req *types.CallContractRequest) (resp *
 
 // recordCallLog 异步记录调用日志
 func (l *CallContractLogic) recordCallLog(tenantID uint, req *types.CallContractRequest,
-	status, errMsg string, duration time.Duration) {
+	txId, status, errMsg string, duration time.Duration) {
 
 	userID := middleware.GetUserIDFromContext(l.ctx)
 	apiKeyID := middleware.GetAPIKeyIDFromContext(l.ctx)
@@ -109,6 +109,7 @@ func (l *CallContractLogic) recordCallLog(tenantID uint, req *types.CallContract
 		APIKeyID:     apiKeyID,
 		ChainName:    req.ChainName,
 		ChainType:    chainType,
+		TxId:         txId,
 		Method:       req.Method,
 		MethodType:   store.MethodType(req.MethodType),
 		ContractName: req.ContractName,
