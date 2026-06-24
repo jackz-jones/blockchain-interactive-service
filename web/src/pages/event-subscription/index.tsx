@@ -150,19 +150,16 @@ export default function EventSubscription() {
 
     setCreateLoading(true)
     try {
-      const res = await api.post('/events/subscribe-by-contract', payload)
-      const data = res as { code?: number; message?: string }
-      if (data.code === 409) {
-        message.warning(data.message || '该合约已存在订阅，请勿重复创建')
-      } else {
-        message.success('订阅创建成功')
-        setCreateOpen(false)
-        fetchList()
-      }
+      await api.post('/events/subscribe-by-contract', payload)
+      message.success('订阅创建成功')
+      setCreateOpen(false)
+      fetchList()
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { message?: string; code?: number } } }
-      if (error?.response?.data?.code === 409) {
-        message.warning(error.response.data.message || '该合约已存在订阅，请勿重复创建')
+      const error = err as { businessMessage?: string }
+      if (error.businessMessage) {
+        message.warning(error.businessMessage)
+      } else {
+        message.error('订阅创建失败')
       }
     } finally {
       setCreateLoading(false)
@@ -180,6 +177,9 @@ export default function EventSubscription() {
   }
 
   const handleViewEvents = async (record: SubscriptionItem) => {
+    // 先关闭可能打开的创建/编辑弹窗，避免多个Modal叠加
+    setCreateOpen(false)
+    setEditOpen(false)
     setEventsTitle(`${record.chain_name} / ${record.contract_name}`)
     setEventsOpen(true)
     setEventsLoading(true)
