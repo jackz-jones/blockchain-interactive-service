@@ -74,6 +74,12 @@ func (l *TestChainConnectionLogic) TestChainConnection(req *types.TestChainConne
 
 	client, testErr := l.svcCtx.ChainClientFactory(l.ctx, testConfig.ChainName, testConfig.ChainType, chainConf, l.svcCtx.Config.Log, l.svcCtx.RedisClient)
 	if client != nil {
+		// 客户端创建成功后，必须调用 VerifyConnection 真正验证链节点连通性
+		// 因为 ethclient.DialContext 对 HTTP URL 是惰性连接，不会立即验证连接
+		// 即使 URL/端口无效也返回 nil error，必须通过实际的 RPC 调用来验证
+		if verifyErr := client.VerifyConnection(l.ctx); verifyErr != nil {
+			testErr = verifyErr
+		}
 		_ = client.Stop()
 	}
 
