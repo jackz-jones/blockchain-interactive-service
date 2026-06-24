@@ -210,6 +210,16 @@ export default function ChainConfigForm() {
     try {
       // 获取当前表单值，发送给后端以测试用户实际填写的配置
       const formValues = form.getFieldsValue()
+
+      // 过滤脱敏值：脱敏值或空值不提交，保留数据库原值
+      const sensitiveFields = ['private_key', 'sign_key', 'sol_private_key', 'user_tls_key', 'user_enc_key']
+      for (const field of sensitiveFields) {
+        const value = formValues[field]
+        if (isMaskedValue(value) || value === undefined || value === null || value === '') {
+          delete formValues[field]
+        }
+      }
+
       const res = await api.post(`/chain-configs/${id}/test-connection`, formValues)
       const data = res.data as { success?: boolean; error?: string; chain_name?: string; chain_type?: string }
       if (data.success) {

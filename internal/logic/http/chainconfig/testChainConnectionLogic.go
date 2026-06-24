@@ -90,6 +90,7 @@ func (l *TestChainConnectionLogic) TestChainConnection(req *types.TestChainConne
 }
 
 // overlayFormValues 用前端表单值覆盖数据库中的链配置
+// 脱敏值（包含 ****）或空值不覆盖数据库原值，防止掩码字符导致私钥解析失败
 func overlayFormValues(dbConfig *store.TenantChainConfig, form *types.CreateChainConfigRequest) *store.TenantChainConfig {
 	// 基于数据库配置做副本
 	cfg := *dbConfig
@@ -110,21 +111,34 @@ func overlayFormValues(dbConfig *store.TenantChainConfig, form *types.CreateChai
 		cfg.AuthType = form.AuthType
 		cfg.OrgId = form.OrgId
 		cfg.HashType = form.HashType
-		cfg.SignKey = form.SignKey
+		// 脱敏值或空值不覆盖数据库原值，防止掩码字符（如 ****）被当作实际值使用
+		if !IsMaskedValue(form.SignKey) && form.SignKey != "" {
+			cfg.SignKey = form.SignKey
+		}
 		cfg.SignCert = form.SignCert
-		cfg.UserTlsKey = form.UserTlsKey
+		if !IsMaskedValue(form.UserTlsKey) && form.UserTlsKey != "" {
+			cfg.UserTlsKey = form.UserTlsKey
+		}
 		cfg.UserTlsCert = form.UserTlsCert
-		cfg.UserEncKey = form.UserEncKey
+		if !IsMaskedValue(form.UserEncKey) && form.UserEncKey != "" {
+			cfg.UserEncKey = form.UserEncKey
+		}
 		cfg.UserEncCert = form.UserEncCert
 		cfg.ProxyUrl = form.ProxyUrl
 	case "ethereum":
 		cfg.EthChainId = form.EthChainId
 		cfg.HttpUrl = form.HttpUrl
 		cfg.WebsocketUrl = form.WebsocketUrl
-		cfg.PrivateKey = form.PrivateKey
+		// 脱敏值或空值不覆盖数据库原值，防止掩码字符（如 ****）导致私钥解析失败
+		if !IsMaskedValue(form.PrivateKey) && form.PrivateKey != "" {
+			cfg.PrivateKey = form.PrivateKey
+		}
 	case "solana":
 		cfg.SolRpcUrl = form.SolRpcUrl
-		cfg.SolPrivateKey = form.SolPrivateKey
+		// 脱敏值或空值不覆盖数据库原值，防止掩码字符（如 ****）导致私钥解析失败
+		if !IsMaskedValue(form.SolPrivateKey) && form.SolPrivateKey != "" {
+			cfg.SolPrivateKey = form.SolPrivateKey
+		}
 		cfg.CommitmentLevel = form.CommitmentLevel
 		cfg.SkipPreflight = form.SkipPreflight
 		cfg.MaxRetries = form.MaxRetries
