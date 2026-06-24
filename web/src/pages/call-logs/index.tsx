@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Table, Typography, Space, Select, DatePicker, Tag, Input, Button } from 'antd'
+import { Table, Typography, Space, Select, DatePicker, Tag, Input, Button, Tooltip } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import api from '@/services/api'
@@ -78,7 +78,12 @@ export default function CallLogs() {
       key: 'tx_id',
       width: 200,
       ellipsis: { showTitle: false },
-      render: (txId: string) => txId || '-',
+      render: (txId: string) =>
+        txId ? (
+          <Tooltip title={txId} placement="topLeft">
+            <span style={{ cursor: 'default' }}>{txId}</span>
+          </Tooltip>
+        ) : '-',
     },
     { title: '方法', dataIndex: 'method', key: 'method', width: 200, ellipsis: { showTitle: false } },
     {
