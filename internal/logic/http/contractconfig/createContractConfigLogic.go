@@ -88,6 +88,11 @@ func (l *CreateContractConfigLogic) CreateContractConfig(
 
 	l.svcCtx.TenantSDKManager.InvalidateTenantCache(tenantID, chainConfig.ChainName)
 
+	// 使 ConfigResolver 该链下的缓存失效，避免 ResolveByAddr/ByName 返回过时结果
+	if l.svcCtx.ConfigResolver != nil {
+		l.svcCtx.ConfigResolver.InvalidateByChainConfigID(req.ChainConfigId)
+	}
+
 	return &types.CommonResponse{Code: 0, Message: "success", Data: config}, nil
 }
 

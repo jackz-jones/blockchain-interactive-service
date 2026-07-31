@@ -312,6 +312,12 @@ func (l *UpdateChainConfigLogic) UpdateChainConfig(req *types.UpdateChainConfigR
 	// 中断该链下所有活跃订阅协程，清除 SubscribeFlag，调度器将在下一轮询周期基于新配置自动重启
 	l.svcCtx.TenantSDKManager.InvalidateChainSubscriptions(before.ID)
 
+	// 使 ConfigResolver 中该 chainConfigID 关联的所有缓存条目失效，
+	// 这样可以处理 chainName 改名的场景（旧 chainName 的缓存也会被精确清理）
+	if l.svcCtx.ConfigResolver != nil {
+		l.svcCtx.ConfigResolver.InvalidateByChainConfigID(before.ID)
+	}
+
 	return &types.CommonResponse{Code: 0, Message: "success", Data: before}, nil
 }
 

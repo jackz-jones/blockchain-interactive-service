@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
@@ -13,6 +14,16 @@ import (
 	commonEvent "github.com/jackz-jones/common/event"
 	"github.com/zeromicro/go-zero/core/logx"
 )
+
+// subscribeErrorTotal 累计订阅错误次数（原子计数）
+// 通过 GetSubscribeErrorTotal 对外暴露，可被 Prometheus 采集器读取上报为
+// chain_subscribe_error_total 指标；不直接引入 prometheus/client_golang 以避免新增依赖。
+var subscribeErrorTotal atomic.Int64
+
+// GetSubscribeErrorTotal 返回累计订阅错误次数，供监控/Prometheus 采集使用
+func GetSubscribeErrorTotal() int64 {
+	return subscribeErrorTotal.Load()
+}
 
 // ChainClientFactory 链客户端工厂函数类型
 // 根据链名称、链类型和配置创建 ChainSdkInterface 实例
@@ -102,6 +113,7 @@ func runSubscribeOnce(sdkClient ChainSdkInterface, cc *ContractConf,
 	subErr := sdkClient.SubscribeContractEvent(
 		*cc, chainConfName, contractConfName, chainType, chainConfigID, contractConfigID)
 	if subErr != nil {
+		subscribeErrorTotal.Add(1)
 		logger.Errorf("failed to subscribe chain %s contract %s event (key=%s): %v",
 			chainConfName, contractConfName, flagKey, subErr)
 		return

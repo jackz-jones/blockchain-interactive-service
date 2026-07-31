@@ -131,5 +131,10 @@ func (l *UpdateContractConfigLogic) UpdateContractConfig(
 		}
 	}
 
+	// 使 ConfigResolver 缓存失效，避免 ResolveByName/ResolveByAddr 返回过时的合约地址/ABI
+	if l.svcCtx.ConfigResolver != nil {
+		l.svcCtx.ConfigResolver.InvalidateByChainConfigID(req.ChainConfigId)
+	}
+
 	return &types.CommonResponse{Code: 0, Message: "success", Data: existing}, nil
 }

@@ -59,5 +59,10 @@ func (l *DeleteContractConfigLogic) DeleteContractConfig(
 		l.svcCtx.TenantSDKManager.StopContractSubscription(req.ChainConfigId, req.Id, tenantID, chainConfig.ChainName)
 	}
 
+	// 使 ConfigResolver 该链下的缓存失效，避免 ResolveByAddr/ByName 返回已删除的合约
+	if l.svcCtx.ConfigResolver != nil {
+		l.svcCtx.ConfigResolver.InvalidateByChainConfigID(req.ChainConfigId)
+	}
+
 	return &types.CommonResponse{Code: 0, Message: "success"}, nil
 }
