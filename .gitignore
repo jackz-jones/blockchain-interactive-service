@@ -1,10 +1,13 @@
 .idea
 .DS_Store
 logs
+*.log
 chain-interactive-service
 proto/common.proto
 sdk.log*
 cover.out
+coverage.out
+coverage.html
 vendor
 client
 .codebuddy/
@@ -15,3 +18,18 @@ web/dist
 web/.vite
 web/tsconfig.tsbuildinfo
 bin/
+
+# Python 本地虚拟环境（部分脚本使用）
+venv/
+.venv/
+__pycache__/
+
+# 编辑器 / 编辑器缓存
+.vscode/
+*.swp
+
+# 编译产物 / 临时文件
+*.exe
+*.test
+*.out
+tmp/
