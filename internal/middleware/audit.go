@@ -118,6 +118,7 @@ func HTTPAuditMiddleware(repo store.Repository) func(http.Handler) http.Handler 
 				ResponseWriter: w,
 				statusCode:     http.StatusOK,
 				body:           &strings.Builder{},
+				maxBodyBytes:   maxAuditResponseBytes,
 			}
 			next.ServeHTTP(wrapped, r)
 
@@ -175,6 +176,16 @@ func recordHTTPAudit(repo store.Repository, r *http.Request, statusCode int, res
 		"duration":    duration.Milliseconds(),
 	}
 
+	// 将非合约调用的请求体也纳入 detail，同时脱敏，避免 private_key/password 等敏感字段直接落库。
+	if resourceType != "contract_call" && len(bodyBytes) > 0 {
+		maskedBody := maskSensitiveFields(string(bodyBytes))
+		// 控制入库长度，避免异常请求体拖油表。
+		if len(maskedBody) > maxAuditResponseBytes {
+			maskedBody = maskedBody[:maxAuditResponseBytes]
+		}
+		detail["request"] = maskedBody
+	}
+
 	// 合约调用特殊脱敏：detail 不含完整参数，仅记录方法名、合约名、链名、状态、耗时
 	if resourceType == "contract_call" {
 		// 从请求体中提取合约调用的关键信息
@@ -212,7 +223,7 @@ func recordHTTPAudit(repo store.Repository, r *http.Request, statusCode int, res
 					contractDetail["method_type"] = callReq.MethodType
 					contractDetail["method_type_label"] = methodTypeLabel
 				}
-				// 记录参数键值对
+				// 记录参数键值对（完整键值，业务侧要求保留）
 				if len(callReq.Params) > 0 {
 					contractDetail["params"] = callReq.Params
 				}
@@ -304,11 +315,16 @@ func extractAuditInfoFromRequest(r *http.Request) (string, string, string) {
 	return action, resourceType, resourceID
 }
 
+// maxAuditResponseBytes 审计缓存响应体的最大字节数（仅用于判断业务码，非透传给客户端）。
+// 超出部分不再写入 body 缓冲，避免大响应导致内存放大。
+const maxAuditResponseBytes = 64 * 1024
+
 // bodyResponseWriter 包装 ResponseWriter 以捕获状态码和响应体
 type bodyResponseWriter struct {
 	http.ResponseWriter
-	statusCode int
-	body       *strings.Builder
+	statusCode   int
+	body         *strings.Builder
+	maxBodyBytes int
 }
 
 func (w *bodyResponseWriter) WriteHeader(code int) {
@@ -317,7 +333,19 @@ func (w *bodyResponseWriter) WriteHeader(code int) {
 }
 
 func (w *bodyResponseWriter) Write(b []byte) (int, error) {
-	w.body.Write(b)
+	// 只在未达到上限时缓存响应体，用于后续解析业务码；
+	// 无论是否缓存，都必须原样写回底层 ResponseWriter，保证给客户端返回完整内容。
+	if w.maxBodyBytes > 0 {
+		if remain := w.maxBodyBytes - w.body.Len(); remain > 0 {
+			if len(b) <= remain {
+				w.body.Write(b)
+			} else {
+				w.body.Write(b[:remain])
+			}
+		}
+	} else {
+		w.body.Write(b)
+	}
 	return w.ResponseWriter.Write(b)
 }
 
@@ -341,45 +369,104 @@ func extractResourceFromPath(path string) string {
 
 // ========== 敏感数据脱敏 ==========
 
-// sensitiveFields 需要脱敏的字段名
-var sensitiveFields = []string{
-	"private_key", "privateKey", "password", "secret",
-	"api_key", "apiKey", "token", "credential",
+// maskedPlaceholder 脱敏后的占位值
+const maskedPlaceholder = "***MASKED***"
+
+// sensitiveFieldSet 需要脱敏的字段名集合（键统一为小写，便于大小写无关匹配）
+var sensitiveFieldSet = map[string]struct{}{
+	"private_key": {},
+	"privatekey":  {},
+	"password":    {},
+	"secret":      {},
+	"api_key":     {},
+	"apikey":      {},
+	"token":       {},
+	"credential":  {},
+	"credentials": {},
 }
 
-// maskSensitiveFields 对 JSON 字符串中的敏感字段进行脱敏
+// isSensitiveField 判断字段名是否为敏感字段（大小写无关）
+func isSensitiveField(name string) bool {
+	_, ok := sensitiveFieldSet[strings.ToLower(name)]
+	return ok
+}
+
+// maskSensitiveFields 对 JSON 字符串进行结构化脱敏：
+// - 解析成 map/array 递归遍历，命中敏感 key 时替换 value；
+// - 若解析失败（例如非 JSON），回退到 fallback 的字符串替换实现，尽力保护敏感数据。
 func maskSensitiveFields(jsonStr string) string {
-	for _, field := range sensitiveFields {
-		// 简单的字符串替换脱敏（生产环境应使用更精确的 JSON 解析）
-		jsonStr = maskFieldValue(jsonStr, field)
+	if jsonStr == "" {
+		return jsonStr
+	}
+
+	trimmed := strings.TrimSpace(jsonStr)
+	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+		var v interface{}
+		if err := json.Unmarshal([]byte(jsonStr), &v); err == nil {
+			masked := maskValue(v)
+			if out, err := json.Marshal(masked); err == nil {
+				return string(out)
+			}
+		}
+	}
+
+	// fallback：非结构化 JSON，退化为逐字段替换（覆盖全部同名字段）
+	for field := range sensitiveFieldSet {
+		jsonStr = maskFieldValueAll(jsonStr, field)
 	}
 	return jsonStr
 }
 
-// maskFieldValue 脱敏单个字段
-func maskFieldValue(jsonStr, field string) string {
-	// 匹配 "field":"value" 或 "field": "value" 模式
+// maskValue 递归遍历 JSON 反序列化后的结构，对敏感字段执行脱敏
+func maskValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		for k, item := range val {
+			if isSensitiveField(k) {
+				val[k] = maskedPlaceholder
+				continue
+			}
+			val[k] = maskValue(item)
+		}
+		return val
+	case []interface{}:
+		for i, item := range val {
+			val[i] = maskValue(item)
+		}
+		return val
+	default:
+		return v
+	}
+}
+
+// maskFieldValueAll fallback：对所有出现的 "field":"..." 均脱敏（不解析 JSON 转义，仅用于非结构化文本兜底）
+func maskFieldValueAll(jsonStr, field string) string {
 	patterns := []string{
 		`"` + field + `":"`,
 		`"` + field + `": "`,
 	}
 
 	for _, pattern := range patterns {
-		idx := strings.Index(jsonStr, pattern)
-		if idx == -1 {
-			continue
+		var builder strings.Builder
+		remaining := jsonStr
+		for {
+			idx := strings.Index(remaining, pattern)
+			if idx == -1 {
+				builder.WriteString(remaining)
+				break
+			}
+			valueStart := idx + len(pattern)
+			valueEnd := strings.Index(remaining[valueStart:], `"`)
+			if valueEnd == -1 {
+				builder.WriteString(remaining)
+				break
+			}
+			builder.WriteString(remaining[:valueStart])
+			builder.WriteString(maskedPlaceholder)
+			remaining = remaining[valueStart+valueEnd:]
 		}
-
-		valueStart := idx + len(pattern)
-		valueEnd := strings.Index(jsonStr[valueStart:], `"`)
-		if valueEnd == -1 {
-			continue
-		}
-
-		masked := jsonStr[:valueStart] + "***MASKED***" + jsonStr[valueStart+valueEnd:]
-		jsonStr = masked
+		jsonStr = builder.String()
 	}
-
 	return jsonStr
 }
 
