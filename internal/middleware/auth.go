@@ -37,12 +37,18 @@ const (
 
 // AuthInterceptor API Key 认证拦截器
 type AuthInterceptor struct {
-	repo store.Repository
+	repo  store.Repository
+	cache *APIKeyAuthCache
 }
 
 // NewAuthInterceptor 创建认证拦截器
 func NewAuthInterceptor(repo store.Repository) *AuthInterceptor {
 	return &AuthInterceptor{repo: repo}
+}
+
+// NewAuthInterceptorWithCache 创建启用缓存的认证拦截器
+func NewAuthInterceptorWithCache(repo store.Repository, cache *APIKeyAuthCache) *AuthInterceptor {
+	return &AuthInterceptor{repo: repo, cache: cache}
 }
 
 // Unary 一元 RPC 认证拦截器
@@ -100,6 +106,20 @@ func (a *AuthInterceptor) authenticate(ctx context.Context) (context.Context, er
 		return nil, status.Error(codes.Unauthenticated, "empty api key")
 	}
 
+	// 命中缓存路径
+	if a.cache != nil {
+		if info, ok := a.cache.Lookup(apiKeyStr); ok {
+			if err := checkAuthInfoGRPC(info, ctx); err != nil {
+				return nil, err
+			}
+			a.cache.UpdateLastUsedAsync(a.repo, info.APIKeyID)
+			return injectGRPCAuthCtx(ctx, info), nil
+		}
+		if a.cache.LookupNotFound(apiKeyStr) {
+			return nil, status.Error(codes.Unauthenticated, "invalid api key")
+		}
+	}
+
 	// 查询 API Key
 	apiKey, err := a.repo.GetAPIKeyByKey(ctx, apiKeyStr)
 	if err != nil {
@@ -107,6 +127,9 @@ func (a *AuthInterceptor) authenticate(ctx context.Context) (context.Context, er
 		return nil, status.Error(codes.Internal, "internal error")
 	}
 	if apiKey == nil {
+		if a.cache != nil {
+			a.cache.StoreNotFound(apiKeyStr)
+		}
 		return nil, status.Error(codes.Unauthenticated, "invalid api key")
 	}
 
@@ -145,20 +168,61 @@ func (a *AuthInterceptor) authenticate(ctx context.Context) (context.Context, er
 		return nil, status.Error(codes.Internal, "internal error")
 	}
 
-	// 异步更新 API Key 最后使用时间
-	go func() {
-		_ = a.repo.UpdateAPIKeyLastUsed(context.Background(), apiKey.ID, time.Now())
-	}()
-
-	// 将认证信息注入 context
-	newCtx := context.WithValue(ctx, ContextKeyTenantID, apiKey.TenantID)
-	newCtx = context.WithValue(newCtx, ContextKeyAPIKeyID, apiKey.ID)
-	newCtx = context.WithValue(newCtx, ContextKeyUserID, apiKey.UserID)
+	// 组装认证要素
+	info := &apiKeyAuthInfo{
+		APIKeyID:     apiKey.ID,
+		TenantID:     apiKey.TenantID,
+		UserID:       apiKey.UserID,
+		Status:       apiKey.Status,
+		ExpiresAt:    apiKey.ExpiresAt,
+		IPWhitelist:  apiKey.IPWhitelist,
+		TenantStatus: tenant.Status,
+	}
 	if user != nil {
-		newCtx = context.WithValue(newCtx, ContextKeyUserRole, user.Role)
+		info.UserRole = user.Role
 	}
 
-	return newCtx, nil
+	// 写缓存并节流更新 last_used
+	if a.cache != nil {
+		a.cache.Store(apiKeyStr, info)
+		a.cache.UpdateLastUsedAsync(a.repo, apiKey.ID)
+	} else {
+		go func() {
+			_ = a.repo.UpdateAPIKeyLastUsed(context.Background(), apiKey.ID, time.Now())
+		}()
+	}
+
+	return injectGRPCAuthCtx(ctx, info), nil
+}
+
+// checkAuthInfoGRPC 校验缓存命中的认证要素是否仍有效
+func checkAuthInfoGRPC(info *apiKeyAuthInfo, ctx context.Context) error {
+	if info == nil || info.Status != statusActive {
+		return status.Error(codes.Unauthenticated, "api key is revoked")
+	}
+	if info.ExpiresAt != nil && info.ExpiresAt.Before(time.Now()) {
+		return status.Error(codes.Unauthenticated, "api key expired")
+	}
+	if info.TenantStatus != store.TenantStatusActive {
+		return status.Error(codes.PermissionDenied, "tenant is disabled or suspended")
+	}
+	if info.IPWhitelist != "" {
+		if !isIPAllowed(getClientIP(ctx), info.IPWhitelist) {
+			return status.Error(codes.PermissionDenied, "ip not in whitelist")
+		}
+	}
+	return nil
+}
+
+// injectGRPCAuthCtx 将认证要素注入到 gRPC context
+func injectGRPCAuthCtx(parent context.Context, info *apiKeyAuthInfo) context.Context {
+	ctx := context.WithValue(parent, ContextKeyTenantID, info.TenantID)
+	ctx = context.WithValue(ctx, ContextKeyAPIKeyID, info.APIKeyID)
+	ctx = context.WithValue(ctx, ContextKeyUserID, info.UserID)
+	if info.UserRole != "" {
+		ctx = context.WithValue(ctx, ContextKeyUserRole, info.UserRole)
+	}
+	return ctx
 }
 
 // shouldSkipAuth 判断是否跳过认证（健康检查等）

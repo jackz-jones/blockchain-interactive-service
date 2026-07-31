@@ -27,7 +27,11 @@ const (
 )
 
 // HTTPAuthMiddleware HTTP API Key 认证中间件
-func HTTPAuthMiddleware(repo store.Repository) func(http.Handler) http.Handler {
+// 若传入非 nil 的 cache，则会：
+//  1. 缓存 API Key + Tenant + User 的组合认证结果，命中时不再查 DB
+//  2. 对 UpdateAPIKeyLastUsed 做节流，避免每次请求都写 DB
+//  3. 对不存在的 key 做短期负缓存，防止暴力扫描打穿 DB
+func HTTPAuthMiddleware(repo store.Repository, cache *APIKeyAuthCache) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// 从 Header 中提取 API Key
@@ -45,6 +49,24 @@ func HTTPAuthMiddleware(repo store.Repository) func(http.Handler) http.Handler {
 				return
 			}
 
+			// 命中缓存：直接使用缓存中的认证要素
+			if cache != nil {
+				if info, ok := cache.Lookup(apiKeyStr); ok {
+					if !isAuthInfoValid(info, r) {
+						http.Error(w, `{"code":401,"message":"api key not authorized"}`, http.StatusUnauthorized)
+						return
+					}
+					cache.UpdateLastUsedAsync(repo, info.APIKeyID)
+					ctx := injectHTTPAuthCtx(r.Context(), info)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+				if cache.LookupNotFound(apiKeyStr) {
+					http.Error(w, `{"code":401,"message":"invalid api key"}`, http.StatusUnauthorized)
+					return
+				}
+			}
+
 			// 查询 API Key
 			apiKey, err := repo.GetAPIKeyByKey(r.Context(), apiKeyStr)
 			if err != nil {
@@ -53,6 +75,9 @@ func HTTPAuthMiddleware(repo store.Repository) func(http.Handler) http.Handler {
 				return
 			}
 			if apiKey == nil {
+				if cache != nil {
+					cache.StoreNotFound(apiKeyStr)
+				}
 				http.Error(w, `{"code":401,"message":"invalid api key"}`, http.StatusUnauthorized)
 				return
 			}
@@ -93,22 +118,69 @@ func HTTPAuthMiddleware(repo store.Repository) func(http.Handler) http.Handler {
 			// 查询用户角色
 			user, _ := repo.GetUserByID(r.Context(), apiKey.UserID)
 
-			// 异步更新最后使用时间
-			go func() {
-				_ = repo.UpdateAPIKeyLastUsed(context.Background(), apiKey.ID, time.Now())
-			}()
-
-			// 注入认证信息到 context
-			ctx := context.WithValue(r.Context(), httpKeyTenantID, apiKey.TenantID)
-			ctx = context.WithValue(ctx, httpKeyAPIKeyID, apiKey.ID)
-			ctx = context.WithValue(ctx, httpKeyUserID, apiKey.UserID)
+			// 组装认证要素
+			info := &apiKeyAuthInfo{
+				APIKeyID:     apiKey.ID,
+				TenantID:     apiKey.TenantID,
+				UserID:       apiKey.UserID,
+				Status:       apiKey.Status,
+				ExpiresAt:    apiKey.ExpiresAt,
+				IPWhitelist:  apiKey.IPWhitelist,
+				TenantStatus: t.Status,
+			}
 			if user != nil {
-				ctx = context.WithValue(ctx, httpKeyUserRole, user.Role)
+				info.UserRole = user.Role
 			}
 
+			// 写入缓存 & 节流更新 last_used
+			if cache != nil {
+				cache.Store(apiKeyStr, info)
+				cache.UpdateLastUsedAsync(repo, apiKey.ID)
+			} else {
+				// 无缓存时保持原行为：每次都异步写 DB
+				go func() {
+					_ = repo.UpdateAPIKeyLastUsed(context.Background(), apiKey.ID, time.Now())
+				}()
+			}
+
+			// 注入认证信息到 context
+			ctx := injectHTTPAuthCtx(r.Context(), info)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// isAuthInfoValid 校验缓存命中的认证要素是否仍然有效（状态/过期/IP/租户状态）
+func isAuthInfoValid(info *apiKeyAuthInfo, r *http.Request) bool {
+	if info == nil {
+		return false
+	}
+	if info.Status != "active" {
+		return false
+	}
+	if info.ExpiresAt != nil && info.ExpiresAt.Before(time.Now()) {
+		return false
+	}
+	if info.TenantStatus != store.TenantStatusActive {
+		return false
+	}
+	if info.IPWhitelist != "" {
+		if !isIPAllowed(getHTTPClientIP(r), info.IPWhitelist) {
+			return false
+		}
+	}
+	return true
+}
+
+// injectHTTPAuthCtx 将认证要素注入到 request context
+func injectHTTPAuthCtx(parent context.Context, info *apiKeyAuthInfo) context.Context {
+	ctx := context.WithValue(parent, httpKeyTenantID, info.TenantID)
+	ctx = context.WithValue(ctx, httpKeyAPIKeyID, info.APIKeyID)
+	ctx = context.WithValue(ctx, httpKeyUserID, info.UserID)
+	if info.UserRole != "" {
+		ctx = context.WithValue(ctx, httpKeyUserRole, info.UserRole)
+	}
+	return ctx
 }
 
 // GetTenantIDFromHTTP 从 HTTP 请求 context 中获取租户 ID
