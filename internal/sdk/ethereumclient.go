@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,7 +44,12 @@ type EthereumClient struct {
 
 	// http 和 websocket 连接，前者用于发交易和查询，后者用于订阅事件
 	httpClient *ethclient.Client
-	wsClient   *ethclient.Client
+
+	// wsClient 可能在启动时降级为 nil；后台重连协程会周期性尝试重连并原子替换。
+	// 读写均需通过 wsMu 保护，或使用 getWSClient()/setWSClient() 帮助方法。
+	wsMu     sync.RWMutex
+	wsClient *ethclient.Client
+	wsURL    string
 	logx.Logger
 
 	// 合约事件处理器集合
@@ -116,7 +122,7 @@ func NewEthereumClient(ctx context.Context, ethConf EthConf, contractConfs map[s
 	// 不使用请求传入的 ctx，避免请求结束后 context 被取消导致缓存的客户端不可用
 	childCtx, cancel := context.WithCancel(context.Background())
 
-	return &EthereumClient{
+	client := &EthereumClient{
 		chainId:          big.NewInt(ethConf.ChainId),
 		privateKey:       privateKey,
 		fromAddress:      crypto.PubkeyToAddress(*publicKeyECDSA),
@@ -125,11 +131,69 @@ func NewEthereumClient(ctx context.Context, ethConf EthConf, contractConfs map[s
 		cancel:           cancel,
 		httpClient:       httpClient,
 		wsClient:         wsClient,
+		wsURL:            ethConf.WebsocketUrl,
 		Logger:           logx.WithContext(childCtx),
 		ethEventHandlers: ethEventHandlers,
 		abiJsonCache:     abiJsonCache,
 		redisClient:      redisClient,
-	}, nil
+	}
+
+	// 若 WebSocket 初始连接失败（wsClient == nil），启动后台重连协程；
+	// 每 30s 尝试一次直到成功，避免服务启动时 WS 不可用后永久无法订阅事件。
+	if wsClient == nil && ethConf.WebsocketUrl != "" {
+		client.wg.Add(1)
+		go client.wsReconnectLoop()
+	}
+
+	return client, nil
+}
+
+// getWSClient 线程安全地读取当前的 wsClient。
+func (c *EthereumClient) getWSClient() *ethclient.Client {
+	c.wsMu.RLock()
+	defer c.wsMu.RUnlock()
+	return c.wsClient
+}
+
+// setWSClient 线程安全地替换 wsClient，返回旧客户端（供关闭）。
+func (c *EthereumClient) setWSClient(cli *ethclient.Client) *ethclient.Client {
+	c.wsMu.Lock()
+	old := c.wsClient
+	c.wsClient = cli
+	c.wsMu.Unlock()
+	return old
+}
+
+// wsReconnectLoop 每 30s 尝试重连一次 wsClient，成功后退出协程并替换字段。
+// 通过 c.ctx.Done() 感知服务停止，从而能被 Stop() 取消。
+func (c *EthereumClient) wsReconnectLoop() {
+	defer c.wg.Done()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			if c.getWSClient() != nil {
+				return // 已被其它路径重连成功
+			}
+			dialCtx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+			cli, err := ethclient.DialContext(dialCtx, c.wsURL)
+			cancel()
+			if err != nil {
+				c.Logger.Infof("websocket reconnect failed, will retry: %v", err)
+				continue
+			}
+			if old := c.setWSClient(cli); old != nil {
+				old.Close()
+			}
+			c.Logger.Infof("websocket reconnected: %s", c.wsURL)
+			return
+		}
+	}
 }
 
 // GetTxByTxId 根据 txId 查询交易
@@ -152,7 +216,9 @@ func (c *EthereumClient) GetTxByTxId(txId string) (string, bool, error) {
 	}
 
 	// 获取交易发起者
-	fromm, err := types.Sender(types.NewEIP155Signer(c.chainId), tx)
+	// 使用 LatestSignerForChainID 以正确支持 EIP-1559（Type 2）等新交易类型，
+	// 避免固定使用 EIP155Signer 导致新交易解签失败
+	fromm, err := types.Sender(types.LatestSignerForChainID(c.chainId), tx)
 	if err != nil {
 		return "", false, fmt.Errorf("failed to get tx sender: %v", err)
 	}
@@ -221,7 +287,8 @@ func (c *EthereumClient) CallContract(methodType pb.MethodType, contractConfigNa
 		if readErr != nil {
 			return "", "", fmt.Errorf("failed to ReadAbiJsonFile: %v", readErr)
 		}
-		c.Logger.Errorf("abi cache miss for [%s], fallback to file read", contractConfigName)
+		// 缓存未命中属于正常回退路径（动态新增合约），使用 Info 级日志
+		c.Logger.Infof("abi cache miss for [%s], fallback to file read", contractConfigName)
 	}
 
 	// solidity 合约也支持方法传参结构体类型，这里需要将统一请求的 kvs 翻译成以太坊的 abi 参数结构
@@ -269,13 +336,9 @@ func (c *EthereumClient) CallContract(methodType pb.MethodType, contractConfigNa
 
 				// 查询超时返回
 				case <-timeoutTimer.C:
-					txBytes, err2 := json.Marshal(txResp)
-					if err2 != nil {
-						return "", "", fmt.Errorf("failed to json marshal tx response: %v", err2)
-					}
-
-					// 查询 receipt 超时，返回错误同时也应该返回 txId
-					return txId, string(txBytes), fmt.Errorf("%s, txId: %s", code.ErrGetTxReceiptTimeoutMsg, txId)
+					// 查询 receipt 超时：返回 txId 和明确的超时错误，
+					// 不再把初始 map{"txId": ...} 冒充为 txResp 序列化返回，避免误导上层为"成功"
+					return txId, "", fmt.Errorf("%s, txId: %s", code.ErrGetTxReceiptTimeoutMsg, txId)
 				}
 			}
 		}
@@ -473,8 +536,9 @@ func (c *EthereumClient) Stop() error {
 	if c.httpClient != nil {
 		c.httpClient.Close()
 	}
-	if c.wsClient != nil {
-		c.wsClient.Close()
+	if ws := c.getWSClient(); ws != nil {
+		ws.Close()
+		c.setWSClient(nil)
 	}
 	return nil
 }
@@ -603,13 +667,14 @@ func (c *EthereumClient) GetHistoryEvent(contractAddr, chainConfName, contractCo
 			}
 
 			// 检查 wsClient 是否可用（WebSocket 连接可能在创建时降级为 nil）
-			if c.wsClient == nil {
+			wsCli := c.getWSClient()
+			if wsCli == nil {
 				c.Logger.WithFields(logFields...).Errorf("websocket client is nil, cannot query events")
 				return fmt.Errorf("websocket connection unavailable, cannot query contract events")
 			}
 
 			// 查询合约事件
-			logs, err := c.wsClient.FilterLogs(c.ctx, query)
+			logs, err := wsCli.FilterLogs(c.ctx, query)
 			if err != nil {
 				c.Logger.WithFields(logFields...).Errorf("failed to FilterLogs: %v", err)
 				continue
@@ -687,17 +752,20 @@ func (c *EthereumClient) RealTimeEvent(contractAddr, chainConfName, contractConf
 	logs := make(chan types.Log)
 
 	// 检查 wsClient 是否可用（WebSocket 连接可能在创建时降级为 nil）
-	if c.wsClient == nil {
+	wsCli := c.getWSClient()
+	if wsCli == nil {
 		c.Logger.WithFields(logFields...).Errorf("websocket client is nil, cannot subscribe events")
 		return fmt.Errorf("websocket connection unavailable, cannot subscribe contract events")
 	}
 
-	// 实时订阅合约事件，只会接受此时开始发生的事件，过去的历史事件不会返回
-	sub, err := c.wsClient.SubscribeFilterLogs(context.Background(), query, logs)
+	// 实时订阅合约事件，只会接受此时开始发生的事件，过去的历史事件不会返回。
+	// 使用 c.ctx 而不是 context.Background()，确保 Stop() 能取消订阅。
+	sub, err := wsCli.SubscribeFilterLogs(c.ctx, query, logs)
 	if err != nil {
 		c.Logger.WithFields(logFields...).Errorf("failed to SubscribeFilterLogs: %v", err)
 		return fmt.Errorf("failed to SubscribeFilterLogs: %v", err)
 	}
+	defer sub.Unsubscribe()
 
 	// 处理事件
 	for {
@@ -710,27 +778,27 @@ func (c *EthereumClient) RealTimeEvent(contractAddr, chainConfName, contractConf
 			c.Logger.WithFields(logFields...).Infof("received eth contract event[height: %d]: %#v", vLog.BlockNumber, vLog)
 
 			// 解析事件名称
-			eventName := ""
-			eventName, err = c.ethEventHandlers[contractConfName].EventName(vLog)
-			if err != nil {
-				c.Logger.WithFields(logFields...).Errorf("failed to get eth event name from vLog: %#v", vLog)
-				break
+			eventName, evErr := c.ethEventHandlers[contractConfName].EventName(vLog)
+			if evErr != nil {
+				// 单条 log 解析失败不应终止整个订阅，使用 continue 跳过当前事件继续订阅
+				c.Logger.WithFields(logFields...).Errorf("failed to get eth event name from vLog: %#v, err: %v", vLog, evErr)
+				continue
 			}
 
 			// 推送整个 log 结构到 redis，通过 log 里面的 topic 识别具体的事件类型，才能正确解析 log 里的事件数据 data
-			if err = c.redisClient.PublishCrossChainEventToStream(c.ctx, vLog,
-				chainConfigID, contractConfigID, eventName); err != nil {
-				c.Logger.WithFields(logFields...).Errorf("failed to publish event to redis stream: %v", err)
-				return err
+			if pubErr := c.redisClient.PublishCrossChainEventToStream(c.ctx, vLog,
+				chainConfigID, contractConfigID, eventName); pubErr != nil {
+				// redis 发布失败也不终止订阅，避免瞬时抖动导致订阅永久断开
+				c.Logger.WithFields(logFields...).Errorf("failed to publish event to redis stream: %v", pubErr)
+				continue
 			}
 			c.Logger.WithFields(logFields...).Infof("publish eth contract event to stream: %#v", vLog)
 
 			// 更新最新区块高度
 			if vLog.BlockNumber > height {
-				err = c.redisClient.SetLatestBlockHeight(c.ctx, blockHeightKey, vLog.BlockNumber)
-				if err != nil {
-					c.Logger.WithFields(logFields...).Errorf("failed to SetLatestBlockHeight: %v", err)
-					return err
+				if setErr := c.redisClient.SetLatestBlockHeight(c.ctx, blockHeightKey, vLog.BlockNumber); setErr != nil {
+					c.Logger.WithFields(logFields...).Errorf("failed to SetLatestBlockHeight: %v", setErr)
+					continue
 				}
 
 				c.Logger.WithFields(logFields...).Infof("set eth block height[%d]", vLog.BlockNumber)
@@ -739,8 +807,7 @@ func (c *EthereumClient) RealTimeEvent(contractAddr, chainConfName, contractConf
 
 		// 接收到退出信号
 		case <-c.ctx.Done():
-			c.Logger.WithFields(logFields...).Errorf("ctx done")
-			sub.Unsubscribe()
+			c.Logger.WithFields(logFields...).Infof("ctx done, stop subscribe eth contract events")
 			return nil
 		}
 	}
@@ -892,7 +959,42 @@ func convertABIParam(abiType string, rawValue []byte) (interface{}, error) {
 
 	// bytes32, bytes20 等固定长度字节数组
 	case strings.HasPrefix(abiType, "bytes") && abiType != "bytes":
-		return common.FromHex(strValue), nil
+		// 解析声明长度，例如 bytes32 -> 32
+		lengthStr := strings.TrimPrefix(abiType, "bytes")
+		expectedLen, err := strconv.Atoi(lengthStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid fixed-length bytes type: %s", abiType)
+		}
+		decoded := common.FromHex(strValue)
+		if len(decoded) != expectedLen {
+			return nil, fmt.Errorf("invalid %s value: expected %d bytes, got %d", abiType, expectedLen, len(decoded))
+		}
+		// 转换为对应长度的固定字节数组（abi.Pack 期望 [N]byte 类型）
+		switch expectedLen {
+		case 32:
+			var arr [32]byte
+			copy(arr[:], decoded)
+			return arr, nil
+		case 20:
+			var arr [20]byte
+			copy(arr[:], decoded)
+			return arr, nil
+		case 16:
+			var arr [16]byte
+			copy(arr[:], decoded)
+			return arr, nil
+		case 8:
+			var arr [8]byte
+			copy(arr[:], decoded)
+			return arr, nil
+		case 4:
+			var arr [4]byte
+			copy(arr[:], decoded)
+			return arr, nil
+		default:
+			// 其他长度按切片返回，由调用方按需处理
+			return decoded, nil
+		}
 
 	// bytes 动态字节数组
 	case abiType == "bytes":
@@ -905,23 +1007,32 @@ func convertABIParam(abiType string, rawValue []byte) (interface{}, error) {
 }
 
 // parseUint 解析无符号整数
+// 使用 strconv.ParseUint 并传入 bitSize 进行精确的位宽校验；
+// 相较旧实现基于 fmt.Sscanf + "val == 0" 的判断，能够正确处理合法的 0 值，
+// 且能识别溢出错误。
 func parseUint(s string, bitSize int) (uint64, error) {
-	val, err := fmt.Sscanf(s, "%d", new(uint64))
-	if err != nil || val == 0 {
-		return 0, fmt.Errorf("invalid uint%d value: %s", bitSize, s)
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("invalid uint%d value: empty string", bitSize)
 	}
-	var result uint64
-	_, err = fmt.Sscanf(s, "%d", &result)
-	return result, err
+	result, err := strconv.ParseUint(s, 10, bitSize)
+	if err != nil {
+		return 0, fmt.Errorf("invalid uint%d value %q: %v", bitSize, s, err)
+	}
+	return result, nil
 }
 
 // parseInt 解析有符号整数
+// 使用 strconv.ParseInt 并传入 bitSize 进行精确的位宽校验；
+// 修复旧实现将合法的 0 值误判为无效值的问题。
 func parseInt(s string, bitSize int) (int64, error) {
-	val, err := fmt.Sscanf(s, "%d", new(int64))
-	if err != nil || val == 0 {
-		return 0, fmt.Errorf("invalid int%d value: %s", bitSize, s)
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("invalid int%d value: empty string", bitSize)
 	}
-	var result int64
-	_, err = fmt.Sscanf(s, "%d", &result)
-	return result, err
+	result, err := strconv.ParseInt(s, 10, bitSize)
+	if err != nil {
+		return 0, fmt.Errorf("invalid int%d value %q: %v", bitSize, s, err)
+	}
+	return result, nil
 }
