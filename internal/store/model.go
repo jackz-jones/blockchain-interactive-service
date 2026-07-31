@@ -145,35 +145,35 @@ const (
 // CallLog 调用记录表
 type CallLog struct {
 	gorm.Model
-	TenantID     uint       `gorm:"not null;index" json:"tenant_id"`                    // 所属租户
-	UserID       uint       `gorm:"not null;index" json:"user_id"`                      // 调用者
-	APIKeyID     uint       `gorm:"not null;index" json:"api_key_id"`                   // 使用的 API Key
-	ChainName    string     `gorm:"size:64;not null;index" json:"chain_name"`           // 链名称
-	ChainType    string     `gorm:"size:32;not null" json:"call_type"`                  // 链类型（前端显示为 call_type）
-	TxId         string     `gorm:"size:256;index" json:"tx_id"`                        // 交易ID（合约写链调用时产生，便于用户去链上查看）
-	Method       string     `gorm:"size:128;not null" json:"method"`                    // 调用方法
-	MethodType   MethodType `gorm:"type:tinyint;not null;default:1" json:"method_type"` // 调用类型：1-Invoke写链 2-Query读链
-	ContractName string     `gorm:"size:128" json:"contract_name"`                      // 合约名称
-	Status       string     `gorm:"size:16;not null" json:"status"`                     // 调用状态：success、failed
-	ErrorMsg     string     `gorm:"size:1024" json:"error_msg"`                         // 错误信息
-	GasUsed      uint64     `gorm:"default:0" json:"gas_used"`                          // Gas 消耗
-	Duration     int64      `gorm:"default:0" json:"duration_ms"`                       // 耗时（毫秒，前端显示为 duration_ms）
-	RequestIP    string     `gorm:"size:64" json:"request_ip"`                          // 请求 IP
-	CreatedAt    time.Time  `gorm:"-" json:"created_at"`                                // 虚拟字段，前端显示为 created_at
+	TenantID     uint       `gorm:"not null;index;index:idx_calllog_tenant_created,priority:1;index:idx_calllog_tenant_status_method,priority:1" json:"tenant_id"` // 所属租户
+	UserID       uint       `gorm:"not null;index" json:"user_id"`                                                                                                 // 调用者
+	APIKeyID     uint       `gorm:"not null;index" json:"api_key_id"`                                                                                              // 使用的 API Key
+	ChainName    string     `gorm:"size:64;not null;index" json:"chain_name"`                                                                                      // 链名称
+	ChainType    string     `gorm:"size:32;not null" json:"call_type"`                                                                                             // 链类型（前端显示为 call_type）
+	TxId         string     `gorm:"size:256;index" json:"tx_id"`                                                                                                   // 交易ID（合约写链调用时产生，便于用户去链上查看）
+	Method       string     `gorm:"size:128;not null" json:"method"`                                                                                               // 调用方法
+	MethodType   MethodType `gorm:"type:tinyint;not null;default:1;index:idx_calllog_tenant_status_method,priority:3" json:"method_type"`                          // 调用类型：1-Invoke写链 2-Query读链
+	ContractName string     `gorm:"size:128" json:"contract_name"`                                                                                                 // 合约名称
+	Status       string     `gorm:"size:16;not null;index:idx_calllog_tenant_status_method,priority:2" json:"status"`                                              // 调用状态：success、failed
+	ErrorMsg     string     `gorm:"size:1024" json:"error_msg"`                                                                                                    // 错误信息
+	GasUsed      uint64     `gorm:"default:0" json:"gas_used"`                                                                                                     // Gas 消耗
+	Duration     int64      `gorm:"default:0" json:"duration_ms"`                                                                                                  // 耗时（毫秒，前端显示为 duration_ms）
+	RequestIP    string     `gorm:"size:64" json:"request_ip"`                                                                                                     // 请求 IP
+	CreatedAt    time.Time  `gorm:"-" json:"created_at"`                                                                                                           // 虚拟字段，前端显示为 created_at
 }
 
 // Bill 账单表
 type Bill struct {
 	gorm.Model
-	TenantID    uint      `gorm:"not null;index" json:"tenant_id"`                 // 所属租户
-	BillType    string    `gorm:"size:16;not null;default:daily" json:"bill_type"` // 账单类型：daily（日账单）、monthly（月度汇总）
-	PeriodStart time.Time `gorm:"not null" json:"period_start"`                    // 账期开始
-	PeriodEnd   time.Time `gorm:"not null" json:"period_end"`                      // 账期结束
-	TotalCalls  uint64    `gorm:"default:0" json:"total_calls"`                    // 总调用次数
-	TotalGas    uint64    `gorm:"default:0" json:"total_gas"`                      // 总 Gas 消耗
-	Amount      float64   `gorm:"type:decimal(10,4);default:0" json:"amount"`      // 账单金额
-	Currency    string    `gorm:"size:8;not null;default:CNY" json:"currency"`     // 币种
-	Status      string    `gorm:"size:16;not null;default:unpaid" json:"status"`   // 状态：unpaid、paid、overdue
+	TenantID    uint      `gorm:"not null;index;index:idx_bill_tenant_period,priority:1" json:"tenant_id"` // 所属租户
+	BillType    string    `gorm:"size:16;not null;default:daily" json:"bill_type"`                         // 账单类型：daily（日账单）、monthly（月度汇总）
+	PeriodStart time.Time `gorm:"not null;index:idx_bill_tenant_period,priority:2" json:"period_start"`    // 账期开始
+	PeriodEnd   time.Time `gorm:"not null" json:"period_end"`                                              // 账期结束
+	TotalCalls  uint64    `gorm:"default:0" json:"total_calls"`                                            // 总调用次数
+	TotalGas    uint64    `gorm:"default:0" json:"total_gas"`                                              // 总 Gas 消耗
+	Amount      float64   `gorm:"type:decimal(10,4);default:0" json:"amount"`                              // 账单金额
+	Currency    string    `gorm:"size:8;not null;default:CNY" json:"currency"`                             // 币种
+	Status      string    `gorm:"size:16;not null;default:unpaid" json:"status"`                           // 状态：unpaid、paid、overdue
 
 	Tenant Tenant `gorm:"foreignKey:TenantID" json:"-"`
 }
@@ -194,16 +194,16 @@ type Quota struct {
 // AuditLog 审计日志表
 type AuditLog struct {
 	gorm.Model
-	TenantID      uint   `gorm:"not null;index" json:"tenant_id"`      // 所属租户
-	UserID        uint   `gorm:"not null;index" json:"user_id"`        // 操作者
-	Action        string `gorm:"size:64;not null;index" json:"action"` // 操作类型
-	Resource      string `gorm:"size:128" json:"resource"`             // 操作资源
-	ResourceID    string `gorm:"size:128" json:"resource_id"`          // 资源标识
-	ResourceName  string `gorm:"-" json:"resource_name"`               // 虚拟字段：资源名称（关联查询填充）
-	ResourceLabel string `gorm:"-" json:"resource_label"`              // 虚拟字段：资源类型中文名（前端展示用）
-	Detail        string `gorm:"type:text" json:"detail"`              // 操作详情 JSON
-	IP            string `gorm:"size:64" json:"ip"`                    // 操作 IP
-	UserAgent     string `gorm:"size:256" json:"user_agent"`           // User-Agent
+	TenantID      uint   `gorm:"not null;index;index:idx_auditlog_tenant_created,priority:1" json:"tenant_id"` // 所属租户
+	UserID        uint   `gorm:"not null;index;index:idx_auditlog_user_created,priority:1" json:"user_id"`     // 操作者
+	Action        string `gorm:"size:64;not null;index" json:"action"`                                         // 操作类型
+	Resource      string `gorm:"size:128" json:"resource"`                                                     // 操作资源
+	ResourceID    string `gorm:"size:128" json:"resource_id"`                                                  // 资源标识
+	ResourceName  string `gorm:"-" json:"resource_name"`                                                       // 虚拟字段：资源名称（关联查询填充）
+	ResourceLabel string `gorm:"-" json:"resource_label"`                                                      // 虚拟字段：资源类型中文名（前端展示用）
+	Detail        string `gorm:"type:text" json:"detail"`                                                      // 操作详情 JSON
+	IP            string `gorm:"size:64" json:"ip"`                                                            // 操作 IP
+	UserAgent     string `gorm:"size:256" json:"user_agent"`                                                   // User-Agent
 
 	CreatedAt time.Time `gorm:"-" json:"created_at"` // 虚拟字段：覆盖 gorm.Model 的 CreatedAt，输出为 snake_case
 	Operator  string    `gorm:"-" json:"operator"`   // 虚拟字段：操作者用户名（通过 Joins 从 users 表填充）
