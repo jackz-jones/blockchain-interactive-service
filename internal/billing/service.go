@@ -4,61 +4,134 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// QuotaDecision CheckQuota 结果，区分 block / throttle 语义
+type QuotaDecision struct {
+	Allowed   bool // 是否允许通过
+	Throttled bool // 命中 throttle 策略（配合 429 语义），仅在 Allowed=false 时有意义
+	Warning   bool // 用量已接近上限
+}
+
 // Service 计费与配额服务
 type Service struct {
 	repo store.Repository
 
-	// dailyCounters 日调用计数器缓存: tenantID -> count（内存缓存，定期同步到 DB）
+	// dailyCounters 日调用计数器缓存: "tenantID:YYYY-MM-DD" -> *atomic.Int64
+	// key 中带日期，天然按日隔离，跨天不会串扰。
 	dailyCounters sync.Map
 
 	logger logx.Logger
+
+	// loc 计费系统使用的时区，默认 Asia/Shanghai，可通过 SetLocation 自定义
+	// 避免依赖 time.Local（容器中常为 UTC，会导致日/月账单周期偏移）
+	loc *time.Location
+
+	// 后台清理协程控制
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 // NewService 创建计费服务
 func NewService(repo store.Repository, logger logx.Logger) *Service {
+	// 默认商业时区为 Asia/Shanghai；若加载失败（时区数据缺失）则回退到 UTC+8 固定偏移
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil || loc == nil {
+		loc = time.FixedZone("CST", 8*3600)
+	}
 	s := &Service{
 		repo:   repo,
 		logger: logger,
+		loc:    loc,
+		stopCh: make(chan struct{}),
 	}
+	go s.startDailyCounterGC()
 	return s
 }
 
+// SetLocation 自定义计费时区（应在服务启动时设置）
+func (s *Service) SetLocation(loc *time.Location) {
+	if loc == nil {
+		return
+	}
+	s.loc = loc
+}
+
+// now 返回当前计费时区下的时间
+func (s *Service) now() time.Time {
+	return time.Now().In(s.loc)
+}
+
+// Stop 停止后台协程（用于测试或优雅关闭）
+func (s *Service) Stop() {
+	s.stopOnce.Do(func() {
+		close(s.stopCh)
+	})
+}
+
+// startDailyCounterGC 每小时清理一次昨日及更早的 daily counter key，防止内存无限增长
+func (s *Service) startDailyCounterGC() {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			today := time.Now().Format("2006-01-02")
+			suffix := ":" + today
+			s.dailyCounters.Range(func(key, _ interface{}) bool {
+				k, ok := key.(string)
+				if !ok {
+					return true
+				}
+				if !strings.HasSuffix(k, suffix) {
+					s.dailyCounters.Delete(key)
+				}
+				return true
+			})
+		}
+	}
+}
+
+// dailyKey 生成 tenantID+当前日期 的组合 key，天然按日隔离
+func dailyKey(tenantID uint) string {
+	return fmt.Sprintf("%d:%s", tenantID, time.Now().Format("2006-01-02"))
+}
+
 // CheckQuota 检查租户配额是否允许本次调用
-// 返回值：allowed（是否允许）、warning（是否接近上限）、err
-func (s *Service) CheckQuota(ctx context.Context, tenantID uint) (allowed bool, warning bool, err error) {
+// 返回 QuotaDecision 以区分 block / throttle 策略，方便上层选择 403 / 429 状态码
+func (s *Service) CheckQuota(ctx context.Context, tenantID uint) (QuotaDecision, error) {
 	quota, err := s.repo.GetQuotaByTenant(ctx, tenantID)
 	if err != nil {
-		return false, false, fmt.Errorf("get quota: %w", err)
+		return QuotaDecision{}, fmt.Errorf("get quota: %w", err)
 	}
 	if quota == nil {
 		// 没有配额记录，默认允许（兼容旧数据）
-		return true, false, nil
+		return QuotaDecision{Allowed: true}, nil
 	}
 
 	// 企业版无限制
 	if quota.MonthlyLimit == 0 && quota.DailyLimit == 0 {
-		return true, false, nil
+		return QuotaDecision{Allowed: true}, nil
 	}
 
 	// 检查日配额
 	if quota.DailyLimit > 0 {
 		dailyCount, err := s.getDailyCount(ctx, tenantID)
 		if err != nil {
-			return false, false, err
+			return QuotaDecision{}, err
 		}
 		if uint64(dailyCount) >= quota.DailyLimit {
-			if quota.OveragePolicy == "block" {
-				return false, false, nil
-			}
-			// throttle 模式下仍然返回不允许，但由上层决定是限流还是拒绝
-			return false, false, nil
+			throttled := quota.OveragePolicy == "throttle"
+			return QuotaDecision{Allowed: false, Throttled: throttled}, nil
 		}
 	}
 
@@ -66,17 +139,18 @@ func (s *Service) CheckQuota(ctx context.Context, tenantID uint) (allowed bool, 
 	if quota.MonthlyLimit > 0 {
 		monthlyUsed := quota.MonthlyUsed
 		if monthlyUsed >= quota.MonthlyLimit {
-			return false, false, nil
+			throttled := quota.OveragePolicy == "throttle"
+			return QuotaDecision{Allowed: false, Throttled: throttled}, nil
 		}
 
 		// 检查是否达到 80% 预警线
 		warningThreshold := quota.MonthlyLimit * 80 / 100
 		if monthlyUsed >= warningThreshold {
-			return true, true, nil
+			return QuotaDecision{Allowed: true, Warning: true}, nil
 		}
 	}
 
-	return true, false, nil
+	return QuotaDecision{Allowed: true}, nil
 }
 
 // RecordUsage 记录一次调用用量
@@ -94,15 +168,16 @@ func (s *Service) RecordUsage(ctx context.Context, tenantID uint) error {
 }
 
 // GenerateDailyBills 生成日账单（定时任务调用，每日24点执行）
+// 所有日期边界均以 s.loc 为准，避免依赖 time.Local
 func (s *Service) GenerateDailyBills(ctx context.Context) error {
-	now := time.Now()
+	now := s.now()
 	// 生成昨天的日账单
 	yesterday := now.AddDate(0, 0, -1)
 	year := yesterday.Year()
 	month := yesterday.Month()
 	day := yesterday.Day()
 
-	periodStart := time.Date(year, month, day, 0, 0, 0, 0, time.Local)
+	periodStart := time.Date(year, month, day, 0, 0, 0, 0, s.loc)
 	periodEnd := periodStart.AddDate(0, 0, 1)
 
 	// 获取所有租户
@@ -135,7 +210,7 @@ func (s *Service) GenerateDailyBills(ctx context.Context) error {
 
 // GenerateMonthlyBills 生成月度汇总账单（定时任务调用，每月1日执行）
 func (s *Service) GenerateMonthlyBills(ctx context.Context) error {
-	now := time.Now()
+	now := s.now()
 	// 生成上个月的账单
 	year := now.Year()
 	month := now.Month() - 1
@@ -144,7 +219,7 @@ func (s *Service) GenerateMonthlyBills(ctx context.Context) error {
 		year--
 	}
 
-	periodStart := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
+	periodStart := time.Date(year, month, 1, 0, 0, 0, 0, s.loc)
 	periodEnd := periodStart.AddDate(0, 1, 0)
 
 	// 获取所有租户
@@ -171,22 +246,14 @@ func (s *Service) GenerateMonthlyBills(ctx context.Context) error {
 }
 
 // ResetMonthlyCounters 重置月度计数器（每月初调用）
+// 使用单条 UPDATE 批量重置，避免逐个 Save 导致的 N 次写入。
 func (s *Service) ResetMonthlyCounters(ctx context.Context) error {
-	tenants, _, err := s.repo.ListTenants(ctx, 0, 10000)
+	n, err := s.repo.ResetAllMonthlyUsed(ctx)
 	if err != nil {
+		s.logger.Errorf("reset monthly counters failed: %v", err)
 		return err
 	}
-
-	for _, t := range tenants {
-		quota, err := s.repo.GetQuotaByTenant(ctx, t.ID)
-		if err != nil || quota == nil {
-			continue
-		}
-		quota.MonthlyUsed = 0
-		_ = s.repo.CreateOrUpdateQuota(ctx, quota)
-	}
-
-	s.logger.Info("monthly counters reset")
+	s.logger.Infof("monthly counters reset, affected rows=%d", n)
 	return nil
 }
 
@@ -254,9 +321,9 @@ type UsageStatsTrend struct {
 
 // GetUsageStatsTrend 获取租户用量统计趋势（按天分组）
 func (s *Service) GetUsageStatsTrend(ctx context.Context, tenantID uint, days int) (*UsageStatsTrend, error) {
-	now := time.Now()
-	startTime := time.Date(now.Year(), now.Month(), now.Day()-days+1, 0, 0, 0, 0, now.Location())
-	endTime := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+	now := s.now()
+	startTime := time.Date(now.Year(), now.Month(), now.Day()-days+1, 0, 0, 0, 0, s.loc)
+	endTime := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, s.loc)
 
 	// 查询数据库中的按天统计
 	dailyStats, err := s.repo.GetDailyUsageStats(ctx, tenantID, startTime, endTime)
@@ -446,29 +513,42 @@ func getCostBreakdown(plan string, totalCalls uint64) string {
 	}
 }
 
-// getDailyCount 获取租户今日调用次数
+// getDailyCount 获取租户今日调用次数（原子计数，跨天自动隔离）
 func (s *Service) getDailyCount(ctx context.Context, tenantID uint) (int64, error) {
-	// 优先从内存缓存获取
-	if count, ok := s.dailyCounters.Load(tenantID); ok {
-		return count.(int64), nil
+	key := dailyKey(tenantID)
+	// 快速路径：内存中已有当日计数
+	if v, ok := s.dailyCounters.Load(key); ok {
+		return v.(*atomic.Int64).Load(), nil
 	}
 
-	// 从数据库查询
+	// 慢路径：从数据库回填当日调用次数（当日的历史累计）
 	count, err := s.repo.CountCallsByTenantToday(ctx, tenantID)
 	if err != nil {
 		return 0, err
 	}
 
-	s.dailyCounters.Store(tenantID, count)
+	counter := new(atomic.Int64)
+	counter.Store(count)
+	// LoadOrStore 保证并发下唯一 counter 实例
+	actual, loaded := s.dailyCounters.LoadOrStore(key, counter)
+	if loaded {
+		return actual.(*atomic.Int64).Load(), nil
+	}
 	return count, nil
 }
 
-// incrementDailyCount 增加日计数器
+// incrementDailyCount 原子地为当日计数 +1
 func (s *Service) incrementDailyCount(tenantID uint) {
-	if count, ok := s.dailyCounters.Load(tenantID); ok {
-		s.dailyCounters.Store(tenantID, count.(int64)+1)
-	} else {
-		s.dailyCounters.Store(tenantID, int64(1))
+	key := dailyKey(tenantID)
+	if v, ok := s.dailyCounters.Load(key); ok {
+		v.(*atomic.Int64).Add(1)
+		return
+	}
+	counter := new(atomic.Int64)
+	counter.Store(1)
+	actual, loaded := s.dailyCounters.LoadOrStore(key, counter)
+	if loaded {
+		actual.(*atomic.Int64).Add(1)
 	}
 }
 

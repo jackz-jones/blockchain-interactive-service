@@ -63,18 +63,21 @@ func (q *QuotaInterceptor) Unary() grpc.UnaryServerInterceptor {
 			return handler(ctx, req)
 		}
 
-		allowed, warning, err := q.billingService.CheckQuota(ctx, tenantID)
+		decision, err := q.billingService.CheckQuota(ctx, tenantID)
 		if err != nil {
 			logx.WithContext(ctx).Errorf("check quota error: %v", err)
 			// 配额检查出错时放行，避免影响正常业务
 			return handler(ctx, req)
 		}
 
-		if !allowed {
-			return nil, status.Error(codes.ResourceExhausted, "quota exceeded, please upgrade your plan")
+		if !decision.Allowed {
+			if decision.Throttled {
+				return nil, status.Error(codes.ResourceExhausted, "quota exceeded, throttled, please retry later")
+			}
+			return nil, status.Error(codes.PermissionDenied, "quota exceeded, please upgrade your plan")
 		}
 
-		if warning {
+		if decision.Warning {
 			logx.WithContext(ctx).Infof("tenant %d quota warning: approaching limit", tenantID)
 		}
 
@@ -139,7 +142,7 @@ func HTTPQuotaMiddleware(billingService *billing.Service) func(http.Handler) htt
 				return
 			}
 
-			allowed, warning, err := billingService.CheckQuota(r.Context(), tenantID)
+			decision, err := billingService.CheckQuota(r.Context(), tenantID)
 			if err != nil {
 				logx.WithContext(r.Context()).Errorf("check quota error: %v", err)
 				// 配额检查出错时放行
@@ -147,14 +150,21 @@ func HTTPQuotaMiddleware(billingService *billing.Service) func(http.Handler) htt
 				return
 			}
 
-			if !allowed {
+			if !decision.Allowed {
 				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusTooManyRequests)
-				_, _ = w.Write([]byte(`{"code":429,"message":"quota exceeded, please upgrade your plan"}`))
+				if decision.Throttled {
+					// throttle 策略：429 Too Many Requests
+					w.WriteHeader(http.StatusTooManyRequests)
+					_, _ = w.Write([]byte(`{"code":429,"message":"quota exceeded, throttled, please retry later"}`))
+				} else {
+					// block 策略：403 Forbidden
+					w.WriteHeader(http.StatusForbidden)
+					_, _ = w.Write([]byte(`{"code":403,"message":"quota exceeded, please upgrade your plan"}`))
+				}
 				return
 			}
 
-			if warning {
+			if decision.Warning {
 				// 在响应头中添加配额预警信息
 				w.Header().Set("X-Quota-Warning", "approaching limit")
 			}

@@ -33,6 +33,7 @@ type Repository interface {
 	ListAPIKeysByTenant(ctx context.Context, tenantID uint, offset, limit int) ([]*APIKey, int64, error)
 	UpdateAPIKey(ctx context.Context, apiKey *APIKey) error
 	UpdateAPIKeyLastUsed(ctx context.Context, id uint, t time.Time) error
+	UpdateAPIKeyStatusByID(ctx context.Context, id uint, status string) error
 
 	// 租户链配置相关
 	CreateChainConfig(ctx context.Context, config *TenantChainConfig) error
@@ -84,6 +85,8 @@ type Repository interface {
 	GetQuotaByTenant(ctx context.Context, tenantID uint) (*Quota, error)
 	CreateOrUpdateQuota(ctx context.Context, quota *Quota) error
 	IncrementMonthlyUsed(ctx context.Context, tenantID uint, delta uint64) error
+	// ResetAllMonthlyUsed 一次性把所有租户的月已用量重置为 0；用于月初批量重置，避免逐个 Save
+	ResetAllMonthlyUsed(ctx context.Context) (int64, error)
 
 	// 审计日志相关
 	CreateAuditLog(ctx context.Context, log *AuditLog) error
@@ -248,6 +251,11 @@ func (r *GormRepository) UpdateAPIKey(ctx context.Context, apiKey *APIKey) error
 
 func (r *GormRepository) UpdateAPIKeyLastUsed(ctx context.Context, id uint, t time.Time) error {
 	return r.db.WithContext(ctx).Model(&APIKey{}).Where("id = ?", id).Update("last_used_at", t).Error
+}
+
+// UpdateAPIKeyStatusByID 根据 API Key ID 更新状态（用于异常检测器自动封禁）
+func (r *GormRepository) UpdateAPIKeyStatusByID(ctx context.Context, id uint, status string) error {
+	return r.db.WithContext(ctx).Model(&APIKey{}).Where("id = ?", id).Update("status", status).Error
 }
 
 // ========== 租户链配置 ==========
@@ -500,7 +508,8 @@ func (r *GormRepository) ListCallLogs(
 		db = db.Where("created_at >= ?", *filter.StartTime)
 	}
 	if filter.EndTime != nil {
-		db = db.Where("created_at <= ?", *filter.EndTime)
+		// 使用左闭右开区间 [start, end)，避免 endTime 恰好落在秒边界时被前后两次查询重复计入
+		db = db.Where("created_at < ?", *filter.EndTime)
 	}
 
 	if err := db.Count(&total).Error; err != nil {
@@ -512,10 +521,21 @@ func (r *GormRepository) ListCallLogs(
 	return logs, total, nil
 }
 
+// billingTimeLocation 返回计费/统计口径的时区（Asia/Shanghai）
+// 与 internal/billing/service.go 中的 SetLocation 默认值保持一致，
+// 避免容器默认 UTC 时区导致的日/月起点不一致。
+func billingTimeLocation() *time.Location {
+	if loc, err := time.LoadLocation("Asia/Shanghai"); err == nil && loc != nil {
+		return loc
+	}
+	return time.FixedZone("CST", 8*3600)
+}
+
 func (r *GormRepository) CountCallsByTenantToday(ctx context.Context, tenantID uint) (int64, error) {
 	var count int64
-	now := time.Now()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	loc := billingTimeLocation()
+	now := time.Now().In(loc)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	err := r.db.WithContext(ctx).Model(&CallLog{}).
 		Where("tenant_id = ? AND method_type = ? AND created_at >= ?", tenantID, MethodTypeInvoke, todayStart).
 		Count(&count).Error
@@ -526,7 +546,8 @@ func (r *GormRepository) CountCallsByTenantMonth(
 	ctx context.Context, tenantID uint, year int, month time.Month,
 ) (int64, error) {
 	var count int64
-	monthStart := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
+	loc := billingTimeLocation()
+	monthStart := time.Date(year, month, 1, 0, 0, 0, 0, loc)
 	monthEnd := monthStart.AddDate(0, 1, 0)
 	err := r.db.WithContext(ctx).Model(&CallLog{}).
 		Where("tenant_id = ? AND method_type = ? AND created_at >= ? AND created_at < ?",
@@ -643,6 +664,15 @@ func (r *GormRepository) IncrementMonthlyUsed(ctx context.Context, tenantID uint
 		Update("monthly_used", gorm.Expr("monthly_used + ?", delta)).Error
 }
 
+// ResetAllMonthlyUsed 单条 UPDATE 一次性把所有 quotas 的 monthly_used 重置为 0
+// 返回受影响的行数；用于月初的批量重置任务，避免 N 次 Save
+func (r *GormRepository) ResetAllMonthlyUsed(ctx context.Context) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&Quota{}).
+		Where("monthly_used > 0").
+		Update("monthly_used", 0)
+	return res.RowsAffected, res.Error
+}
+
 // ========== 审计日志 ==========
 
 func (r *GormRepository) CreateAuditLog(ctx context.Context, log *AuditLog) error {
@@ -669,7 +699,8 @@ func (r *GormRepository) ListAuditLogs(
 		db = db.Where("audit_logs.created_at >= ?", *filter.StartTime)
 	}
 	if filter.EndTime != nil {
-		db = db.Where("audit_logs.created_at <= ?", *filter.EndTime)
+		// 使用左闭右开区间 [start, end)，避免 endTime 秒边界数据被重复计入
+		db = db.Where("audit_logs.created_at < ?", *filter.EndTime)
 	}
 
 	if err := db.Count(&total).Error; err != nil {
