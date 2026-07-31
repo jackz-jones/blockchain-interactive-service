@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/billing"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
@@ -62,6 +63,9 @@ type ServiceContext struct {
 	AuditMiddleware     rest.Middleware
 	RateLimitMiddleware rest.Middleware
 	QuotaMiddleware     rest.Middleware
+
+	// APIKeyAuthCache API Key 认证结果缓存（HTTP + gRPC 共用）
+	APIKeyAuthCache *middleware.APIKeyAuthCache
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -117,7 +121,10 @@ func NewServiceContext(c config.Config) *ServiceContext {
 func (svc *ServiceContext) initDatabase() {
 	db, err := store.NewDB(&svc.Config.DatabaseConf)
 	if err != nil {
-		panic(fmt.Errorf("failed to init database: %v", err))
+		// 记录关键错误后以退出码 1 结束进程，允许 defer/日志 flush 正常执行
+		// 相比 panic 更利于容器编排系统识别退出状态
+		logx.Errorf("failed to init database: %v", err)
+		os.Exit(1)
 	}
 	svc.DB = db
 
@@ -144,9 +151,9 @@ func (svc *ServiceContext) initRedisClient() {
 	redisClient, err := commonEvent.NewRedisClient(svc.Config.SubscribeConf.ConfType, svc.Config.SubscribeConf.RedisAddr,
 		svc.Config.SubscribeConf.RedisUserName, svc.Config.SubscribeConf.RedisPassword, svc.Config.SubscribeConf.MasterName)
 	if err != nil {
-
-		// 目前配置是确定的，如果出现错误，直接 panic
-		panic(fmt.Errorf("failed to NewRedisClient,conf: %v,err: %v", svc.Config.SubscribeConf, err))
+		// 记录关键错误后以退出码 1 结束进程，允许 defer/日志 flush 正常执行
+		logx.Errorf("failed to NewRedisClient, conf: %v, err: %v", svc.Config.SubscribeConf, err)
+		os.Exit(1)
 	}
 
 	svc.RedisClient = redisClient
@@ -201,8 +208,11 @@ func (svc *ServiceContext) initCronScheduler() {
 
 // initHTTPMiddlewares 初始化 HTTP 中间件（适配 rest.Middleware 签名）
 func (svc *ServiceContext) initHTTPMiddlewares() {
+	// API Key 认证结果缓存（TTL 60s，last_used 节流 60s，负缓存 5s）
+	svc.APIKeyAuthCache = middleware.NewAPIKeyAuthCache(middleware.DefaultAPIKeyCacheConfig())
+
 	// 认证中间件
-	authMw := middleware.HTTPAuthMiddleware(svc.Repo)
+	authMw := middleware.HTTPAuthMiddleware(svc.Repo, svc.APIKeyAuthCache)
 	svc.AuthMiddleware = toRestMiddleware(authMw)
 
 	// 审计中间件（位于认证之后、限流之前）
