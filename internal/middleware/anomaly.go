@@ -15,8 +15,8 @@ import (
 type AnomalyDetector struct {
 	mu sync.Mutex
 
-	// failureWindows API Key 失败请求窗口: apiKeyID -> []time.Time
-	failureWindows map[uint][]time.Time
+	// failureWindows API Key 失败请求窗口: apiKeyID -> *failureWindow
+	failureWindows map[uint]*failureWindow
 
 	// bannedKeys 已封禁的 API Key: apiKeyID -> 封禁到期时间
 	bannedKeys map[uint]time.Time
@@ -24,12 +24,25 @@ type AnomalyDetector struct {
 	// repo 数据访问层
 	repo store.Repository
 
+	// authCache 用于自动封禁时同步失效认证缓存（可选）
+	authCache *APIKeyAuthCache
+
 	// 配置
 	windowDuration time.Duration // 检测窗口时长
 	maxFailures    int           // 窗口内最大失败次数
 	banDuration    time.Duration // 封禁时长
 
 	logger logx.Logger
+
+	// 后台清理协程控制
+	stopCh chan struct{}
+	once   sync.Once
+}
+
+// failureWindow 单个 API Key 的失败窗口
+type failureWindow struct {
+	timestamps []time.Time
+	lastSeen   time.Time
 }
 
 // AnomalyDetectorConfig 异常检测器配置
@@ -53,14 +66,65 @@ func NewAnomalyDetector(repo store.Repository, cfg *AnomalyDetectorConfig, logge
 	if cfg == nil {
 		cfg = DefaultAnomalyDetectorConfig()
 	}
-	return &AnomalyDetector{
-		failureWindows: make(map[uint][]time.Time),
+	d := &AnomalyDetector{
+		failureWindows: make(map[uint]*failureWindow),
 		bannedKeys:     make(map[uint]time.Time),
 		repo:           repo,
 		windowDuration: cfg.WindowDuration,
 		maxFailures:    cfg.MaxFailures,
 		banDuration:    cfg.BanDuration,
 		logger:         logger,
+		stopCh:         make(chan struct{}),
+	}
+	go d.cleanupLoop()
+	return d
+}
+
+// Stop 停止后台清理协程
+func (d *AnomalyDetector) Stop() {
+	d.once.Do(func() { close(d.stopCh) })
+}
+
+// SetAuthCache 设置认证缓存引用，用于自动封禁时同步失效
+// 允许在构造后延迟注入，避免 svc 层循环依赖
+func (d *AnomalyDetector) SetAuthCache(cache *APIKeyAuthCache) {
+	d.mu.Lock()
+	d.authCache = cache
+	d.mu.Unlock()
+}
+
+// cleanupLoop 后台清理：每 5 分钟移除 10 分钟无活动的失败窗口与过期封禁
+func (d *AnomalyDetector) cleanupLoop() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		case <-ticker.C:
+			d.gc(10 * time.Minute)
+		}
+	}
+}
+
+func (d *AnomalyDetector) gc(idleThreshold time.Duration) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-idleThreshold)
+
+	// 清理长期无活动的失败窗口
+	for id, w := range d.failureWindows {
+		if w.lastSeen.Before(cutoff) {
+			delete(d.failureWindows, id)
+		}
+	}
+	// 清理已到期的封禁
+	for id, expiry := range d.bannedKeys {
+		if now.After(expiry) {
+			delete(d.bannedKeys, id)
+		}
 	}
 }
 
@@ -92,35 +156,26 @@ func (d *AnomalyDetector) RecordFailure(apiKeyID uint) {
 	windowStart := now.Add(-d.windowDuration)
 
 	// 获取或创建窗口
-	window, exists := d.failureWindows[apiKeyID]
+	w, exists := d.failureWindows[apiKeyID]
 	if !exists {
-		window = make([]time.Time, 0)
+		w = &failureWindow{timestamps: make([]time.Time, 0, 8)}
+		d.failureWindows[apiKeyID] = w
 	}
 
-	// 清理过期记录
-	validIdx := 0
-	for i, t := range window {
-		if t.After(windowStart) {
-			validIdx = i
-			break
-		}
-		if i == len(window)-1 {
-			validIdx = len(window)
-		}
-	}
-	window = window[validIdx:]
+	// 清理过期记录（正确的滑动窗口算法）
+	w.timestamps = pruneExpired(w.timestamps, windowStart)
 
 	// 添加本次失败
-	window = append(window, now)
-	d.failureWindows[apiKeyID] = window
+	w.timestamps = append(w.timestamps, now)
+	w.lastSeen = now
 
 	// 检查是否超过阈值
-	if len(window) >= d.maxFailures {
+	if len(w.timestamps) >= d.maxFailures {
 		d.banKey(apiKeyID)
 	}
 }
 
-// banKey 封禁 API Key
+// banKey 封禁 API Key（调用方须持有 d.mu）
 func (d *AnomalyDetector) banKey(apiKeyID uint) {
 	banExpiry := time.Now().Add(d.banDuration)
 	d.bannedKeys[apiKeyID] = banExpiry
@@ -131,14 +186,23 @@ func (d *AnomalyDetector) banKey(apiKeyID uint) {
 	d.logger.Errorf("[Security] API Key %d auto-banned until %s due to excessive failures",
 		apiKeyID, banExpiry.Format(time.RFC3339))
 
-	// 异步更新数据库中的 API Key 状态
-	go func() {
-		apiKey, err := d.repo.GetAPIKeyByKey(context.Background(), "")
-		if err != nil || apiKey == nil {
-			// 通过 ID 查找并更新（这里简化处理）
-			_ = err
+	// 异步更新数据库中的 API Key 状态为 revoked，成功后同步失效认证缓存
+	repo := d.repo
+	authCache := d.authCache
+	go func(id uint) {
+		if repo == nil {
+			return
 		}
-	}()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := repo.UpdateAPIKeyStatusByID(ctx, id, "revoked"); err != nil {
+			logx.Errorf("[Security] failed to revoke API Key %d in DB: %v", id, err)
+			return
+		}
+		if authCache != nil {
+			authCache.InvalidateByKeyID(id)
+		}
+	}(apiKeyID)
 }
 
 // UnbanKey 手动解封 API Key
