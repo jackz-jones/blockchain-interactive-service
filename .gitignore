@@ -33,3 +33,5 @@ __pycache__/
 *.test
 *.out
 tmp/
+
+/.harness/.secrets/

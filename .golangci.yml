@@ -1,3 +1,4 @@
+version: "2"
 
 run:
   timeout: 10m
@@ -6,131 +7,94 @@ run:
   allow-parallel-runners: true
 
 linters:
-  disable-all: true
+  # v2：default: none 等价于 v1 的 disable-all: true
+  default: none
   enable:
-#    - deadcode
     - goconst
     - gocyclo
-    - gofmt
     - ineffassign
-    - staticcheck
-#    - structcheck # 当非导出结构嵌入另一个结构, 前一个结构被使用就不会监测到, 这个需要每个业务自己屏蔽
-    - typecheck
-    - goimports
-    - revive
-    - gosimple
-    - govet
     - lll
-    - rowserrcheck
-#    - errcheck
     - misspell
-    - unused
-#    - varcheck
+    - revive
+    - rowserrcheck
     - sqlclosecheck
-#    - gosec
-
-
-linters-settings:
-  goconst:
-    min-len: 2
-    min-occurrences: 2
-  gocyclo:
-    min-complexity: 20
-  goimports:
-  #local-prefixes: git.code.oa.com
-  golint:
-  #min-confidence: 0
-  govet:
-  lll:
-    line-length: 120
-  errcheck:
-    check-type-assertions: true
-  gocritic:
-    enabled-checks:
-      - nestingReduce
-    settings:
-      nestingReduce:
-        bodyWidth: 5
-  revive:
-    # see https://github.com/mgechev/revive#available-rules for details.
+    - staticcheck  # v2: gosimple / stylecheck 已并入 staticcheck
+    - unused
+    - govet        # v2: typecheck 自动运行，不可显式启用
+  settings:
+    goconst:
+      min-len: 2
+      min-occurrences: 2
+    gocyclo:
+      min-complexity: 20
+    lll:
+      line-length: 120
+    revive:
+      # see https://github.com/mgechev/revive#available-rules for details.
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: if-return
+        - name: increment-decrement
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unexported-naming
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: function-length
+          arguments: [ 80, 0 ]
+  exclusions:
+    generated: lax
+    # v1 的 exclude-use-default: true 对应的默认排除预设
+    presets:
+      - comments
+      - std-error-handling
+      - common-false-positives
+      - legacy
     rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: dot-imports
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: exported
-      - name: if-return
-      - name: increment-decrement
-#      - name: var-naming
-      - name: var-declaration
-      - name: package-comments
-      - name: range
-      - name: receiver-naming
-      - name: time-naming
-      - name: unexported-return
-      - name: indent-error-flow
-      - name: errorf
-      - name: empty-block
-      - name: superfluous-else
-      - name: unexported-naming
-      - name: unexported-return
-      - name: unreachable-code
-      - name: redefines-builtin-id
-      - name: function-length
-        arguments: [ 80,0 ]
+      - path: _test\.go
+        linters:
+          - unused
+          - ineffassign
+          - staticcheck
+          - errcheck
+          - lll
+    # v1 的 issues.exclude-dirs
+    paths:
+      - cert
+      - chain
+      - docker
+      - etc
+      - mock
+      - pb
+      - proto
+      - scripts
+      - sql
+
+formatters:
+  # v2：gofmt / goimports 归类为 formatter
+  enable:
+    - gofmt
+    - goimports
 
 issues:
-  exclude-use-default: true
-  exclude-dirs-use-default: true
-  exclude-dirs:
-    - cert
-    - chain
-    - docker
-    - etc
-    - mock
-    - pb
-    - proto
-    - scripts
-    - sql
-  include:
-    - EXC0002 # golint (comment on exported (method|function|type|const)|should have( a package)? comment|comment should be of the form)
-    - EXC0003 # golint func name will be used as test\.Test.* by other packages, and that stutters; consider calling this
-    #- EXC0004 # govet (possible misuse of unsafe.Pointer|should have signature)
-    - EXC0005 # staticcheck ineffective break statement. Did you mean to break out of the outer loop
-    - EXC0011 # stylecheck (comment on exported (method|function|type|const)|should have( a package)? comment|comment should be of the form)
-    - RVV0001 # revive error codes
-
-  exclude-rules:
-    - path: .*_test.go
-      linters:
-        - unused
-        - deadcode
-        - ineffassign
-        - staticcheck
-        - forbidigo
-        - dupl
-        - errcheck
-        - lll
-        - funlen
-#    - path: test
-#      linters:
-#        - errcheck
-#        - govet
-#    - linters:
-#        - revive
-#      text: "stutters"
-#    - linters:
-#        - errcheck
-#      text: "json.Unmarshal"
-#    - linters:
-#        - gosec
-#      text: "G108|G204|G501|G401"
+  max-issues-per-linter: 0
   max-same-issues: 0
   new: false
-  max-issues-per-linter: 0
 
 output:
   sort-results: true
