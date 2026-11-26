@@ -1,9 +1,11 @@
-package logic
+package grpc
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/code"
+	"github.com/jackz-jones/blockchain-interactive-service/internal/middleware"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/sdk"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/svc"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/util"
@@ -39,25 +41,9 @@ func (l *GetTxByTxIdLogic) GetTxByTxId(in *pb.GetTxByTxIdRequest) (*pb.TxRespons
 	}
 	l.Logger.WithFields(util.ConvertToLogFields(fields)...).Info("receive GetTxByTxId request")
 
-	// 检查 chainConf 是否存在
-	chainConf, exist := l.svcCtx.Config.ChainConfs[in.ChainName]
-	if !exist {
-		l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrChainNotExist.String())
-		return l.errorResponse(code.ErrChainNotExist, nil), nil
-	}
-
-	// 如果链未启用，直接返回错误
-	if !chainConf.Enable {
-		l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrChainNotEnable.String())
-		return l.errorResponse(code.ErrChainNotEnable, nil), nil
-	}
-
-	// 获取sdk客户端
-	sdkClient, err := sdk.GetSDKClient(&l.svcCtx.SDKClients, in.ChainName, l.Logger, chainConf,
-		l.svcCtx.Config.Log, l.svcCtx.RedisClient)
+	// 获取 SDK 客户端：DB 优先，配置文件回退
+	sdkClient, err := l.getSDKClient(in.ChainName, fields)
 	if err != nil {
-		fields["err"] = err
-		l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error(code.ErrGetSDKClient.String())
 		return l.errorResponse(code.ErrGetSDKClient, err), nil
 	}
 
@@ -76,6 +62,30 @@ func (l *GetTxByTxIdLogic) GetTxByTxId(in *pb.GetTxByTxIdRequest) (*pb.TxRespons
 		Content:   txData,
 		Pending:   pending,
 	}), nil
+}
+
+// getSDKClient 获取 SDK 客户端（从 DB 配置加载）
+func (l *GetTxByTxIdLogic) getSDKClient(
+	chainName string, fields map[string]interface{},
+) (sdk.ChainSdkInterface, error) {
+	// 从 context 获取租户 ID（由 gRPC auth interceptor 注入）
+	tenantID := middleware.GetTenantID(l.ctx)
+	if tenantID == 0 {
+		l.Logger.WithFields(util.ConvertToLogFields(fields)...).Error("tenant ID not found in context")
+		return nil, fmt.Errorf("tenant identity required")
+	}
+
+	client, err := l.svcCtx.TenantSDKManager.GetTenantSDKClient(l.ctx, tenantID, chainName)
+	if err != nil {
+		fields["err"] = err
+		l.Logger.WithFields(util.ConvertToLogFields(fields)...).
+			Errorf("failed to get SDK client from DB: tenant=%d, chain=%s, err=%v", tenantID, chainName, err)
+		return nil, err
+	}
+
+	l.Logger.WithFields(util.ConvertToLogFields(fields)...).
+		Infof("got SDK client: tenant=%d, chain=%s", tenantID, chainName)
+	return client, nil
 }
 
 // errorResponse returns the error response.

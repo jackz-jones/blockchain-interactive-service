@@ -16,20 +16,24 @@ type (
 	CallContractRequest                       = __.CallContractRequest
 	ChainAndContractName                      = __.ChainAndContractName
 	ContractDesc                              = __.ContractDesc
+	ContractEventResponse                     = __.ContractEventResponse
 	GetAvailableChainAndContractNamesRequest  = __.GetAvailableChainAndContractNamesRequest
 	GetAvailableChainAndContractNamesResponse = __.GetAvailableChainAndContractNamesResponse
 	GetTxByTxIdRequest                        = __.GetTxByTxIdRequest
 	KeyValuePair                              = __.KeyValuePair
+	SubscribeContractEventsRequest            = __.SubscribeContractEventsRequest
 	TxData                                    = __.TxData
 	TxResponse                                = __.TxResponse
 
 	ChainInteractive interface {
 		// GetTxByTxId 查询交易详情
 		GetTxByTxId(ctx context.Context, in *GetTxByTxIdRequest, opts ...grpc.CallOption) (*TxResponse, error)
-		// CallContract 请求本地链合约，给提单平台用的
+		// CallContract 调用指定链上的智能合约
 		CallContract(ctx context.Context, in *CallContractRequest, opts ...grpc.CallOption) (*TxResponse, error)
 		// GetAvailableChainAndContractNames 获取本地可访问的所有链名称，以及旗下的合约名称
 		GetAvailableChainAndContractNames(ctx context.Context, in *GetAvailableChainAndContractNamesRequest, opts ...grpc.CallOption) (*GetAvailableChainAndContractNamesResponse, error)
+		// SubscribeContractEvents 订阅合约事件（服务端流式推送）
+		SubscribeContractEvents(ctx context.Context, in *SubscribeContractEventsRequest, opts ...grpc.CallOption) (__.ChainInteractive_SubscribeContractEventsClient, error)
 	}
 
 	defaultChainInteractive struct {
@@ -49,7 +53,7 @@ func (m *defaultChainInteractive) GetTxByTxId(ctx context.Context, in *GetTxByTx
 	return client.GetTxByTxId(ctx, in, opts...)
 }
 
-// CallContract 请求本地链合约，给提单平台用的
+// CallContract 调用指定链上的智能合约
 func (m *defaultChainInteractive) CallContract(ctx context.Context, in *CallContractRequest, opts ...grpc.CallOption) (*TxResponse, error) {
 	client := __.NewChainInteractiveClient(m.cli.Conn())
 	return client.CallContract(ctx, in, opts...)
@@ -59,4 +63,10 @@ func (m *defaultChainInteractive) CallContract(ctx context.Context, in *CallCont
 func (m *defaultChainInteractive) GetAvailableChainAndContractNames(ctx context.Context, in *GetAvailableChainAndContractNamesRequest, opts ...grpc.CallOption) (*GetAvailableChainAndContractNamesResponse, error) {
 	client := __.NewChainInteractiveClient(m.cli.Conn())
 	return client.GetAvailableChainAndContractNames(ctx, in, opts...)
+}
+
+// SubscribeContractEvents 订阅合约事件（服务端流式推送）
+func (m *defaultChainInteractive) SubscribeContractEvents(ctx context.Context, in *SubscribeContractEventsRequest, opts ...grpc.CallOption) (__.ChainInteractive_SubscribeContractEventsClient, error) {
+	client := __.NewChainInteractiveClient(m.cli.Conn())
+	return client.SubscribeContractEvents(ctx, in, opts...)
 }

@@ -2,11 +2,22 @@
 package sdk
 
 import (
-	"github.com/jackz-jones/blockchain-interactive-service/internal/config"
+	"context"
+
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 )
 
 type ChainSdkInterface interface {
+
+	/**
+	 * @Description: VerifyConnection 验证链连接是否真正可用
+	 * 通过执行轻量级链查询（如获取链 ID / 最新区块高度 / 健康检查）来验证连接
+	 *
+	 * @param ctx 上下文（支持超时控制）
+	 * @return error 连接不可用时返回错误
+	 */
+
+	VerifyConnection(ctx context.Context) error
 
 	/**
 	 * @Description: CallContract 调用合约
@@ -24,7 +35,7 @@ type ChainSdkInterface interface {
 	 */
 
 	CallContract(methodType pb.MethodType, contractConfigName, method string, args []*pb.KeyValuePair,
-		txTimeout int64, withSyncResult bool) (string, string, error)
+		txTimeout int64, withSyncResult bool, gasLimit int64) (string, string, error)
 
 	/**
 	 * @Description: GetTxByTxId 根据交易id查询交易
@@ -32,7 +43,7 @@ type ChainSdkInterface interface {
 	 * @param txId 交易哈希
 
 	 * @return string 交易结果 json 字符串
-	 * @return bool 交易是否打包块中
+	 * @return bool 交易是否打包块中，true 表示未打包（即 pending），false 表示已打包
 	 * @return error 错误信息
 	 */
 
@@ -52,11 +63,13 @@ type ChainSdkInterface interface {
 	 * @param contractConf 合约配置
 	 * @param chainConfName 链配置名称
 	 * @param contractConfName 合约配置名称
-	 * @param contractType 合约类型
+	 * @param chainType 链类型
+	 * @param chainConfigID 链配置数据库主键 ID（DB 路径使用，配置文件路径传 0）
+	 * @param contractConfigID 合约配置数据库主键 ID（DB 路径使用，配置文件路径传 0）
 	 *
 	 * @return error 错误信息
 	 */
 
-	SubscribeContractEvent(contractConf config.ContractConf, chainConfName, contractConfName, chainType,
-		contractType string) error
+	SubscribeContractEvent(contractConf ContractConf, chainConfName, contractConfName,
+		chainType string, chainConfigID, contractConfigID uint) error
 }

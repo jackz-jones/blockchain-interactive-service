@@ -3,20 +3,23 @@ module github.com/jackz-jones/blockchain-interactive-service
 go 1.22.7
 
 require (
-	chainmaker.org/chainmaker/common/v2 v2.3.8
 	chainmaker.org/chainmaker/pb-go/v2 v2.3.7
 	chainmaker.org/chainmaker/sdk-go/v2 v2.3.8
 	github.com/ethereum/go-ethereum v1.14.11
 	github.com/gagliardetto/solana-go v1.8.3
-	github.com/jackz-jones/common v0.0.0-20260323065044-b3ce2b57b723
+	github.com/jackz-jones/common v0.0.0-20260603111924-dc427d9a38c7
+	github.com/mr-tron/base58 v1.2.0
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.9.0
 	github.com/zeromicro/go-zero v1.6.2
-	go.uber.org/zap v1.27.0
+	golang.org/x/crypto v0.31.0
 	google.golang.org/grpc v1.65.0
 	google.golang.org/protobuf v1.34.2
+	gorm.io/gorm v1.25.10
 )
 
 require (
+	chainmaker.org/chainmaker/common/v2 v2.3.8 // indirect
 	chainmaker.org/chainmaker/contract-sdk-go/v2 v2.3.9 // indirect
 	chainmaker.org/chainmaker/protocol/v2 v2.3.9 // indirect
 	chainmaker.org/chainmaker/utils/v2 v2.3.6 // indirect
@@ -61,6 +64,7 @@ require (
 	github.com/go-openapi/swag v0.22.4 // indirect
 	github.com/go-sql-driver/mysql v1.7.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/golang-jwt/jwt/v4 v4.5.0 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -74,6 +78,10 @@ require (
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/holiman/uint256 v1.3.1 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/pgx/v5 v5.6.0 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jackz-jones/nft-contract-go v0.0.0-20260320101149-d512ac907c4d // indirect
 	github.com/jackz-jones/notification-contract-go v0.0.0-20260320104135-72b44e6064d8 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
@@ -98,7 +106,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mostynb/zstdpool-freelist v0.0.0-20201229113212-927304c0c3b1 // indirect
-	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/opentracing/opentracing-go v1.1.0 // indirect
 	github.com/openzipkin/zipkin-go v0.4.2 // indirect
@@ -158,7 +165,7 @@ require (
 	go.uber.org/automaxprocs v1.5.3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/ratelimit v0.2.0 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
+	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
 	golang.org/x/net v0.28.0 // indirect
 	golang.org/x/oauth2 v0.20.0 // indirect
@@ -176,7 +183,7 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gorm.io/driver/mysql v1.4.7 // indirect
-	gorm.io/gorm v1.25.10 // indirect
+	gorm.io/driver/postgres v1.6.0 // indirect
 	k8s.io/api v0.29.1 // indirect
 	k8s.io/apimachinery v0.29.1 // indirect
 	k8s.io/client-go v0.29.1 // indirect

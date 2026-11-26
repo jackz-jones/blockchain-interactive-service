@@ -4,6 +4,7 @@ package util
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -20,11 +21,19 @@ func ConvertToLogFields(fields map[string]interface{}) []logx.LogField {
 	return res
 }
 
-// ReadAbiJsonFile 读取abi json文件
-func ReadAbiJsonFile(abiJsonFile string) (string, error) {
+// ReadAbiJsonFile 读取abi json内容
+// 支持两种模式：
+// 1. 如果 abiJsonOrFile 是 JSON 字符串（以 [ 或 { 开头），直接返回
+// 2. 否则当作文件路径读取
+func ReadAbiJsonFile(abiJsonOrFile string) (string, error) {
+	trimmed := strings.TrimSpace(abiJsonOrFile)
+	// 如果内容以 [ 或 { 开头，说明是直接存储的 ABI JSON 字符串
+	if strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "{") {
+		return trimmed, nil
+	}
 
-	// 读取abi文件
-	abiJson, err := os.ReadFile(abiJsonFile)
+	// 否则当作文件路径读取
+	abiJson, err := os.ReadFile(abiJsonOrFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to ReadFile: %v", err)
 	}

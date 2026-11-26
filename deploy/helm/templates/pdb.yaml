@@ -1,0 +1,13 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "chain-interactive-service.fullname" . }}
+  labels:
+    {{- include "chain-interactive-service.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "chain-interactive-service.selectorLabels" . | nindent 6 }}
+{{- end }}

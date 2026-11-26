@@ -12,13 +12,17 @@ REV=$(shell git rev-parse --short HEAD)
 REPO=${IMAGE}-${REV}:${VERSION}
 TAG=192.168.1.2:5000/chain-interactive-service:${VERSION}
 
+# macOS Xcode 15+ 链接器会对重复 -ldl 发出 warning，通过此标志抑制
+CGO_LDFLAGS_EXTRA := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "-Wl,-no_warn_duplicate_libraries"; fi)
+export CGO_LDFLAGS += $(CGO_LDFLAGS_EXTRA)
+
 .PHONY:gen-code start-service build
 
 gen-code:
 	@sh ./scripts/generate_code.sh chaininteractive
 
 start-service:
-	go run ${SOURCE}
+	@go build -o ./bin/${BUILD_NAME} ${SOURCE} && ./bin/${BUILD_NAME}
 
 build:
 	go build ${LDFLAGS} -o ${BUILD_NAME} ${SOURCE}

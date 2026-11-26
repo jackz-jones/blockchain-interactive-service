@@ -1,8 +1,6 @@
 package config
 
 import (
-	"errors"
-
 	"github.com/zeromicro/go-zero/zrpc"
 )
 
@@ -11,8 +9,46 @@ type Config struct {
 	GrpcConf      GrpcConf
 	SubscribeConf SubscribeConf
 
-	// 本地需要交互的链配置列表
-	ChainConfs map[string]*ChainConf
+	// 数据库配置（多租户持久化存储）
+	DatabaseConf DatabaseConf
+
+	// HTTP Gateway 配置
+	GatewayConf GatewayConf
+}
+
+// GatewayConf HTTP API Gateway 配置
+type GatewayConf struct {
+	// Enable 是否启用 HTTP Gateway
+	Enable bool `json:",default=true"` //nolint:staticcheck
+
+	// Host HTTP 监听地址
+	Host string `json:",default=0.0.0.0"` //nolint:staticcheck
+
+	// Port HTTP 监听端口
+	Port int `json:",default=8080"` //nolint:staticcheck
+
+	// RateLimit 默认 QPS 限制（每租户）
+	RateLimit int `json:",default=10"` //nolint:staticcheck
+}
+
+// DatabaseConf 数据库配置
+// 参考 common 包 db.InitGormDB，支持 mysql、kingbase_mysql、kingbase_pgsql、postgres
+type DatabaseConf struct {
+	// Type 数据库类型，支持: mysql、kingbase_mysql、kingbase_pgsql、postgres
+	Type string `json:",default=mysql"` //nolint:staticcheck
+
+	// DSN 数据库连接字符串
+	DSN string
+
+	// AutoMigrate 是否在启动时自动迁移表结构
+	// 仅开发/测试环境首次建表时开启，生产环境应设为 false，通过 migration 工具管理 schema 变更
+	AutoMigrate bool `json:",default=false"` //nolint:staticcheck
+
+	// MaxIdleConns 空闲连接池最大数量（可选，默认使用 common 包内置值）
+	MaxIdleConns int `json:",optional"` //nolint:staticcheck
+
+	// MaxOpenConns 最大连接数（可选，默认使用 common 包内置值）
+	MaxOpenConns int `json:",optional"` //nolint:staticcheck
 }
 
 // GrpcConf contain all config items for grpc server initiation
@@ -51,124 +87,4 @@ type SubscribeConf struct {
 	// nolint:staticcheck
 	// 哨兵模式的MasterName，其他模式可忽略
 	MasterName string `json:",optional"`
-}
-
-// ChainConf contain all config items for chain config
-type ChainConf struct {
-
-	// Enable 是否启用该链
-	Enable bool
-
-	// ChainType 链类型,枚举值：ethereum、chainmaker、solana
-	ChainType string
-
-	// 连接链需要的配置信息
-	SdkConf SdkConf
-
-	// ContractConfs 当前链下的合约配置列表
-	ContractConfs map[string]*ContractConf
-}
-
-// SdkConf contain all config items for chain sdk
-type SdkConf struct {
-
-	// nolint:staticcheck
-	// ConfFilePath sdk 具体配置文件路径，长安链需要指定
-	ConfFilePath string `json:",optional"`
-
-	// nolint:staticcheck
-	// EthConf 以太坊链需要的配置信息
-	EthConf EthConf `json:",optional"`
-
-	// nolint:staticcheck
-	// SolanaConf Solana链需要的配置信息
-	SolanaConf SolanaConf `json:",optional"`
-}
-
-// EthConf contain all config items for ethereum chain
-type EthConf struct {
-
-	// 以太坊链 id
-	ChainId int64
-
-	// 节点 http url，用于发送交易
-	HttpUrl string
-
-	// 节点 websocket url，用于订阅事件
-	WebsocketUrl string
-
-	// 私钥 hex 字符串，用于交易签名
-	PrivateKey string
-
-	// gas limit
-	GasLimit uint64
-}
-
-// SolanaConf contain all config items for solana chain
-type SolanaConf struct {
-
-	// RpcUrl Solana 节点 RPC URL
-	RpcUrl string
-
-	// WsUrl Solana 节点 WebSocket URL，用于订阅事件
-	WsUrl string
-
-	// PrivateKey 私钥 base58 字符串，用于交易签名
-	PrivateKey string
-
-	// CommitmentLevel 确认级别：processed、confirmed、finalized
-	CommitmentLevel string
-
-	// SkipPreflight 是否跳过预检
-	SkipPreflight bool
-
-	// MaxRetries 最大重试次数
-	MaxRetries int
-}
-
-// ContractConf contain all config items for contract
-type ContractConf struct {
-
-	// EnableSubscribe 是否开启订阅
-	EnableSubscribe bool
-
-	// ContractType 合约类型,枚举值：notification、nft
-	ContractType string
-
-	// nolint:staticcheck
-	// ContractName 合约名称，长安链上调用需要合约名称
-	ContractName string `json:",optional"`
-
-	// DeployBlockHeight 合约部署高度，长安链和以太坊上订阅都需要合约部署高度
-	DeployBlockHeight uint64
-
-	// nolint:staticcheck
-	// ContractAddr 合约地址，以太坊上需要
-	ContractAddr string `json:",optional"`
-
-	// nolint:staticcheck
-	// Abi 合约的abi json 文件，以太坊上需要
-	Abi string `json:",optional"`
-
-	// nolint:staticcheck
-	// GetHistoryEventInterval 轮训以太坊历史事件的间隔时间：ms
-	GetHistoryEventInterval uint64 `json:",optional"`
-
-	// nolint:staticcheck
-	// GetHistoryEventHeightWindow 轮训以太坊历史事件的区块高度窗口大小
-	GetHistoryEventHeightWindow uint64 `json:",optional"`
-}
-
-// Validate validate config
-func (c *Config) Validate() error {
-	if c.ListenOn == "" {
-		return errors.New("listen address is required")
-	}
-
-	if len(c.ChainConfs) == 0 {
-		return errors.New("at least one chain configuration is required")
-	}
-
-	// todo: 添加更多验证逻辑
-	return nil
 }
