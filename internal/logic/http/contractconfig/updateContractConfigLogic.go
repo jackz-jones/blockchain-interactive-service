@@ -13,6 +13,17 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	contractConfigNotFound = "contract config not found"
+	contractNameIsRequired = "contract_name is required"
+	contractAddr           = "contract_addr"
+	contractName           = "contract_name"
+	unauthorizedStr        = "unauthorized"
+	successStr             = "success"
+	changedLabel           = "(已变更)"
+)
+
 type UpdateContractConfigLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -32,12 +43,12 @@ func (l *UpdateContractConfigLogic) UpdateContractConfig(
 ) (resp *types.CommonResponse, err error) {
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	role := middleware.GetUserRoleFromContext(l.ctx)
 	if role != store.UserRoleAdmin {
-		return &types.CommonResponse{Code: 403, Message: "admin role required for write operations"}, nil
+		return &types.CommonResponse{Code: 403, Message: msgAdminRoleRequired}, nil
 	}
 
 	existing, err := l.svcCtx.Repo.GetContractConfig(l.ctx, req.Id)
@@ -45,20 +56,20 @@ func (l *UpdateContractConfigLogic) UpdateContractConfig(
 		return &types.CommonResponse{Code: 500, Message: "get contract config: " + err.Error()}, nil
 	}
 	if existing == nil {
-		return &types.CommonResponse{Code: 404, Message: "contract config not found"}, nil
+		return &types.CommonResponse{Code: 404, Message: contractConfigNotFound}, nil
 	}
 	if existing.TenantID != tenantID {
-		return &types.CommonResponse{Code: 403, Message: "contract config not owned by current tenant"}, nil
+		return &types.CommonResponse{Code: 403, Message: msgContractNotOwned}, nil
 	}
 
 	if req.ContractName == "" {
-		return &types.CommonResponse{Code: 400, Message: "contract_name is required"}, nil
+		return &types.CommonResponse{Code: 400, Message: contractNameIsRequired}, nil
 	}
 
 	// 保存变更前数据用于审计日志（abi_json 过长，仅记录是否变更）
 	beforeData := map[string]interface{}{
-		"contract_name": existing.ContractName,
-		"contract_addr": existing.ContractAddr,
+		contractName: existing.ContractName,
+		contractAddr: existing.ContractAddr,
 	}
 
 	existing.ContractName = req.ContractName
@@ -70,19 +81,15 @@ func (l *UpdateContractConfigLogic) UpdateContractConfig(
 
 	// 构建变更后数据，与变更前对比
 	afterData := map[string]interface{}{
-		"contract_name": existing.ContractName,
-		"contract_addr": existing.ContractAddr,
+		contractName: existing.ContractName,
+		contractAddr: existing.ContractAddr,
 	}
 
-	// 对大字段仅标记是否变更
-	if beforeData["contract_name"] != afterData["contract_name"] ||
-		beforeData["contract_addr"] != afterData["contract_addr"] {
-		// 已在 before/after 中体现
-	}
+	// 对大字段（contract_name / contract_addr / abi_json）仅标记变更状态，不再展开内容
 	// abi_json 仅标记变更状态
 	if req.AbiJson != "" {
-		beforeData["abi_json"] = "(已变更)"
-		afterData["abi_json"] = "(已变更)"
+		beforeData["abi_json"] = changedLabel
+		afterData["abi_json"] = changedLabel
 	}
 
 	// 逐字段比较变更前后数据是否一致
@@ -136,5 +143,5 @@ func (l *UpdateContractConfigLogic) UpdateContractConfig(
 		l.svcCtx.ConfigResolver.InvalidateByChainConfigID(req.ChainConfigId)
 	}
 
-	return &types.CommonResponse{Code: 0, Message: "success", Data: existing}, nil
+	return &types.CommonResponse{Code: 0, Message: successStr, Data: existing}, nil
 }

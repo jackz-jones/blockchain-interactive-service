@@ -90,7 +90,8 @@ func (l *SubscribeContractEventsLogic) SubscribeContractEvents(
 	}
 
 	// 通过配置解析器定位合约配置
-	result, err := l.svcCtx.ConfigResolver.Resolve(stream.Context(), tenantID, in.ChainName, in.ContractName, in.ContractAddr)
+	result, err := l.svcCtx.ConfigResolver.Resolve(stream.Context(),
+		tenantID, in.ChainName, in.ContractName, in.ContractAddr)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "contract not found: %v", err)
 	}
@@ -109,7 +110,7 @@ func (l *SubscribeContractEventsLogic) SubscribeContractEvents(
 	groupName := fmt.Sprintf("grpc_stream_%d_%d_%d", tenantID, result.ChainConfigID, result.ContractConfigID)
 	consumerName := fmt.Sprintf("consumer_%d_%d", tenantID, time.Now().UnixNano())
 
-	l.Logger.Infof("gRPC stream subscription started: tenant=%d, chain=%s, contract=%s, group=%s",
+	l.Infof("gRPC stream subscription started: tenant=%d, chain=%s, contract=%s, group=%s",
 		tenantID, in.ChainName, result.ContractName, groupName)
 
 	// 持续从 Redis Stream 读取事件并推送
@@ -119,7 +120,7 @@ func (l *SubscribeContractEventsLogic) SubscribeContractEvents(
 	for {
 		select {
 		case <-ctx.Done():
-			l.Logger.Infof("gRPC stream subscription ended (client disconnected): tenant=%d, group=%s",
+			l.Infof("gRPC stream subscription ended (client disconnected): tenant=%d, group=%s",
 				tenantID, groupName)
 			return nil
 		default:
@@ -162,12 +163,12 @@ func (l *SubscribeContractEventsLogic) SubscribeContractEvents(
 		if err != nil {
 			// 如果是 context 取消（客户端断开），正常退出
 			if ctx.Err() != nil {
-				l.Logger.Infof("gRPC stream subscription ended (context cancelled): tenant=%d, group=%s",
+				l.Infof("gRPC stream subscription ended (context cancelled): tenant=%d, group=%s",
 					tenantID, groupName)
 				return nil
 			}
 			// Redis Stream 不存在等情况，等待后重试
-			l.Logger.Debugf("stream read returned (may be no stream yet): %v, retrying...", err)
+			l.Debugf("stream read returned (may be no stream yet): %v, retrying...", err)
 			time.Sleep(1 * time.Second)
 		}
 	}

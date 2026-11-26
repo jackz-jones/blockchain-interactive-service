@@ -85,7 +85,7 @@ func TestCheckQuota_DailyLimit_BlockPolicy(t *testing.T) {
 
 func TestCheckQuota_DailyLimit_ThrottlePolicy(t *testing.T) {
 	repo := &mockRepo{
-		quota:      &store.Quota{DailyLimit: 10, OveragePolicy: "throttle"},
+		quota:      &store.Quota{DailyLimit: 10, OveragePolicy: throttleStr},
 		todayCount: 10,
 	}
 	svc := newTestService(repo)
@@ -118,8 +118,8 @@ func TestCheckQuota_MonthlyWarning(t *testing.T) {
 func TestIncrementDailyCount_ConcurrentAtomic(t *testing.T) {
 	svc := newTestService(&mockRepo{})
 	var wg sync.WaitGroup
-	const N = 500
-	for i := 0; i < N; i++ {
+	const n = 500
+	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -134,8 +134,8 @@ func TestIncrementDailyCount_ConcurrentAtomic(t *testing.T) {
 		t.Fatalf("expected counter to exist for key %s", key)
 	}
 	got := v.(*atomic.Int64).Load()
-	if got != int64(N) {
-		t.Fatalf("expected %d, got %d", N, got)
+	if got != int64(n) {
+		t.Fatalf("expected %d, got %d", n, got)
 	}
 }
 

@@ -13,6 +13,15 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	enterpriseStr = "enterprise"
+	developerStr  = "developer"
+	throttleStr   = "throttle"
+	freeStr       = "free"
+	CNYStr        = "CNY"
+)
+
 // QuotaDecision CheckQuota 结果，区分 block / throttle 语义
 type QuotaDecision struct {
 	Allowed   bool // 是否允许通过
@@ -130,7 +139,7 @@ func (s *Service) CheckQuota(ctx context.Context, tenantID uint) (QuotaDecision,
 			return QuotaDecision{}, err
 		}
 		if uint64(dailyCount) >= quota.DailyLimit {
-			throttled := quota.OveragePolicy == "throttle"
+			throttled := quota.OveragePolicy == throttleStr
 			return QuotaDecision{Allowed: false, Throttled: throttled}, nil
 		}
 	}
@@ -139,7 +148,7 @@ func (s *Service) CheckQuota(ctx context.Context, tenantID uint) (QuotaDecision,
 	if quota.MonthlyLimit > 0 {
 		monthlyUsed := quota.MonthlyUsed
 		if monthlyUsed >= quota.MonthlyLimit {
-			throttled := quota.OveragePolicy == "throttle"
+			throttled := quota.OveragePolicy == throttleStr
 			return QuotaDecision{Allowed: false, Throttled: throttled}, nil
 		}
 
@@ -204,7 +213,8 @@ func (s *Service) GenerateDailyBills(ctx context.Context) error {
 		generated++
 	}
 
-	s.logger.Infof("daily bills generated for %d-%02d-%02d, %d/%d tenants processed", year, month, day, generated, len(tenants))
+	s.logger.Infof("daily bills generated for %d-%02d-%02d, %d/%d tenants processed",
+		year, month, day, generated, len(tenants))
 	return nil
 }
 
@@ -486,7 +496,7 @@ func (s *Service) GetRealtimeCost(ctx context.Context, tenantID uint, plan strin
 		MonthlyLimit:  monthlyLimit,
 		MonthlyUsed:   monthlyUsed,
 		CurrentCost:   currentCost,
-		Currency:      "CNY",
+		Currency:      CNYStr,
 		CostBreakdown: breakdown,
 		UsagePercent:  usagePercent,
 		CalculatedAt:  now.Format("2006-01-02 15:04:05"),
@@ -496,20 +506,20 @@ func (s *Service) GetRealtimeCost(ctx context.Context, tenantID uint, plan strin
 // getCostBreakdown 根据套餐和调用量生成费用说明
 func getCostBreakdown(plan string, totalCalls uint64) string {
 	switch plan {
-	case "free":
+	case freeStr:
 		if totalCalls <= 1000 {
 			return "免费套餐，1000 次/月免费额度内"
 		}
 		return fmt.Sprintf("免费套餐，超出 1000 次部分按 ¥0.01/次计费（超出 %d 次）", totalCalls-1000)
-	case "developer":
+	case developerStr:
 		if totalCalls <= 50000 {
 			return "开发者版，月费 ¥99 含 50000 次调用"
 		}
 		return fmt.Sprintf("开发者版，月费 ¥99 + 超出 50000 次部分按 ¥0.005/次计费（超出 %d 次）", totalCalls-50000)
-	case "enterprise":
+	case enterpriseStr:
 		return "企业版，月费 ¥999，无限调用"
 	default:
-		return fmt.Sprintf("按量计费 ¥0.01/次")
+		return "按量计费 ¥0.01/次"
 	}
 }
 
@@ -570,7 +580,7 @@ func (s *Service) generateBillForTenant(ctx context.Context, tenantID uint, plan
 		PeriodEnd:   periodEnd,
 		TotalCalls:  uint64(totalCalls),
 		Amount:      amount,
-		Currency:    "CNY",
+		Currency:    CNYStr,
 		Status:      "unpaid",
 	}
 
@@ -580,14 +590,14 @@ func (s *Service) generateBillForTenant(ctx context.Context, tenantID uint, plan
 // calculateAmount 根据套餐和调用量计算费用
 func calculateAmount(plan string, totalCalls uint64) float64 {
 	switch plan {
-	case "free":
+	case freeStr:
 		// 免费层超出 1000 次后按 0.01 元/次计费
 		if totalCalls <= 1000 {
 			return 0
 		}
 		return float64(totalCalls-1000) * 0.01
 
-	case "developer":
+	case developerStr:
 		// 开发者版：月费 99 元含 50000 次，超出按 0.005 元/次
 		baseFee := 99.0
 		if totalCalls <= 50000 {
@@ -595,7 +605,7 @@ func calculateAmount(plan string, totalCalls uint64) float64 {
 		}
 		return baseFee + float64(totalCalls-50000)*0.005
 
-	case "enterprise":
+	case enterpriseStr:
 		// 企业版：月费 999 元，无限调用
 		return 999.0
 

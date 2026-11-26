@@ -10,6 +10,13 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	internalError = "internal error"
+	tenantName    = "tenant_name"
+	tenantId      = "tenant_id"
+)
+
 type ValidateLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -33,8 +40,8 @@ func (l *ValidateLogic) Validate(req *types.ValidateAPIKeyRequest) (resp interfa
 	// 查询 API Key
 	apiKey, err := l.svcCtx.Repo.GetAPIKeyByKey(l.ctx, req.APIKey)
 	if err != nil {
-		l.Logger.Errorf("query api key error: %v", err)
-		return nil, &types.BizError{Code: 500, Message: "internal error"}
+		l.Errorf("query api key error: %v", err)
+		return nil, &types.BizError{Code: 500, Message: internalError}
 	}
 	if apiKey == nil {
 		return nil, &types.BizError{Code: 401, Message: "invalid api key"}
@@ -53,16 +60,16 @@ func (l *ValidateLogic) Validate(req *types.ValidateAPIKeyRequest) (resp interfa
 	// 查询租户信息
 	t, err := l.svcCtx.Repo.GetTenantByID(l.ctx, apiKey.TenantID)
 	if err != nil {
-		return nil, &types.BizError{Code: 500, Message: "internal error"}
+		return nil, &types.BizError{Code: 500, Message: internalError}
 	}
 	if t == nil {
 		return nil, &types.BizError{Code: 404, Message: "tenant not found"}
 	}
 
 	return map[string]interface{}{
-		"tenant_id":   t.ID,
-		"tenant_name": t.Name,
-		"role":        "admin",
-		"plan":        t.Plan,
+		tenantId:   t.ID,
+		tenantName: t.Name,
+		"role":     "admin",
+		"plan":     t.Plan,
 	}, nil
 }

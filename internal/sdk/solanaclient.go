@@ -19,6 +19,20 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	contractConfNameStr = "contractConfName"
+	chainConfNameStr    = "chainConfName"
+	contractAddrStr     = "contractAddr"
+	processedStr        = "processed"
+	signatureStr        = "signature"
+	finalizedStr        = "finalized"
+	confirmedStr        = "confirmed"
+	moduleStr           = "module"
+	slotStr             = "slot"
+	errStr              = "err"
+)
+
 // solanaMaxFetchSignaturesPages 每轮拉取事件签名的最大翻页次数，防止无限翻页
 const solanaMaxFetchSignaturesPages = 50
 
@@ -79,11 +93,11 @@ func NewSolanaClient(ctx context.Context, solanaConf SolanaConf, contractConfs m
 	// 解析确认级别
 	var commitment rpc.CommitmentType
 	switch solanaConf.CommitmentLevel {
-	case "processed":
+	case processedStr:
 		commitment = rpc.CommitmentProcessed
-	case "confirmed":
+	case confirmedStr:
 		commitment = rpc.CommitmentConfirmed
-	case "finalized":
+	case finalizedStr:
 		commitment = rpc.CommitmentFinalized
 	default:
 		commitment = rpc.CommitmentConfirmed
@@ -121,6 +135,11 @@ func NewSolanaClient(ctx context.Context, solanaConf SolanaConf, contractConfs m
 
 // GetTxByTxId 根据交易ID查询交易
 func (c *SolanaClient) GetTxByTxId(txId string) (string, bool, error) {
+	// 前置检查：客户端 context 已取消时立即返回，不再发起网络请求（同类踩坑 deeb1e03）
+	if err := c.ctx.Err(); err != nil {
+		return "", false, fmt.Errorf("context error: %w", err)
+	}
+
 	// 解析交易签名
 	signature, err := solana.SignatureFromBase58(txId)
 	if err != nil {
@@ -145,11 +164,11 @@ func (c *SolanaClient) GetTxByTxId(txId string) (string, bool, error) {
 
 	// 构建交易响应
 	txResp := map[string]interface{}{
-		"signature":     txId,
-		"slot":          status.Slot,
+		signatureStr:    txId,
+		slotStr:         status.Slot,
 		"confirmations": status.Confirmations,
 		"status":        status,
-		"err":           status.Err,
+		errStr:          status.Err,
 	}
 
 	txBytes, err := json.Marshal(txResp)
@@ -198,7 +217,7 @@ func (c *SolanaClient) CallContract(methodType pb.MethodType, contractConfigName
 
 		// Solana 的交易 ID（Transaction Signature）就是交易签名的 base58 编码字符串
 		// 构建默认响应
-		txResp = map[string]string{"signature": txId}
+		txResp = map[string]string{signatureStr: txId}
 
 		if withSyncResult {
 			// 同步等待交易确认：使用 context.WithTimeout + ticker 轮询，
@@ -254,7 +273,7 @@ func (c *SolanaClient) waitForTransactionConfirmation(txId string, txTimeout int
 		case <-ticker.C:
 			_, isPending, err := c.GetTxByTxId(txId)
 			if err != nil {
-				c.Logger.Errorf("failed to get transaction status: %v", err)
+				c.Errorf("failed to get transaction status: %v", err)
 				continue
 			}
 			if isPending {
@@ -264,7 +283,7 @@ func (c *SolanaClient) waitForTransactionConfirmation(txId string, txTimeout int
 			// 交易已确认，获取详细交易信息
 			txDetails, detailErr := c.rpcClient.GetTransaction(c.ctx, signature, nil)
 			if detailErr != nil {
-				c.Logger.Errorf("failed to get transaction details: %v", detailErr)
+				c.Errorf("failed to get transaction details: %v", detailErr)
 				continue
 			}
 			return true, txDetails, nil
@@ -294,7 +313,7 @@ func (c *SolanaClient) invokeContract(contractAddress solana.PublicKey, methodSp
 		return "", fmt.Errorf("failed to build account meta slice: %v", err)
 	}
 	if usedDefault {
-		c.Logger.Errorf("solana method accounts not configured, use default [fromAddress(signer,writable)]; "+
+		c.Errorf("solana method accounts not configured, use default [fromAddress(signer,writable)]; "+
 			"this may fail if contract requires specific accounts, programID=%s", contractAddress.String())
 	}
 
@@ -439,10 +458,10 @@ func (c *SolanaClient) SubscribeContractEvent(contractConf ContractConf, chainCo
 
 	// 日志通用信息
 	logFields := BuildSubscribeLogFields(map[string]interface{}{
-		"chainConfName":    chainConfName,
-		"contractConfName": contractConfName,
-		"contractAddr":     contractConf.ContractAddr,
-		"module":           "subscribeSolana",
+		chainConfNameStr:    chainConfName,
+		contractConfNameStr: contractConfName,
+		contractAddrStr:     contractConf.ContractAddr,
+		moduleStr:           "subscribeSolana",
 	})
 
 	// 检查合约地址不为空
@@ -701,10 +720,10 @@ func (c *SolanaClient) processAndPublishEvent(txResult *rpc.GetTransactionResult
 
 	// 构建事件数据
 	eventData := map[string]interface{}{
-		"signature": signature,
-		"slot":      slot,
-		"logs":      txResult.Meta.LogMessages,
-		"err":       txResult.Meta.Err,
+		signatureStr: signature,
+		slotStr:      slot,
+		"logs":       txResult.Meta.LogMessages,
+		errStr:       txResult.Meta.Err,
 	}
 
 	// 如果有区块时间，也加入事件数据

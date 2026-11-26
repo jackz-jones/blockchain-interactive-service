@@ -13,6 +13,29 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	chainConfigTest   = "chain_config_test"
+	contractConfigStr = "contract_config"
+	chainConfigs      = "chain-configs"
+	chainConfigStr    = "chain_config"
+	contractsStr      = "contracts"
+	apiKeyStr         = "api_key"
+	tenantsStr        = "tenants"
+	tenantStr         = "tenant"
+	usersStr          = "users"
+	userStr           = "user"
+	apiKeysStr        = "api-keys"
+	// 资源类型中文标签（resource_label 展示用）
+	labelChainConfig       = "链配置"
+	labelContractConfig    = "合约配置"
+	labelAPIKey            = "API 密钥"
+	labelEventSubscription = "事件订阅"
+	labelBill              = "账单"
+	labelTenant            = "租户"
+	labelUser              = "用户"
+)
+
 type ListAuditLogsLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -30,7 +53,7 @@ func NewListAuditLogsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Lis
 func (l *ListAuditLogsLogic) ListAuditLogs(req *types.ListAuditLogsRequest) (resp *types.CommonResponse, err error) {
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	page := req.Page
@@ -81,11 +104,11 @@ func (l *ListAuditLogsLogic) ListAuditLogs(req *types.ListAuditLogsRequest) (res
 
 	return &types.CommonResponse{
 		Code:    0,
-		Message: "success",
+		Message: successStr,
 		Data: map[string]interface{}{
-			"total": total,
-			"page":  page,
-			"items": logs,
+			totalStr: total,
+			pageStr:  page,
+			itemsStr: logs,
 		},
 	}, nil
 }
@@ -93,22 +116,22 @@ func (l *ListAuditLogsLogic) ListAuditLogs(req *types.ListAuditLogsRequest) (res
 // resolveResourceLabel 将资源类型标识映射为用户友好的中文名
 func resolveResourceLabel(resourceType string) string {
 	labels := map[string]string{
-		"chain-configs":     "链配置",
-		"chain_config":      "链配置",
-		"chain_config_test": "链配置",
-		"contract_config":   "合约配置",
-		"contracts":         "合约配置",
-		"contract_call":     "合约调用",
-		"api-keys":          "API 密钥",
-		"api_key":           "API 密钥",
-		"tenants":           "租户",
-		"tenant":            "租户",
-		"users":             "用户",
-		"user":              "用户",
-		"events":            "事件订阅",
-		"event":             "事件订阅",
-		"bills":             "账单",
-		"bill":              "账单",
+		chainConfigs:      labelChainConfig,
+		chainConfigStr:    labelChainConfig,
+		chainConfigTest:   labelChainConfig,
+		contractConfigStr: labelContractConfig,
+		contractsStr:      labelContractConfig,
+		"contract_call":   "合约调用",
+		apiKeysStr:        labelAPIKey,
+		apiKeyStr:         labelAPIKey,
+		tenantsStr:        labelTenant,
+		tenantStr:         labelTenant,
+		usersStr:          labelUser,
+		userStr:           labelUser,
+		"events":          labelEventSubscription,
+		"event":           labelEventSubscription,
+		"bills":           labelBill,
+		"bill":            labelBill,
 	}
 	if label, ok := labels[resourceType]; ok {
 		return label
@@ -121,63 +144,58 @@ func (l *ListAuditLogsLogic) resolveResourceName(resourceType, resourceID string
 	if resourceID == "" {
 		return ""
 	}
+	if id, ok := parseResourceID(resourceID); ok {
+		if name, ok := l.lookupResourceName(resourceType, id); ok {
+			return name
+		}
+	}
+	return resourceID
+}
 
+// parseResourceID 解析资源 ID；失败时回退原值
+func parseResourceID(resourceID string) (uint, bool) {
+	id, err := strconv.ParseUint(resourceID, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return uint(id), true
+}
+
+// lookupResourceName 按资源类型查询展示名称
+func (l *ListAuditLogsLogic) lookupResourceName(resourceType string, id uint) (string, bool) {
 	switch resourceType {
-	case "chain-configs", "chain_config", "chain_config_test":
-		id, err := strconv.ParseUint(resourceID, 10, 64)
-		if err != nil {
-			return resourceID
-		}
-		chainConfig, err := l.svcCtx.Repo.GetChainConfigByID(l.ctx, uint(id))
+	case chainConfigs, chainConfigStr, chainConfigTest:
+		chainConfig, err := l.svcCtx.Repo.GetChainConfigByID(l.ctx, id)
 		if err != nil || chainConfig == nil {
-			return resourceID
+			return "", false
 		}
-		return chainConfig.ChainName
-	case "contract_config", "contracts":
-		id, err := strconv.ParseUint(resourceID, 10, 64)
-		if err != nil {
-			return resourceID
-		}
-		contractConfig, err := l.svcCtx.Repo.GetContractConfig(l.ctx, uint(id))
+		return chainConfig.ChainName, true
+	case contractConfigStr, contractsStr:
+		contractConfig, err := l.svcCtx.Repo.GetContractConfig(l.ctx, id)
 		if err != nil || contractConfig == nil {
-			return resourceID
+			return "", false
 		}
-		return contractConfig.ContractName
-	case "api-keys", "api_key":
-		id, err := strconv.ParseUint(resourceID, 10, 64)
-		if err != nil {
-			return resourceID
-		}
+		return contractConfig.ContractName, true
+	case apiKeysStr, apiKeyStr:
 		// 通过 DB 直接查询 API Key 的名称
 		var apiKey store.APIKey
 		if err := l.svcCtx.Repo.DB().WithContext(l.ctx).Select("name").First(&apiKey, id).Error; err != nil {
-			return resourceID
+			return "", false
 		}
-		if apiKey.Name != "" {
-			return apiKey.Name
-		}
-		return resourceID
-	case "tenants", "tenant":
-		id, err := strconv.ParseUint(resourceID, 10, 64)
-		if err != nil {
-			return resourceID
-		}
-		tenant, err := l.svcCtx.Repo.GetTenantByID(l.ctx, uint(id))
+		return apiKey.Name, apiKey.Name != ""
+	case tenantsStr, tenantStr:
+		tenant, err := l.svcCtx.Repo.GetTenantByID(l.ctx, id)
 		if err != nil || tenant == nil {
-			return resourceID
+			return "", false
 		}
-		return tenant.Name
-	case "users", "user":
-		id, err := strconv.ParseUint(resourceID, 10, 64)
-		if err != nil {
-			return resourceID
-		}
-		user, err := l.svcCtx.Repo.GetUserByID(l.ctx, uint(id))
+		return tenant.Name, true
+	case usersStr, userStr:
+		user, err := l.svcCtx.Repo.GetUserByID(l.ctx, id)
 		if err != nil || user == nil {
-			return resourceID
+			return "", false
 		}
-		return user.Username
+		return user.Username, true
 	default:
-		return resourceID
+		return "", false
 	}
 }

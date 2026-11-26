@@ -10,6 +10,9 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const ()
+
 type GetRealtimeCostLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -27,7 +30,7 @@ func NewGetRealtimeCostLogic(ctx context.Context, svcCtx *svc.ServiceContext) *G
 func (l *GetRealtimeCostLogic) GetRealtimeCost() (resp *types.CommonResponse, err error) {
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	// 获取租户信息（含 Plan 套餐）
@@ -50,5 +53,5 @@ func (l *GetRealtimeCostLogic) GetRealtimeCost() (resp *types.CommonResponse, er
 		return &types.CommonResponse{Code: 500, Message: "calculate realtime cost: " + err.Error()}, nil
 	}
 
-	return &types.CommonResponse{Code: 0, Message: "success", Data: cost}, nil
+	return &types.CommonResponse{Code: 0, Message: successStr, Data: cost}, nil
 }

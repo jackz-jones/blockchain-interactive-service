@@ -152,9 +152,9 @@ func HTTPRateLimitMiddleware(limiter *RateLimiter) func(http.Handler) http.Handl
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", "1")
 				w.WriteHeader(http.StatusTooManyRequests)
-				_, _ = w.Write([]byte(fmt.Sprintf(
+				_, _ = fmt.Fprintf(w,
 					`{"code":429,"message":"rate limit exceeded, please retry after 1 second","tenant_id":%d}`,
-					tenantID)))
+					tenantID)
 				return
 			}
 

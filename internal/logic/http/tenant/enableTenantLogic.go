@@ -9,6 +9,9 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const ()
+
 type EnableTenantLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -27,5 +30,5 @@ func (l *EnableTenantLogic) EnableTenant(req *types.TenantIdPathRequest) (resp *
 	if err := l.svcCtx.TenantService.EnableTenant(l.ctx, req.Id); err != nil {
 		return &types.CommonResponse{Code: 500, Message: "enable tenant: " + err.Error()}, nil
 	}
-	return &types.CommonResponse{Code: 0, Message: "success"}, nil
+	return &types.CommonResponse{Code: 0, Message: successStr}, nil
 }

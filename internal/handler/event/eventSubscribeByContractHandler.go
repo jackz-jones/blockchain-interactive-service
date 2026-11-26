@@ -3,7 +3,7 @@ package event
 import (
 	"net/http"
 
-	eventlogic "github.com/jackz-jones/blockchain-interactive-service/internal/logic/http/event"
+	eventlogic "github.com/jackz-jones/blockchain-interactive-service/internal/logic/http/event" //nolint:staticcheck // 过渡期：事件轮询已迁移 gRPC 流式接口，routes.go 清理后整批删除
 	"github.com/jackz-jones/blockchain-interactive-service/internal/svc"
 	"github.com/jackz-jones/blockchain-interactive-service/internal/types"
 	"github.com/zeromicro/go-zero/rest/httpx"

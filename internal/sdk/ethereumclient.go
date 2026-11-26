@@ -27,6 +27,13 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	stringStr = "string"
+	bytesStr  = "bytes"
+	boolStr   = "bool"
+)
+
 // EthereumClient 定义了以太坊客户端对象
 type EthereumClient struct {
 	// ctx 由外部传入，用作客户端根上下文（Stop 后会被 cancel）
@@ -184,13 +191,13 @@ func (c *EthereumClient) wsReconnectLoop() {
 			cli, err := ethclient.DialContext(dialCtx, c.wsURL)
 			cancel()
 			if err != nil {
-				c.Logger.Infof("websocket reconnect failed, will retry: %v", err)
+				c.Infof("websocket reconnect failed, will retry: %v", err)
 				continue
 			}
 			if old := c.setWSClient(cli); old != nil {
 				old.Close()
 			}
-			c.Logger.Infof("websocket reconnected: %s", c.wsURL)
+			c.Infof("websocket reconnected: %s", c.wsURL)
 			return
 		}
 	}
@@ -288,7 +295,7 @@ func (c *EthereumClient) CallContract(methodType pb.MethodType, contractConfigNa
 			return "", "", fmt.Errorf("failed to ReadAbiJsonFile: %v", readErr)
 		}
 		// 缓存未命中属于正常回退路径（动态新增合约），使用 Info 级日志
-		c.Logger.Infof("abi cache miss for [%s], fallback to file read", contractConfigName)
+		c.Infof("abi cache miss for [%s], fallback to file read", contractConfigName)
 	}
 
 	// solidity 合约也支持方法传参结构体类型，这里需要将统一请求的 kvs 翻译成以太坊的 abi 参数结构
@@ -326,7 +333,7 @@ func (c *EthereumClient) CallContract(methodType pb.MethodType, contractConfigNa
 				case <-ticker.C:
 					txReceipt, err2 := c.httpClient.TransactionReceipt(c.ctx, common.HexToHash(txId))
 					if err2 != nil {
-						c.Logger.Errorf("failed to TransactionReceipt: %v", err2)
+						c.Errorf("failed to TransactionReceipt: %v", err2)
 						continue
 					}
 
@@ -386,7 +393,9 @@ func (c *EthereumClient) InvokeContract(contractAddr, abiStr, method string, arg
 
 // InvokeContractWithGasLimit 使用指定的 gasLimit 调用合约
 // 逻辑与 InvokeContract 相同，区别在于使用传入的 gasLimit 而不是客户端默认值
-func (c *EthereumClient) InvokeContractWithGasLimit(contractAddr, abiStr, method string, gasLimit uint64, args ...interface{}) (string, error) {
+func (c *EthereumClient) InvokeContractWithGasLimit(
+	contractAddr, abiStr, method string, gasLimit uint64, args ...interface{},
+) (string, error) {
 
 	// to 为合约地址
 	toAddress := common.HexToAddress(contractAddr)
@@ -549,11 +558,11 @@ func (c *EthereumClient) SubscribeContractEvent(contractConf ContractConf, chain
 
 	// 日志通用信息
 	logFields := BuildSubscribeLogFields(map[string]interface{}{
-		"chainConfName":    chainConfName,
-		"contractConfName": contractConfName,
-		"contractAddr":     contractConf.ContractAddr,
-		"contractAbi":      contractConf.Abi,
-		"module":           "subscribeEth",
+		chainConfNameStr:    chainConfName,
+		contractConfNameStr: contractConfName,
+		contractAddrStr:     contractConf.ContractAddr,
+		"contractAbi":       contractConf.Abi,
+		moduleStr:           "subscribeEth",
 	})
 
 	// 检查合约地址不为空
@@ -824,7 +833,9 @@ func (c *EthereumClient) CreateArgs(method string, kvs []*pb.KeyValuePair, abiSt
 }
 
 // createArgsFromABI 基于 ABI 定义动态解析合约方法参数
-func (c *EthereumClient) createArgsFromABI(method string, params map[string][]byte, abiStr string) ([]interface{}, error) {
+func (c *EthereumClient) createArgsFromABI(
+	method string, params map[string][]byte, abiStr string,
+) ([]interface{}, error) {
 	if abiStr == "" {
 		return nil, fmt.Errorf("abi string is empty, cannot parse args for method: %s", method)
 	}
@@ -868,141 +879,151 @@ func (c *EthereumClient) createArgsFromABI(method string, params map[string][]by
 func convertABIParam(abiType string, rawValue []byte) (interface{}, error) {
 	strValue := string(rawValue)
 
-	switch {
-	// uint256, uint128, uint64 等大整数类型
-	case strings.HasPrefix(abiType, "uint256") || strings.HasPrefix(abiType, "int256"):
-		n := new(big.Int)
-		_, ok := n.SetString(strValue, 10)
-		if !ok {
-			// 尝试十六进制
-			_, ok = n.SetString(strings.TrimPrefix(strValue, "0x"), 16)
-			if !ok {
-				return nil, fmt.Errorf("invalid big integer value: %s", strValue)
-			}
-		}
-		return n, nil
+	// uint256, int256 等大整数类型
+	if strings.HasPrefix(abiType, "uint256") || strings.HasPrefix(abiType, "int256") {
+		return parseBigInt(strValue)
+	}
 
-	case abiType == "uint8":
-		val, err := parseUint(strValue, 8)
-		if err != nil {
-			return nil, err
-		}
-		return uint8(val), nil
-
-	case abiType == "uint16":
-		val, err := parseUint(strValue, 16)
-		if err != nil {
-			return nil, err
-		}
-		return uint16(val), nil
-
-	case abiType == "uint32":
-		val, err := parseUint(strValue, 32)
-		if err != nil {
-			return nil, err
-		}
-		return uint32(val), nil
-
-	case abiType == "uint64":
-		val, err := parseUint(strValue, 64)
-		if err != nil {
-			return nil, err
-		}
-		return val, nil
-
-	case abiType == "int8":
-		val, err := parseInt(strValue, 8)
-		if err != nil {
-			return nil, err
-		}
-		return int8(val), nil
-
-	case abiType == "int16":
-		val, err := parseInt(strValue, 16)
-		if err != nil {
-			return nil, err
-		}
-		return int16(val), nil
-
-	case abiType == "int32":
-		val, err := parseInt(strValue, 32)
-		if err != nil {
-			return nil, err
-		}
-		return int32(val), nil
-
-	case abiType == "int64":
-		val, err := parseInt(strValue, 64)
-		if err != nil {
-			return nil, err
-		}
-		return val, nil
-
-	// address 类型
-	case abiType == "address":
-		return common.HexToAddress(strValue), nil
-
-	// bool 类型
-	case abiType == "bool":
-		switch strings.ToLower(strValue) {
-		case "true", "1":
-			return true, nil
-		case "false", "0":
-			return false, nil
-		default:
-			return nil, fmt.Errorf("invalid bool value: %s", strValue)
-		}
-
-	// string 类型
-	case abiType == "string":
-		return strValue, nil
+	// 定宽整数类型（uint8..uint64 / int8..int64）
+	if v, ok, err := convertFixedInt(abiType, strValue); ok {
+		return v, err
+	}
 
 	// bytes32, bytes20 等固定长度字节数组
-	case strings.HasPrefix(abiType, "bytes") && abiType != "bytes":
-		// 解析声明长度，例如 bytes32 -> 32
-		lengthStr := strings.TrimPrefix(abiType, "bytes")
-		expectedLen, err := strconv.Atoi(lengthStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid fixed-length bytes type: %s", abiType)
-		}
-		decoded := common.FromHex(strValue)
-		if len(decoded) != expectedLen {
-			return nil, fmt.Errorf("invalid %s value: expected %d bytes, got %d", abiType, expectedLen, len(decoded))
-		}
-		// 转换为对应长度的固定字节数组（abi.Pack 期望 [N]byte 类型）
-		switch expectedLen {
-		case 32:
-			var arr [32]byte
-			copy(arr[:], decoded)
-			return arr, nil
-		case 20:
-			var arr [20]byte
-			copy(arr[:], decoded)
-			return arr, nil
-		case 16:
-			var arr [16]byte
-			copy(arr[:], decoded)
-			return arr, nil
-		case 8:
-			var arr [8]byte
-			copy(arr[:], decoded)
-			return arr, nil
-		case 4:
-			var arr [4]byte
-			copy(arr[:], decoded)
-			return arr, nil
-		default:
-			// 其他长度按切片返回，由调用方按需处理
-			return decoded, nil
-		}
+	if strings.HasPrefix(abiType, bytesStr) && abiType != bytesStr {
+		return convertFixedBytes(abiType, strValue)
+	}
 
-	// bytes 动态字节数组
-	case abiType == "bytes":
+	switch abiType {
+	case "address":
+		return common.HexToAddress(strValue), nil
+	case boolStr:
+		return parseBool(strValue)
+	case stringStr:
+		return strValue, nil
+	case bytesStr:
+		// 动态字节数组
 		return rawValue, nil
-
 	default:
 		// 对于不认识的类型，尝试直接传字符串
 		return strValue, nil
+	}
+}
+
+// parseBigInt 解析大整数值（十进制失败时回退十六进制）
+func parseBigInt(strValue string) (interface{}, error) {
+	n := new(big.Int)
+	if _, ok := n.SetString(strValue, 10); !ok {
+		// 尝试十六进制
+		if _, ok = n.SetString(strings.TrimPrefix(strValue, "0x"), 16); !ok {
+			return nil, fmt.Errorf("invalid big integer value: %s", strValue)
+		}
+	}
+	return n, nil
+}
+
+// abiFixedIntBits 定宽整数的位宽表
+var abiFixedIntBits = map[string]int{
+	"uint8": 8, "uint16": 16, "uint32": 32, "uint64": 64,
+	"int8": 8, "int16": 16, "int32": 32, "int64": 64,
+}
+
+// convertFixedInt 转换定宽整数（uintN/intN）；非定宽整数类型返回 ok=false
+func convertFixedInt(abiType, strValue string) (interface{}, bool, error) {
+	bits, ok := abiFixedIntBits[abiType]
+	if !ok {
+		return nil, false, nil
+	}
+	if strings.HasPrefix(abiType, "uint") {
+		val, err := parseUint(strValue, bits)
+		if err != nil {
+			return nil, true, err
+		}
+		return castUintN(val, bits), true, nil
+	}
+	val, err := parseInt(strValue, bits)
+	if err != nil {
+		return nil, true, err
+	}
+	return castIntN(val, bits), true, nil
+}
+
+// castUintN 按位宽转换为对应无符号整数类型（范围已在 parseUint 校验）
+func castUintN(val uint64, bits int) interface{} {
+	switch bits {
+	case 8:
+		return uint8(val)
+	case 16:
+		return uint16(val)
+	case 32:
+		return uint32(val)
+	default:
+		return val
+	}
+}
+
+// castIntN 按位宽转换为对应有符号整数类型（范围已在 parseInt 校验）
+func castIntN(val int64, bits int) interface{} {
+	switch bits {
+	case 8:
+		return int8(val)
+	case 16:
+		return int16(val)
+	case 32:
+		return int32(val)
+	default:
+		return val
+	}
+}
+
+// parseBool 解析布尔值
+func parseBool(strValue string) (interface{}, error) {
+	switch strings.ToLower(strValue) {
+	case trueStr, "1":
+		return true, nil
+	case falseStr, "0":
+		return false, nil
+	default:
+		return nil, fmt.Errorf("invalid bool value: %s", strValue)
+	}
+}
+
+// convertFixedBytes 转换定长字节数组（bytesN）
+func convertFixedBytes(abiType, strValue string) (interface{}, error) {
+	// 解析声明长度，例如 bytes32 -> 32
+	expectedLen, err := strconv.Atoi(strings.TrimPrefix(abiType, bytesStr))
+	if err != nil {
+		return nil, fmt.Errorf("invalid fixed-length bytes type: %s", abiType)
+	}
+	decoded := common.FromHex(strValue)
+	if len(decoded) != expectedLen {
+		return nil, fmt.Errorf("invalid %s value: expected %d bytes, got %d", abiType, expectedLen, len(decoded))
+	}
+	// 转换为对应长度的固定字节数组（abi.Pack 期望 [N]byte 类型）
+	switch expectedLen {
+	case 32:
+		var arr [32]byte
+		copy(arr[:], decoded)
+		return arr, nil
+	case 20:
+		var arr [20]byte
+		copy(arr[:], decoded)
+		return arr, nil
+	case 16:
+		var arr [16]byte
+		copy(arr[:], decoded)
+		return arr, nil
+	case 8:
+		var arr [8]byte
+		copy(arr[:], decoded)
+		return arr, nil
+	case 4:
+		var arr [4]byte
+		copy(arr[:], decoded)
+		return arr, nil
+	default:
+		// 其他长度按切片返回，由调用方按需处理
+		return decoded, nil
 	}
 }
 

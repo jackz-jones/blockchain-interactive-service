@@ -1,0 +1,59 @@
+# 05. Review & Commit
+
+> 【本地化】本项目为 GitHub 开源项目：以 GitHub Issue + Pull Request 替代 TAPD / 工蜂 MR 流程。
+>   ⚠️ sop.init 升级会刷新本模板回 TAPD 版，升级后需重做本节本地化。
+> 输入：最终 diff、03/04 的验证与环境回执；输出：自审处置、提交准备和已授权交付结果。
+> 自审依据项目 code-review 规范及 `.harness/review.md`；提交格式和 Git 操作依据 `.harness/commit.md`。
+
+## 1. 提交前自审
+
+按项目 Check ID 审查最终 diff，不复制检查清单。每项记录通过、问题或 N/A 及依据；没有 Check ID 时引用审查条款。发现行为变化回 03 验证，并复测受影响的 04 场景。
+
+| Check ID / 条款 | 结论 | 文件位置及证据 | 问题处置 / 风险接受 |
+|---|---|---|---|
+| 代码检测门禁（`make lint`） | ✅ 通过 | `golangci-lint run ./...` = 0 issues（基线 301） | — |
+| UT 门禁（`make ut`） | ✅ 通过 | `go test ./...` 6 包 ok / 0 FAIL（基线 5 失败） | 覆盖率阈值门禁历史缺失（ut_cover.sh 待修，架构文档技术债） |
+| 生成代码红线（pb/types/handler） | ✅ 未触碰 | git diff 仅 internal/ 源码与测试 | — |
+| 暂存范围核对 | ✅ 逐文件 | git status 42 文件均为本任务 lint/UT 修复 | — |
+| 等价性重构复核 | ✅ | 6 处 gocyclo 重构均为 guard/抽函数等价变换；UT 全绿佐证 | api_key 空名回退、contract_call 脱敏分支顺序逐一核对 |
+| 删除死代码 | ✅ 确认无引用 | `extractResourceFromPath`、`buildContractConfs`（unused 报告） | PR 描述列出删除清单 |
+
+自审人与人工审批人分开。提交前只记录真实自审结论；PR 创建后的人工审批以 GitHub PR review 为准，不预填 Reviewer 批准或签字。
+
+## 2. 环境与 GitHub Issue
+
+核对 04 的原租约释放回执，已释放不重复申请或释放；未收尾时保留负责人和待办。
+
+| 提交前准备 | 已核验结果 / 依据 | 阻塞或跳过原因 |
+|---|---|---|
+| 环境收尾 | ✅ 无外部租约（本地门禁） | — |
+| GitHub Issue 编号、方案和自测材料 | ✅ issue #1（Closes #1）；方案见 02；自测见 03 §2 | — |
+| 提交前状态 / 下游待办 | ✅ 工作区 42 文件待提交；无下游待办 | — |
+
+## 3. 提交准备
+
+提交信息按 `.harness/commit.md` 和实际 hook 定稿，关联格式按项目要求。
+
+```text
+<本次实际 commit message>
+```
+
+提交前检查暂存范围，只包含本任务代码、测试和必要文档。overview 记录“交付待核验”和准备时间，保留 05 未完成；push、PR、issue 状态尚未发生时不得标为完成。
+
+### ChainWeaver 部署所需的提前提交
+
+部署依赖远端版本时，在已有授权内先建立本任务提交并推送；此时不结束 05、不冻结任务文档。后续修复与最终文档通过 amend 汇入同一提交，改写远端历史使用 `--force-with-lease`。
+
+## 4. 已授权交付与复核
+
+| 交付项 | 结果 | 证据 |
+|---|---|---|
+| commit | ✅ `feature/issue-1-fix-lint-ut`（Closes #1 通过 hook 校验） | git log |
+| push | ✅ **pre-push 3 项检查全过**（build+lint+test，未用 SKIP 通道） | push 输出 `[OK]` |
+| PR | ✅ **PR #3**（base=`optimize_sop1`，堆叠于 PR #2） | https://github.com/jackz-jones/blockchain-interactive-service/pull/3 |
+| 前置 PR | ✅ PR #2（optimize_sop1 → master，SOP 基建） | https://github.com/jackz-jones/blockchain-interactive-service/pull/2 |
+
+- [x] 自审逐条有结论，`BLOCKED` / 未验证项已写明原因，未把未执行写成通过
+- [x] 暂存范围逐项列出并核对 diff，无无范围 `git add -A`，未混入其他任务改动
+- [x] GitHub Issue 编号与状态、PR 状态已按真实系统核验，未发生的结果不预填（人工 review 待完成）
+- [ ] `00-overview.md` 的 05 行时间记录已按阶段边界实测值填写（未记则标注「漏记」，禁止回填），状态改为真实值，「当前步骤」与「上次更新」同步

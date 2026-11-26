@@ -11,6 +11,13 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	tenantId    = "tenant_id"
+	usernameStr = "username"
+	apiKey      = "api_key"
+)
+
 type CreateTenantLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -47,11 +54,11 @@ func (l *CreateTenantLogic) CreateTenant(req *types.CreateTenantRequest) (resp *
 			}
 			return &types.CommonResponse{
 				Code:    0,
-				Message: "success",
+				Message: successStr,
 				Data: map[string]interface{}{
-					"tenant_id": recoverResult.Tenant.ID,
-					"api_key":   recoverResult.APIKey.Key,
-					"username":  req.Name + "_admin",
+					tenantId:    recoverResult.Tenant.ID,
+					apiKey:      recoverResult.APIKey.Key,
+					usernameStr: req.Name + "_admin",
 					"recovered": true,
 				},
 			}, nil
@@ -61,11 +68,11 @@ func (l *CreateTenantLogic) CreateTenant(req *types.CreateTenantRequest) (resp *
 
 	return &types.CommonResponse{
 		Code:    0,
-		Message: "success",
+		Message: successStr,
 		Data: map[string]interface{}{
-			"tenant_id": result.Tenant.ID,
-			"api_key":   result.APIKey.Key,
-			"username":  result.Admin.Username,
+			tenantId:    result.Tenant.ID,
+			apiKey:      result.APIKey.Key,
+			usernameStr: result.Admin.Username,
 		},
 	}, nil
 }

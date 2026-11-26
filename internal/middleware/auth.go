@@ -90,26 +90,15 @@ func (a *AuthInterceptor) Stream() grpc.StreamServerInterceptor {
 
 // authenticate 执行认证逻辑
 func (a *AuthInterceptor) authenticate(ctx context.Context) (context.Context, error) {
-	// 从 metadata 中提取 API Key
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return nil, status.Error(codes.Unauthenticated, "missing metadata")
-	}
-
-	apiKeyValues := md.Get(MetadataKeyAPIKey)
-	if len(apiKeyValues) == 0 {
-		return nil, status.Error(codes.Unauthenticated, "missing api key")
-	}
-
-	apiKeyStr := apiKeyValues[0]
-	if apiKeyStr == "" {
-		return nil, status.Error(codes.Unauthenticated, "empty api key")
+	apiKeyStr, err := apiKeyFromGRPCMetadata(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// 命中缓存路径
 	if a.cache != nil {
-		if info, ok := a.cache.Lookup(apiKeyStr); ok {
-			if err := checkAuthInfoGRPC(info, ctx); err != nil {
+		if info, ok := a.cache.lookup(apiKeyStr); ok {
+			if err := checkAuthInfoGRPC(ctx, info); err != nil {
 				return nil, err
 			}
 			a.cache.UpdateLastUsedAsync(a.repo, info.APIKeyID)
@@ -120,6 +109,45 @@ func (a *AuthInterceptor) authenticate(ctx context.Context) (context.Context, er
 		}
 	}
 
+	info, err := a.loadAPIKeyInfo(ctx, apiKeyStr)
+	if err != nil {
+		return nil, err
+	}
+
+	// 写缓存并节流更新 last_used
+	if a.cache != nil {
+		a.cache.Store(apiKeyStr, info)
+		a.cache.UpdateLastUsedAsync(a.repo, info.APIKeyID)
+	} else {
+		go func() {
+			_ = a.repo.UpdateAPIKeyLastUsed(context.Background(), info.APIKeyID, time.Now())
+		}()
+	}
+
+	return injectGRPCAuthCtx(ctx, info), nil
+}
+
+// apiKeyFromGRPCMetadata 从 gRPC metadata 提取并校验 API Key
+func apiKeyFromGRPCMetadata(ctx context.Context) (string, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return "", status.Error(codes.Unauthenticated, "missing metadata")
+	}
+
+	apiKeyValues := md.Get(MetadataKeyAPIKey)
+	if len(apiKeyValues) == 0 {
+		return "", status.Error(codes.Unauthenticated, "missing api key")
+	}
+
+	apiKeyStr := apiKeyValues[0]
+	if apiKeyStr == "" {
+		return "", status.Error(codes.Unauthenticated, "empty api key")
+	}
+	return apiKeyStr, nil
+}
+
+// loadAPIKeyInfo 从 DB 加载 API Key 并完成状态/过期/IP/租户/用户校验，返回认证要素
+func (a *AuthInterceptor) loadAPIKeyInfo(ctx context.Context, apiKeyStr string) (*apiKeyAuthInfo, error) {
 	// 查询 API Key
 	apiKey, err := a.repo.GetAPIKeyByKey(ctx, apiKeyStr)
 	if err != nil {
@@ -181,22 +209,11 @@ func (a *AuthInterceptor) authenticate(ctx context.Context) (context.Context, er
 	if user != nil {
 		info.UserRole = user.Role
 	}
-
-	// 写缓存并节流更新 last_used
-	if a.cache != nil {
-		a.cache.Store(apiKeyStr, info)
-		a.cache.UpdateLastUsedAsync(a.repo, apiKey.ID)
-	} else {
-		go func() {
-			_ = a.repo.UpdateAPIKeyLastUsed(context.Background(), apiKey.ID, time.Now())
-		}()
-	}
-
-	return injectGRPCAuthCtx(ctx, info), nil
+	return info, nil
 }
 
 // checkAuthInfoGRPC 校验缓存命中的认证要素是否仍有效
-func checkAuthInfoGRPC(info *apiKeyAuthInfo, ctx context.Context) error {
+func checkAuthInfoGRPC(ctx context.Context, info *apiKeyAuthInfo) error {
 	if info == nil || info.Status != statusActive {
 		return status.Error(codes.Unauthenticated, "api key is revoked")
 	}
@@ -228,8 +245,8 @@ func injectGRPCAuthCtx(parent context.Context, info *apiKeyAuthInfo) context.Con
 // shouldSkipAuth 判断是否跳过认证（健康检查等）
 func shouldSkipAuth(fullMethod string) bool {
 	skipMethods := []string{
-		"/grpc.health.v1.Health/",
-		"/grpc.reflection.v1alpha.ServerReflection/",
+		grpchealthv1Health,
+		grpcReflectionPath,
 	}
 	for _, m := range skipMethods {
 		if strings.HasPrefix(fullMethod, m) {

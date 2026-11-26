@@ -84,6 +84,7 @@ linters:
       - proto
       - scripts
       - sql
+      - web
 
 formatters:
   # v2：gofmt / goimports 归类为 formatter
