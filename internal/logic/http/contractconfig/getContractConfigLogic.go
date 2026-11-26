@@ -10,6 +10,9 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const ()
+
 type GetContractConfigLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -29,7 +32,7 @@ func (l *GetContractConfigLogic) GetContractConfig(
 ) (resp *types.CommonResponse, err error) {
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	config, err := l.svcCtx.Repo.GetContractConfig(l.ctx, req.Id)
@@ -37,11 +40,11 @@ func (l *GetContractConfigLogic) GetContractConfig(
 		return &types.CommonResponse{Code: 500, Message: "get contract config: " + err.Error()}, nil
 	}
 	if config == nil {
-		return &types.CommonResponse{Code: 404, Message: "contract config not found"}, nil
+		return &types.CommonResponse{Code: 404, Message: contractConfigNotFound}, nil
 	}
 	if config.TenantID != tenantID {
-		return &types.CommonResponse{Code: 403, Message: "contract config not owned by current tenant"}, nil
+		return &types.CommonResponse{Code: 403, Message: msgContractNotOwned}, nil
 	}
 
-	return &types.CommonResponse{Code: 0, Message: "success", Data: config}, nil
+	return &types.CommonResponse{Code: 0, Message: successStr, Data: config}, nil
 }

@@ -10,6 +10,9 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const ()
+
 type ListContractConfigsLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -29,11 +32,11 @@ func (l *ListContractConfigsLogic) ListContractConfigs(
 ) (resp *types.CommonResponse, err error) {
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	if !validateChainConfigOwnership(l.ctx, l.svcCtx, tenantID, req.ChainConfigId) {
-		return &types.CommonResponse{Code: 403, Message: "chain config not found or not owned by current tenant"}, nil
+		return &types.CommonResponse{Code: 403, Message: msgChainConfigNotOwned}, nil
 	}
 
 	configs, err := l.svcCtx.Repo.ListContractConfigsByChain(l.ctx, req.ChainConfigId)
@@ -57,8 +60,8 @@ func (l *ListContractConfigsLogic) ListContractConfigs(
 			"DeletedAt":        cfg.DeletedAt,
 			"tenant_id":        cfg.TenantID,
 			"chain_config_id":  cfg.ChainConfigID,
-			"contract_name":    cfg.ContractName,
-			"contract_addr":    cfg.ContractAddr,
+			contractName:       cfg.ContractName,
+			contractAddr:       cfg.ContractAddr,
 			"abi_json":         cfg.AbiJSON,
 			"enable_subscribe": cfg.EnableSubscribe,
 			"extra_conf":       cfg.ExtraConf,
@@ -69,7 +72,7 @@ func (l *ListContractConfigsLogic) ListContractConfigs(
 
 	return &types.CommonResponse{
 		Code:    0,
-		Message: "success",
+		Message: successStr,
 		Data: map[string]interface{}{
 			"total": len(configs),
 			"items": items,

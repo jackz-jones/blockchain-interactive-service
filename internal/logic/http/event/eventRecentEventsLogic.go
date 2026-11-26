@@ -15,6 +15,9 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const ()
+
 type RecentEventsLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -38,23 +41,23 @@ type RecentEventsRequest struct {
 func (l *RecentEventsLogic) GetRecentEvents(contractConfigIdStr string) (resp *types.CommonResponse, err error) {
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	// 解析合约配置ID
 	contractConfigID, err := strconv.ParseUint(contractConfigIdStr, 10, 64)
 	if err != nil {
-		return &types.CommonResponse{Code: 400, Message: "invalid contract_config_id"}, nil
+		return &types.CommonResponse{Code: 400, Message: invalidContractConfigId}, nil
 	}
 
 	// 查询合约配置，确认属于当前租户且已开启订阅
 	contract, err := l.svcCtx.Repo.GetContractConfig(l.ctx, uint(contractConfigID))
 	if err != nil {
-		l.Logger.Errorf("failed to get contract config: %v", err)
-		return &types.CommonResponse{Code: 500, Message: "internal error"}, nil
+		l.Errorf("failed to get contract config: %v", err)
+		return &types.CommonResponse{Code: 500, Message: internalError}, nil
 	}
 	if contract == nil {
-		return &types.CommonResponse{Code: 404, Message: "contract config not found"}, nil
+		return &types.CommonResponse{Code: 404, Message: contractConfigNotFound}, nil
 	}
 
 	// 校验租户归属（直接使用合约配置上的 TenantID 字段）
@@ -80,14 +83,14 @@ func (l *RecentEventsLogic) GetRecentEvents(contractConfigIdStr string) (resp *t
 	// 使用 XREVRANGE 从 Stream 中倒序读取最新 10 条消息
 	messages, err := l.svcCtx.RedisClient.RedisClient.XRevRangeN(l.ctx, streamKey, "+", "-", 10).Result()
 	if err != nil {
-		l.Logger.Errorf("failed to XREVRANGE from stream %s: %v", streamKey, err)
+		l.Errorf("failed to XREVRANGE from stream %s: %v", streamKey, err)
 		// Stream 不存在时返回空列表而非报错
 		return &types.CommonResponse{
 			Code:    0,
-			Message: "success",
+			Message: successStr,
 			Data: map[string]interface{}{
-				"items": []interface{}{},
-				"total": 0,
+				itemsStr: []interface{}{},
+				totalStr: 0,
 			},
 		}, nil
 	}
@@ -108,7 +111,7 @@ func (l *RecentEventsLogic) GetRecentEvents(contractConfigIdStr string) (resp *t
 		// 解析 CrossChainEvent 结构
 		var crossEvent commonEvent.CrossChainEvent
 		if err := json.Unmarshal([]byte(eventStr), &crossEvent); err != nil {
-			l.Logger.Debugf("failed to unmarshal event: %v", err)
+			l.Debugf("failed to unmarshal event: %v", err)
 			continue
 		}
 
@@ -144,13 +147,13 @@ func (l *RecentEventsLogic) GetRecentEvents(contractConfigIdStr string) (resp *t
 
 	return &types.CommonResponse{
 		Code:    0,
-		Message: "success",
+		Message: successStr,
 		Data: map[string]interface{}{
-			"items":         items,
-			"total":         len(items),
-			"chain_name":    chainName,
-			"contract_name": contract.ContractName,
-			"contract_addr": contract.ContractAddr,
+			itemsStr:     items,
+			totalStr:     len(items),
+			chainNameStr: chainName,
+			contractName: contract.ContractName,
+			contractAddr: contract.ContractAddr,
 		},
 	}, nil
 }

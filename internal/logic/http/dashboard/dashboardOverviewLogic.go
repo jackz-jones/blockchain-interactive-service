@@ -13,6 +13,9 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const ()
+
 type OverviewLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -30,7 +33,7 @@ func NewOverviewLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Overview
 func (l *OverviewLogic) DashboardOverview() (resp *types.CommonResponse, err error) {
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	stats, err := l.svcCtx.BillingService.GetUsageStats(l.ctx, tenantID)
@@ -56,7 +59,7 @@ func (l *OverviewLogic) DashboardOverview() (resp *types.CommonResponse, err err
 	// 查询今日成功调用数
 	_, successCount, _ := l.svcCtx.Repo.ListCallLogs(l.ctx, store.CallLogFilter{
 		TenantID:  tenantID,
-		Status:    "success",
+		Status:    successStr,
 		StartTime: &todayStart,
 		EndTime:   &todayEnd,
 	}, 0, 1)
@@ -70,7 +73,7 @@ func (l *OverviewLogic) DashboardOverview() (resp *types.CommonResponse, err err
 
 	return &types.CommonResponse{
 		Code:    0,
-		Message: "success",
+		Message: successStr,
 		Data: map[string]interface{}{
 			"today_calls":   stats.TodayCalls,
 			"month_calls":   stats.MonthCalls,

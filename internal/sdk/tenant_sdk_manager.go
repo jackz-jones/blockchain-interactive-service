@@ -302,7 +302,8 @@ func (m *TenantSDKManager) GetTenantSDKClient(
 		entry.touch()
 		m.tenantClients.Store(key, entry)
 		m.indexAdd(tenantID, chainConfig.ID)
-		m.logger.Infof("created tenant SDK client: tenant=%d, chain=%s, chainConfigID=%d", tenantID, chainName, chainConfig.ID)
+		m.logger.Infof("created tenant SDK client: tenant=%d, chain=%s, chainConfigID=%d",
+			tenantID, chainName, chainConfig.ID)
 		return client, nil
 	})
 	if err != nil {
@@ -403,7 +404,9 @@ func (m *TenantSDKManager) StopSubscription(tenantID uint, chainName string) {
 
 // StopContractSubscription 停止指定合约的订阅（精确到合约级别）
 // 当合约配置被删除时调用，清理对应的 SubscribeFlag 并停止 SDK 客户端
-func (m *TenantSDKManager) StopContractSubscription(chainConfigID, contractConfigID uint, tenantID uint, chainName string) {
+func (m *TenantSDKManager) StopContractSubscription(
+	chainConfigID, contractConfigID uint, tenantID uint, chainName string,
+) {
 	// 清理该合约的 SubscribeFlag
 	flagKey := SubscribeKeyByID(chainConfigID, contractConfigID)
 	SubscribeFlag.Delete(flagKey)
@@ -442,7 +445,9 @@ func (m *TenantSDKManager) RestartSubscription(tenantID uint, chainName string) 
 // TestChainConnect 测试链配置的连接可用性
 // 通过临时创建 SDK 客户端来验证配置是否可用，验证后立即释放资源
 // 返回 nil 表示连接成功，否则返回错误信息
-func (m *TenantSDKManager) TestChainConnect(ctx context.Context, chainConfig *store.TenantChainConfig, nodes []*store.TenantChainNode) error {
+func (m *TenantSDKManager) TestChainConnect(
+	ctx context.Context, chainConfig *store.TenantChainConfig, nodes []*store.TenantChainNode,
+) error {
 	sdkConf := BuildSDKConf(chainConfig, nodes)
 	client, err := m.createSDKClient(ctx, chainConfig.ChainType, chainConfig.ChainName, &sdkConf, nil)
 	if err != nil {
@@ -544,31 +549,6 @@ func (m *TenantSDKManager) buildContractConfs(dbConfigs []*store.TenantContractC
 			}
 		}
 
-		result[dbConf.ContractName] = contractConf
-	}
-	return result
-}
-
-// buildContractConfs 保留为包级别函数以兼容外部调用点（若有）
-// Deprecated: 请使用 (*TenantSDKManager).buildContractConfs
-func buildContractConfs(dbConfigs []*store.TenantContractConfig) map[string]*ContractConf {
-	result := make(map[string]*ContractConf)
-	for _, dbConf := range dbConfigs {
-		contractConf := &ContractConf{
-			ContractName: dbConf.ContractName,
-			ContractAddr: dbConf.ContractAddr,
-			Abi:          dbConf.AbiJSON,
-		}
-		if dbConf.ExtraConf != "" {
-			if err := json.Unmarshal([]byte(dbConf.ExtraConf), contractConf); err != nil {
-				logx.Errorf("unmarshal ExtraConf failed: contract=%s, err=%v", dbConf.ContractName, err)
-			}
-			contractConf.ContractName = dbConf.ContractName
-			contractConf.ContractAddr = dbConf.ContractAddr
-			if dbConf.AbiJSON != "" {
-				contractConf.Abi = dbConf.AbiJSON
-			}
-		}
 		result[dbConf.ContractName] = contractConf
 	}
 	return result

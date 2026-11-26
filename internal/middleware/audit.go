@@ -16,6 +16,19 @@ import (
 	"google.golang.org/grpc/peer"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	contractConfig = "contract_config"
+	chainConfigs   = "chain-configs"
+	contractCall   = "contract_call"
+	statusCodeStr  = "status_code"
+	durationStr    = "duration"
+	methodStr      = "method"
+	deleteStr      = "delete"
+	pathStr        = "path"
+	callStr        = "call"
+)
+
 // AuditInterceptor 审计日志 gRPC 拦截器
 type AuditInterceptor struct {
 	repo store.Repository
@@ -57,8 +70,8 @@ func (a *AuditInterceptor) recordGRPCAudit(
 
 	// 构建详情
 	detail := map[string]interface{}{
-		"method":   method,
-		"duration": duration.Milliseconds(),
+		methodStr:   method,
+		durationStr: duration.Milliseconds(),
 	}
 	if callErr != nil {
 		detail["error"] = callErr.Error()
@@ -131,7 +144,10 @@ func HTTPAuditMiddleware(repo store.Repository) func(http.Handler) http.Handler 
 }
 
 // recordHTTPAudit 记录 HTTP 审计日志
-func recordHTTPAudit(repo store.Repository, r *http.Request, statusCode int, responseBody string, duration time.Duration, bodyBytes []byte) {
+func recordHTTPAudit(
+	repo store.Repository, r *http.Request, statusCode int,
+	responseBody string, duration time.Duration, bodyBytes []byte,
+) {
 	// 只审计写操作（非 GET 请求）
 	if r.Method == http.MethodGet {
 		return
@@ -143,13 +159,8 @@ func recordHTTPAudit(repo store.Repository, r *http.Request, statusCode int, res
 	}
 
 	// 检查业务逻辑返回的 code 是否为0（成功），非0表示业务失败，不记录审计日志
-	if responseBody != "" {
-		var bizResp struct {
-			Code int `json:"code"`
-		}
-		if json.Unmarshal([]byte(responseBody), &bizResp) == nil && bizResp.Code != 0 {
-			return
-		}
+	if isBizFailure(responseBody) {
+		return
 	}
 
 	tenantID := GetTenantIDFromHTTP(r)
@@ -160,78 +171,11 @@ func recordHTTPAudit(repo store.Repository, r *http.Request, statusCode int, res
 
 	// 对于已在业务逻辑中主动创建审计日志的操作，中间件不再重复记录
 	// 包括：create/update chain_config、update contract_config
-	if resourceType == "chain-configs" {
-		return
-	}
-	if (r.Method == http.MethodPut || r.Method == http.MethodPatch) &&
-		resourceType == "contract_config" {
+	if isDuplicatedByLogic(r.Method, resourceType) {
 		return
 	}
 
-	detail := map[string]interface{}{
-		"method":      r.Method,
-		"path":        r.URL.Path,
-		"query":       r.URL.RawQuery,
-		"status_code": statusCode,
-		"duration":    duration.Milliseconds(),
-	}
-
-	// 将非合约调用的请求体也纳入 detail，同时脱敏，避免 private_key/password 等敏感字段直接落库。
-	if resourceType != "contract_call" && len(bodyBytes) > 0 {
-		maskedBody := maskSensitiveFields(string(bodyBytes))
-		// 控制入库长度，避免异常请求体拖油表。
-		if len(maskedBody) > maxAuditResponseBytes {
-			maskedBody = maskedBody[:maxAuditResponseBytes]
-		}
-		detail["request"] = maskedBody
-	}
-
-	// 合约调用特殊脱敏：detail 不含完整参数，仅记录方法名、合约名、链名、状态、耗时
-	if resourceType == "contract_call" {
-		// 从请求体中提取合约调用的关键信息
-		contractDetail := map[string]interface{}{
-			"method":      r.Method,
-			"path":        r.URL.Path,
-			"status_code": statusCode,
-			"duration":    duration.Milliseconds(),
-		}
-
-		// 解析请求体，提取链名、合约名、方法等信息（不对params做记录以避免泄露敏感数据）
-		if len(bodyBytes) > 0 {
-			var callReq struct {
-				ChainName    string            `json:"chain_name"`
-				ContractName string            `json:"contract_name"`
-				Method       string            `json:"method"`
-				MethodType   int               `json:"method_type"`
-				Params       map[string]string `json:"params"`
-			}
-			if json.Unmarshal(bodyBytes, &callReq) == nil {
-				if callReq.ChainName != "" {
-					contractDetail["chain_name"] = callReq.ChainName
-				}
-				if callReq.ContractName != "" {
-					contractDetail["contract_name"] = callReq.ContractName
-				}
-				if callReq.Method != "" {
-					contractDetail["contract_method"] = callReq.Method
-				}
-				if callReq.MethodType > 0 {
-					methodTypeLabel := "读链(Query)"
-					if callReq.MethodType == 1 {
-						methodTypeLabel = "写链(Invoke)"
-					}
-					contractDetail["method_type"] = callReq.MethodType
-					contractDetail["method_type_label"] = methodTypeLabel
-				}
-				// 记录参数键值对（完整键值，业务侧要求保留）
-				if len(callReq.Params) > 0 {
-					contractDetail["params"] = callReq.Params
-				}
-			}
-		}
-		detail = contractDetail
-	}
-
+	detail := buildAuditDetail(r, resourceType, statusCode, duration, bodyBytes)
 	detailBytes, _ := json.Marshal(detail)
 
 	log := &store.AuditLog{
@@ -248,6 +192,105 @@ func recordHTTPAudit(repo store.Repository, r *http.Request, statusCode int, res
 	if err := repo.CreateAuditLog(context.Background(), log); err != nil {
 		logx.Errorf("[Audit] record http audit log error: %v", err)
 	}
+}
+
+// isBizFailure 业务响应 code 非 0 时返回 true（业务失败不记审计）
+func isBizFailure(responseBody string) bool {
+	if responseBody == "" {
+		return false
+	}
+	var bizResp struct {
+		Code int `json:"code"`
+	}
+	return json.Unmarshal([]byte(responseBody), &bizResp) == nil && bizResp.Code != 0
+}
+
+// isDuplicatedByLogic 业务逻辑已主动创建审计日志的操作返回 true（避免重复记录）
+func isDuplicatedByLogic(method, resourceType string) bool {
+	if resourceType == chainConfigs {
+		return true
+	}
+	return (method == http.MethodPut || method == http.MethodPatch) && resourceType == contractConfig
+}
+
+// buildAuditDetail 组装审计 detail；合约调用走特殊脱敏分支
+func buildAuditDetail(
+	r *http.Request, resourceType string, statusCode int,
+	duration time.Duration, bodyBytes []byte,
+) map[string]interface{} {
+	// 合约调用特殊脱敏：detail 不含完整参数，仅记录方法名、合约名、链名、状态、耗时
+	if resourceType == contractCall {
+		return buildContractCallDetail(r, statusCode, duration, bodyBytes)
+	}
+
+	detail := map[string]interface{}{
+		methodStr:     r.Method,
+		pathStr:       r.URL.Path,
+		"query":       r.URL.RawQuery,
+		statusCodeStr: statusCode,
+		durationStr:   duration.Milliseconds(),
+	}
+
+	// 将非合约调用的请求体也纳入 detail，同时脱敏，避免 private_key/password 等敏感字段直接落库。
+	if len(bodyBytes) > 0 {
+		maskedBody := maskSensitiveFields(string(bodyBytes))
+		// 控制入库长度，避免异常请求体拖油表。
+		if len(maskedBody) > maxAuditResponseBytes {
+			maskedBody = maskedBody[:maxAuditResponseBytes]
+		}
+		detail["request"] = maskedBody
+	}
+	return detail
+}
+
+// buildContractCallDetail 合约调用审计 detail：仅记录方法名、合约名、链名、状态、耗时
+func buildContractCallDetail(
+	r *http.Request, statusCode int,
+	duration time.Duration, bodyBytes []byte,
+) map[string]interface{} {
+	contractDetail := map[string]interface{}{
+		methodStr:     r.Method,
+		pathStr:       r.URL.Path,
+		statusCodeStr: statusCode,
+		durationStr:   duration.Milliseconds(),
+	}
+
+	// 解析请求体，提取链名、合约名、方法等信息（不对params做记录以避免泄露敏感数据）
+	if len(bodyBytes) == 0 {
+		return contractDetail
+	}
+	var callReq struct {
+		ChainName    string            `json:"chain_name"`
+		ContractName string            `json:"contract_name"`
+		Method       string            `json:"method"`
+		MethodType   int               `json:"method_type"`
+		Params       map[string]string `json:"params"`
+	}
+	if json.Unmarshal(bodyBytes, &callReq) != nil {
+		return contractDetail
+	}
+	if callReq.ChainName != "" {
+		contractDetail["chain_name"] = callReq.ChainName
+	}
+	if callReq.ContractName != "" {
+		contractDetail["contract_name"] = callReq.ContractName
+	}
+	if callReq.Method != "" {
+		contractDetail["contract_method"] = callReq.Method
+	}
+	if callReq.MethodType > 0 {
+		methodTypeLabel := "读链(Query)"
+		if callReq.MethodType == 1 {
+			methodTypeLabel = "写链(Invoke)"
+		}
+		contractDetail["method_type"] = callReq.MethodType
+		contractDetail["method_type_label"] = methodTypeLabel
+	}
+	// 记录参数键值对（完整键值，业务侧要求保留）
+	if len(callReq.Params) > 0 {
+		contractDetail["params"] = callReq.Params
+	}
+	return contractDetail
 }
 
 // extractAuditInfoFromRequest 从 HTTP 请求中提取审计信息
@@ -279,10 +322,10 @@ func extractAuditInfoFromRequest(r *http.Request) (string, string, string) {
 		childID := parts[5]
 
 		// 合并父子资源类型，如 chain-configs/contracts → contract_config
-		if parentType == "chain-configs" && childType == "contracts" {
-			resourceType = "contract_config"
+		if parentType == chainConfigs && childType == "contracts" {
+			resourceType = contractConfig
 			resourceID = childID
-		} else if parentType == "chain-configs" && childType == "test-connection" {
+		} else if parentType == chainConfigs && childType == "test-connection" {
 			resourceType = "chain_config_test"
 			resourceID = parts[3] // parent_id 即 chain_config_id
 		} else {
@@ -295,9 +338,9 @@ func extractAuditInfoFromRequest(r *http.Request) (string, string, string) {
 	// 特殊处理合约调用：POST /api/v1/contract/call
 	if len(parts) >= 3 && parts[2] == "contract" && r.Method == http.MethodPost {
 		// 检查是否是 /api/v1/contract/call
-		if len(parts) >= 4 && parts[3] == "call" {
-			resourceType = "contract_call"
-			action = "call"
+		if len(parts) >= 4 && parts[3] == callStr {
+			resourceType = contractCall
+			action = callStr
 			resourceID = ""
 		}
 	}
@@ -308,8 +351,8 @@ func extractAuditInfoFromRequest(r *http.Request) (string, string, string) {
 		action = "create"
 	case "put", "patch":
 		action = "update"
-	case "delete":
-		action = "delete"
+	case deleteStr:
+		action = deleteStr
 	}
 
 	return action, resourceType, resourceID
@@ -356,15 +399,6 @@ func extractAction(method string) string {
 		return parts[len(parts)-1]
 	}
 	return method
-}
-
-// extractResourceFromPath 从 URL 路径中提取资源类型
-func extractResourceFromPath(path string) string {
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) >= 3 {
-		return parts[2] // /api/v1/{resource}
-	}
-	return path
 }
 
 // ========== 敏感数据脱敏 ==========

@@ -12,6 +12,13 @@ import (
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	fromAddressStr = "$fromAddress"
+	falseStr       = "false"
+	trueStr        = "true"
+)
+
 // Solana 参数类型枚举常量
 const (
 	SolanaArgTypeU8     = "u8"
@@ -144,9 +151,9 @@ func encodeBorshValue(argType string, raw []byte) ([]byte, error) {
 
 	case SolanaArgTypeBool:
 		switch string(raw) {
-		case "true", "1":
+		case trueStr, "1":
 			return []byte{1}, nil
-		case "false", "0":
+		case falseStr, "0":
 			return []byte{0}, nil
 		default:
 			return nil, fmt.Errorf("invalid bool value: %s", string(raw))
@@ -183,7 +190,7 @@ func encodeBorshValue(argType string, raw []byte) ([]byte, error) {
 
 // resolvePubkey 解析账户公钥：支持 "$fromAddress" 占位符与 base58 字符串。
 func resolvePubkey(raw string, fromAddress solana.PublicKey) (solana.PublicKey, error) {
-	if raw == "$fromAddress" {
+	if raw == fromAddressStr {
 		return fromAddress, nil
 	}
 	return solana.PublicKeyFromBase58(raw)

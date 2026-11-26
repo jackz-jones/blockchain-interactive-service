@@ -15,6 +15,9 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const ()
+
 // CallContractLogic 定义了合约调用逻辑执行对象
 type CallContractLogic struct {
 	ctx    context.Context
@@ -36,8 +39,8 @@ func (l *CallContractLogic) CallContract(in *pb.CallContractRequest) (*pb.TxResp
 
 	// 日志通用信息
 	fields := map[string]interface{}{
-		"requestId":      in.RequestId,
-		"chainName":      in.ChainName,
+		requestIdStr:     in.RequestId,
+		chainNameStr:     in.ChainName,
 		"contractName":   in.ContractName,
 		"contractMethod": in.ContractMethod,
 		"kvPairs":        in.KvPairs,

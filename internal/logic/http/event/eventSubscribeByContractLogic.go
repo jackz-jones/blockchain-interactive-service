@@ -12,6 +12,17 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	chainConfigId = "chain_config_id"
+	contractAddr  = "contract_addr"
+	contractName  = "contract_name"
+	chainNameStr  = "chain_name"
+	chainType     = "chain_type"
+	totalStr      = "total"
+	itemsStr      = "items"
+)
+
 type SubscribeByContractLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -26,10 +37,12 @@ func NewSubscribeByContractLogic(ctx context.Context, svcCtx *svc.ServiceContext
 	}
 }
 
-func (l *SubscribeByContractLogic) SubscribeByContract(req *types.SubscribeByContractRequest) (resp *types.CommonResponse, err error) {
+func (l *SubscribeByContractLogic) SubscribeByContract(
+	req *types.SubscribeByContractRequest,
+) (resp *types.CommonResponse, err error) {
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	if req.ContractConfigID == 0 {
@@ -39,16 +52,16 @@ func (l *SubscribeByContractLogic) SubscribeByContract(req *types.SubscribeByCon
 	// 查询合约配置
 	contract, err := l.svcCtx.Repo.GetContractConfig(l.ctx, req.ContractConfigID)
 	if err != nil {
-		l.Logger.Errorf("failed to get contract config: %v", err)
-		return &types.CommonResponse{Code: 500, Message: "internal error"}, nil
+		l.Errorf("failed to get contract config: %v", err)
+		return &types.CommonResponse{Code: 500, Message: internalError}, nil
 	}
 	if contract == nil {
-		return &types.CommonResponse{Code: 404, Message: "contract config not found"}, nil
+		return &types.CommonResponse{Code: 404, Message: contractConfigNotFound}, nil
 	}
 
 	// 校验租户归属
 	if contract.TenantID != tenantID {
-		return &types.CommonResponse{Code: 403, Message: "contract not owned by current tenant"}, nil
+		return &types.CommonResponse{Code: 403, Message: msgContractNotOwnedEvent}, nil
 	}
 
 	// 检查是否已开启订阅（重复检测）
@@ -78,8 +91,8 @@ func (l *SubscribeByContractLogic) SubscribeByContract(req *types.SubscribeByCon
 	}
 
 	if err := l.svcCtx.Repo.UpdateContractConfig(l.ctx, contract); err != nil {
-		l.Logger.Errorf("failed to update contract config: %v", err)
-		return &types.CommonResponse{Code: 500, Message: "internal error"}, nil
+		l.Errorf("failed to update contract config: %v", err)
+		return &types.CommonResponse{Code: 500, Message: internalError}, nil
 	}
 
 	// 启动链上事件监听（通过清除 SubscribeFlag 让调度器在下一个周期自动拉起）
@@ -93,19 +106,19 @@ func (l *SubscribeByContractLogic) SubscribeByContract(req *types.SubscribeByCon
 		chainName = chainConfig.ChainName
 	}
 
-	l.Logger.Infof("subscription enabled for contract %d (chain_config_id=%d, tenant=%d)",
+	l.Infof("subscription enabled for contract %d (chain_config_id=%d, tenant=%d)",
 		contract.ID, contract.ChainConfigID, tenantID)
 
 	return &types.CommonResponse{
 		Code:    0,
-		Message: "success",
+		Message: successStr,
 		Data: map[string]interface{}{
-			"contract_config_id": contract.ID,
-			"chain_config_id":    contract.ChainConfigID,
-			"chain_name":         chainName,
-			"contract_name":      contract.ContractName,
-			"contract_addr":      contract.ContractAddr,
-			"enable_subscribe":   true,
+			contractConfigId: contract.ID,
+			chainConfigId:    contract.ChainConfigID,
+			chainNameStr:     chainName,
+			contractName:     contract.ContractName,
+			contractAddr:     contract.ContractAddr,
+			enableSubscribe:  true,
 		},
 	}, nil
 }
@@ -114,24 +127,24 @@ func (l *SubscribeByContractLogic) SubscribeByContract(req *types.SubscribeByCon
 func (l *SubscribeByContractLogic) ListAvailableContracts() (resp *types.CommonResponse, err error) {
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	contracts, err := l.svcCtx.Repo.ListDisabledSubscribeContracts(l.ctx, tenantID)
 	if err != nil {
-		l.Logger.Errorf("failed to list disabled subscribe contracts: %v", err)
-		return &types.CommonResponse{Code: 500, Message: "internal error"}, nil
+		l.Errorf("failed to list disabled subscribe contracts: %v", err)
+		return &types.CommonResponse{Code: 500, Message: internalError}, nil
 	}
 
 	var items []map[string]interface{}
 	for _, contract := range contracts {
 		items = append(items, map[string]interface{}{
-			"contract_config_id": contract.ID,
-			"chain_config_id":    contract.ChainConfigID,
-			"chain_name":         contract.ChainConfig.ChainName,
-			"chain_type":         contract.ChainConfig.ChainType,
-			"contract_name":      contract.ContractName,
-			"contract_addr":      contract.ContractAddr,
+			contractConfigId: contract.ID,
+			chainConfigId:    contract.ChainConfigID,
+			chainNameStr:     contract.ChainConfig.ChainName,
+			chainType:        contract.ChainConfig.ChainType,
+			contractName:     contract.ContractName,
+			contractAddr:     contract.ContractAddr,
 		})
 	}
 
@@ -141,10 +154,10 @@ func (l *SubscribeByContractLogic) ListAvailableContracts() (resp *types.CommonR
 
 	return &types.CommonResponse{
 		Code:    0,
-		Message: "success",
+		Message: successStr,
 		Data: map[string]interface{}{
-			"items": items,
-			"total": len(items),
+			itemsStr: items,
+			totalStr: len(items),
 		},
 	}, nil
 }

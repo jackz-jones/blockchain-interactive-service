@@ -74,7 +74,9 @@ type Repository interface {
 	CountCallsByTenantMonth(ctx context.Context, tenantID uint, year int, month time.Month) (int64, error)
 	CountCallsByTenantDay(ctx context.Context, tenantID uint, year int, month time.Month, day int) (int64, error)
 	GetDailyUsageStats(ctx context.Context, tenantID uint, startTime, endTime time.Time) ([]*DailyUsageStat, error)
-	GetDailyUsageStatsByMethodType(ctx context.Context, tenantID uint, startTime, endTime time.Time) ([]*DailyUsageStat, error)
+	GetDailyUsageStatsByMethodType(
+		ctx context.Context, tenantID uint, startTime, endTime time.Time,
+	) ([]*DailyUsageStat, error)
 
 	// 账单相关
 	CreateBill(ctx context.Context, bill *Bill) error
@@ -605,7 +607,8 @@ func (r *GormRepository) GetDailyUsageStatsByMethodType(
 
 	// 统计 Invoke 调用
 	var invokeResults []DailyUsageStat
-	if err := r.db.WithContext(ctx).Raw(sql, tenantID, MethodTypeInvoke, startTime, endTime).Scan(&invokeResults).Error; err != nil {
+	if err := r.db.WithContext(ctx).Raw(sql, tenantID, MethodTypeInvoke, startTime, endTime).
+		Scan(&invokeResults).Error; err != nil {
 		return nil, err
 	}
 	out := make([]*DailyUsageStat, len(invokeResults))

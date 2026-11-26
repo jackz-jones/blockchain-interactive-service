@@ -12,6 +12,11 @@ import (
 	pb "github.com/jackz-jones/blockchain-interactive-service/pb"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	SHA256Str = "SHA256"
+)
+
 // 链类型常量，直接引用 pb 枚举定义
 var (
 	ChainTypeChainmaker = strings.ToLower(pb.ChainType_Chainmaker.String())
@@ -213,7 +218,7 @@ func validateChainMakerConfig(req *CreateChainConfigRequestBody) error {
 	}
 
 	// 校验 HashType 枚举值
-	validHashTypes := map[string]bool{"SHA256": true, "SM3": true, "SHA3_256": true}
+	validHashTypes := map[string]bool{SHA256Str: true, "SM3": true, "SHA3_256": true}
 	if !validHashTypes[req.HashType] {
 		return fmt.Errorf("hash_type must be 'SHA256', 'SM3' or 'SHA3_256', got '%s'", req.HashType)
 	}

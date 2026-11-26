@@ -4,11 +4,18 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackz-jones/blockchain-interactive-service/internal/store"
 	"github.com/zeromicro/go-zero/core/logx"
+)
+
+// 提取的重复字符串常量（goconst）
+const (
+	internalError = "internal error"
+	activeStr     = "active"
 )
 
 // HTTP 上下文 key
@@ -34,16 +41,7 @@ const (
 func HTTPAuthMiddleware(repo store.Repository, cache *APIKeyAuthCache) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 从 Header 中提取 API Key
-			apiKeyStr := r.Header.Get(HTTPHeaderAPIKey)
-			if apiKeyStr == "" {
-				// 也支持 Bearer Token 格式
-				auth := r.Header.Get("Authorization")
-				if strings.HasPrefix(auth, "Bearer ") {
-					apiKeyStr = strings.TrimPrefix(auth, "Bearer ")
-				}
-			}
-
+			apiKeyStr := extractAPIKey(r)
 			if apiKeyStr == "" {
 				http.Error(w, `{"code":401,"message":"missing api key"}`, http.StatusUnauthorized)
 				return
@@ -51,7 +49,7 @@ func HTTPAuthMiddleware(repo store.Repository, cache *APIKeyAuthCache) func(http
 
 			// 命中缓存：直接使用缓存中的认证要素
 			if cache != nil {
-				if info, ok := cache.Lookup(apiKeyStr); ok {
+				if info, ok := cache.lookup(apiKeyStr); ok {
 					if !isAuthInfoValid(info, r) {
 						http.Error(w, `{"code":401,"message":"api key not authorized"}`, http.StatusUnauthorized)
 						return
@@ -67,79 +65,20 @@ func HTTPAuthMiddleware(repo store.Repository, cache *APIKeyAuthCache) func(http
 				}
 			}
 
-			// 查询 API Key
-			apiKey, err := repo.GetAPIKeyByKey(r.Context(), apiKeyStr)
-			if err != nil {
-				logx.WithContext(r.Context()).Errorf("query api key error: %v", err)
-				http.Error(w, `{"code":500,"message":"internal error"}`, http.StatusInternalServerError)
+			info, status, message := loadHTTPAuthInfo(repo, cache, r, apiKeyStr)
+			if info == nil {
+				http.Error(w, `{"code":`+strconv.Itoa(status)+`,"message":"`+message+`"}`, status)
 				return
-			}
-			if apiKey == nil {
-				if cache != nil {
-					cache.StoreNotFound(apiKeyStr)
-				}
-				http.Error(w, `{"code":401,"message":"invalid api key"}`, http.StatusUnauthorized)
-				return
-			}
-
-			// 检查状态
-			if apiKey.Status != "active" {
-				http.Error(w, `{"code":401,"message":"api key is revoked"}`, http.StatusUnauthorized)
-				return
-			}
-
-			// 检查过期
-			if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {
-				http.Error(w, `{"code":401,"message":"api key expired"}`, http.StatusUnauthorized)
-				return
-			}
-
-			// 检查 IP 白名单
-			if apiKey.IPWhitelist != "" {
-				clientIP := getHTTPClientIP(r)
-				if !isIPAllowed(clientIP, apiKey.IPWhitelist) {
-					http.Error(w, `{"code":403,"message":"ip not in whitelist"}`, http.StatusForbidden)
-					return
-				}
-			}
-
-			// 检查租户状态
-			t, err := repo.GetTenantByID(r.Context(), apiKey.TenantID)
-			if err != nil {
-				logx.WithContext(r.Context()).Errorf("query tenant error: %v", err)
-				http.Error(w, `{"code":500,"message":"internal error"}`, http.StatusInternalServerError)
-				return
-			}
-			if t == nil || t.Status != store.TenantStatusActive {
-				http.Error(w, `{"code":403,"message":"tenant is disabled or suspended"}`, http.StatusForbidden)
-				return
-			}
-
-			// 查询用户角色
-			user, _ := repo.GetUserByID(r.Context(), apiKey.UserID)
-
-			// 组装认证要素
-			info := &apiKeyAuthInfo{
-				APIKeyID:     apiKey.ID,
-				TenantID:     apiKey.TenantID,
-				UserID:       apiKey.UserID,
-				Status:       apiKey.Status,
-				ExpiresAt:    apiKey.ExpiresAt,
-				IPWhitelist:  apiKey.IPWhitelist,
-				TenantStatus: t.Status,
-			}
-			if user != nil {
-				info.UserRole = user.Role
 			}
 
 			// 写入缓存 & 节流更新 last_used
 			if cache != nil {
 				cache.Store(apiKeyStr, info)
-				cache.UpdateLastUsedAsync(repo, apiKey.ID)
+				cache.UpdateLastUsedAsync(repo, info.APIKeyID)
 			} else {
 				// 无缓存时保持原行为：每次都异步写 DB
 				go func() {
-					_ = repo.UpdateAPIKeyLastUsed(context.Background(), apiKey.ID, time.Now())
+					_ = repo.UpdateAPIKeyLastUsed(context.Background(), info.APIKeyID, time.Now())
 				}()
 			}
 
@@ -150,12 +89,86 @@ func HTTPAuthMiddleware(repo store.Repository, cache *APIKeyAuthCache) func(http
 	}
 }
 
+// extractAPIKey 从 HTTP Header 提取 API Key（支持 X-API-Key 与 Bearer Token 两种格式）
+func extractAPIKey(r *http.Request) string {
+	apiKeyStr := r.Header.Get(HTTPHeaderAPIKey)
+	if apiKeyStr == "" {
+		// 也支持 Bearer Token 格式
+		auth := r.Header.Get("Authorization")
+		if strings.HasPrefix(auth, "Bearer ") {
+			apiKeyStr = strings.TrimPrefix(auth, "Bearer ")
+		}
+	}
+	return apiKeyStr
+}
+
+// loadHTTPAuthInfo 从 DB 加载 API Key 并完成状态/过期/IP/租户/用户校验；
+// 失败时返回 (nil, HTTP 状态码, 错误消息)
+func loadHTTPAuthInfo(
+	repo store.Repository, cache *APIKeyAuthCache, r *http.Request, apiKeyStr string,
+) (*apiKeyAuthInfo, int, string) {
+	apiKey, err := repo.GetAPIKeyByKey(r.Context(), apiKeyStr)
+	if err != nil {
+		logx.WithContext(r.Context()).Errorf("query api key error: %v", err)
+		return nil, http.StatusInternalServerError, internalError
+	}
+	if apiKey == nil {
+		if cache != nil {
+			cache.StoreNotFound(apiKeyStr)
+		}
+		return nil, http.StatusUnauthorized, "invalid api key"
+	}
+
+	// 检查状态
+	if apiKey.Status != activeStr {
+		return nil, http.StatusUnauthorized, "api key is revoked"
+	}
+	// 检查过期
+	if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {
+		return nil, http.StatusUnauthorized, "api key expired"
+	}
+	// 检查 IP 白名单
+	if apiKey.IPWhitelist != "" {
+		clientIP := getHTTPClientIP(r)
+		if !isIPAllowed(clientIP, apiKey.IPWhitelist) {
+			return nil, http.StatusForbidden, "ip not in whitelist"
+		}
+	}
+	// 检查租户状态
+	t, err := repo.GetTenantByID(r.Context(), apiKey.TenantID)
+	if err != nil {
+		logx.WithContext(r.Context()).Errorf("query tenant error: %v", err)
+		return nil, http.StatusInternalServerError, internalError
+	}
+	if t == nil || t.Status != store.TenantStatusActive {
+		return nil, http.StatusForbidden, "tenant is disabled or suspended"
+	}
+
+	// 查询用户角色
+	user, _ := repo.GetUserByID(r.Context(), apiKey.UserID)
+
+	// 组装认证要素
+	info := &apiKeyAuthInfo{
+		APIKeyID:     apiKey.ID,
+		TenantID:     apiKey.TenantID,
+		UserID:       apiKey.UserID,
+		Status:       apiKey.Status,
+		ExpiresAt:    apiKey.ExpiresAt,
+		IPWhitelist:  apiKey.IPWhitelist,
+		TenantStatus: t.Status,
+	}
+	if user != nil {
+		info.UserRole = user.Role
+	}
+	return info, 0, ""
+}
+
 // isAuthInfoValid 校验缓存命中的认证要素是否仍然有效（状态/过期/IP/租户状态）
 func isAuthInfoValid(info *apiKeyAuthInfo, r *http.Request) bool {
 	if info == nil {
 		return false
 	}
-	if info.Status != "active" {
+	if info.Status != activeStr {
 		return false
 	}
 	if info.ExpiresAt != nil && info.ExpiresAt.Before(time.Now()) {

@@ -11,6 +11,12 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	apiKey      = "api_key"
+	usernameStr = "username"
+)
+
 type RegisterLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -47,20 +53,20 @@ func (l *RegisterLogic) Register(req *types.RegisterRequest) (resp interface{}, 
 				return nil, &types.BizError{Code: 409, Message: "tenant already exists"}
 			}
 			return map[string]interface{}{
-				"tenant_id":   recoverResult.Tenant.ID,
-				"tenant_name": recoverResult.Tenant.Name,
-				"api_key":     recoverResult.APIKey.Key,
-				"username":    req.Name + "_admin",
-				"recovered":   true,
+				tenantId:    recoverResult.Tenant.ID,
+				tenantName:  recoverResult.Tenant.Name,
+				apiKey:      recoverResult.APIKey.Key,
+				usernameStr: req.Name + "_admin",
+				"recovered": true,
 			}, nil
 		}
 		return nil, &types.BizError{Code: 500, Message: "create tenant: " + err.Error()}
 	}
 
 	return map[string]interface{}{
-		"tenant_id":   result.Tenant.ID,
-		"tenant_name": result.Tenant.Name,
-		"api_key":     result.APIKey.Key,
-		"username":    result.Admin.Username,
+		tenantId:    result.Tenant.ID,
+		tenantName:  result.Tenant.Name,
+		apiKey:      result.APIKey.Key,
+		usernameStr: result.Admin.Username,
 	}, nil
 }

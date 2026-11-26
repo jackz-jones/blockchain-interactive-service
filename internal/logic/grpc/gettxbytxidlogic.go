@@ -14,6 +14,12 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	requestIdStr = "requestId"
+	chainNameStr = "chainName"
+)
+
 // GetTxByTxIdLogic 定义了查询交易详情逻辑执行对象
 type GetTxByTxIdLogic struct {
 	ctx    context.Context
@@ -35,9 +41,9 @@ func (l *GetTxByTxIdLogic) GetTxByTxId(in *pb.GetTxByTxIdRequest) (*pb.TxRespons
 
 	// 日志通用信息
 	fields := map[string]interface{}{
-		"requestId": in.RequestId,
-		"txId":      in.TxId,
-		"chainName": in.ChainName,
+		requestIdStr: in.RequestId,
+		"txId":       in.TxId,
+		chainNameStr: in.ChainName,
 	}
 	l.Logger.WithFields(util.ConvertToLogFields(fields)...).Info("receive GetTxByTxId request")
 

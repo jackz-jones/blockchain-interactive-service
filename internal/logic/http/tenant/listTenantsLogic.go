@@ -9,6 +9,11 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	successStr = "success"
+)
+
 type ListTenantsLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -45,7 +50,7 @@ func (l *ListTenantsLogic) ListTenants(req *types.ListTenantsRequest) (resp *typ
 
 	return &types.CommonResponse{
 		Code:    0,
-		Message: "success",
+		Message: successStr,
 		Data: map[string]interface{}{
 			"total": total,
 			"page":  page,
