@@ -11,6 +11,9 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const ()
+
 type DeleteContractConfigLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -30,12 +33,12 @@ func (l *DeleteContractConfigLogic) DeleteContractConfig(
 ) (resp *types.CommonResponse, err error) {
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	role := middleware.GetUserRoleFromContext(l.ctx)
 	if role != store.UserRoleAdmin {
-		return &types.CommonResponse{Code: 403, Message: "admin role required for write operations"}, nil
+		return &types.CommonResponse{Code: 403, Message: msgAdminRoleRequired}, nil
 	}
 
 	existing, err := l.svcCtx.Repo.GetContractConfig(l.ctx, req.Id)
@@ -43,10 +46,10 @@ func (l *DeleteContractConfigLogic) DeleteContractConfig(
 		return &types.CommonResponse{Code: 500, Message: "get contract config: " + err.Error()}, nil
 	}
 	if existing == nil {
-		return &types.CommonResponse{Code: 404, Message: "contract config not found"}, nil
+		return &types.CommonResponse{Code: 404, Message: contractConfigNotFound}, nil
 	}
 	if existing.TenantID != tenantID {
-		return &types.CommonResponse{Code: 403, Message: "contract config not owned by current tenant"}, nil
+		return &types.CommonResponse{Code: 403, Message: msgContractNotOwned}, nil
 	}
 
 	if err := l.svcCtx.Repo.DeleteContractConfig(l.ctx, req.Id); err != nil {
@@ -64,5 +67,5 @@ func (l *DeleteContractConfigLogic) DeleteContractConfig(
 		l.svcCtx.ConfigResolver.InvalidateByChainConfigID(req.ChainConfigId)
 	}
 
-	return &types.CommonResponse{Code: 0, Message: "success"}, nil
+	return &types.CommonResponse{Code: 0, Message: successStr}, nil
 }

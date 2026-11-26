@@ -15,13 +15,13 @@ import (
 
 // Code 业务错误码（int）
 // 编码规约：
-//   -   0        成功
-//   -   1xxx     公共通用错误
-//   -   2xxx     认证 / 权限相关
-//   -   3xxx     配额 / 计费相关
-//   -   4xxx     配置 / 资源相关
-//   -   5xxx     SDK / 链交互相关
-//   -   9xxx     内部错误 / 未分类
+//   - 0        成功
+//   - 1xxx     公共通用错误
+//   - 2xxx     认证 / 权限相关
+//   - 3xxx     配额 / 计费相关
+//   - 4xxx     配置 / 资源相关
+//   - 5xxx     SDK / 链交互相关
+//   - 9xxx     内部错误 / 未分类
 type Code int
 
 // 通用错误码
@@ -35,19 +35,19 @@ const (
 	TooManyRequests Code = 1004
 
 	// 2xxx 认证与权限
-	Unauthorized     Code = 2001
-	InvalidAPIKey    Code = 2002
-	APIKeyExpired    Code = 2003
-	APIKeyRevoked    Code = 2004
-	Forbidden        Code = 2005
-	IPNotAllowed     Code = 2006
-	TenantDisabled   Code = 2007
+	Unauthorized   Code = 2001
+	InvalidAPIKey  Code = 2002
+	APIKeyExpired  Code = 2003
+	APIKeyRevoked  Code = 2004
+	Forbidden      Code = 2005
+	IPNotAllowed   Code = 2006
+	TenantDisabled Code = 2007
 
 	// 3xxx 配额 / 计费
-	QuotaExceededDaily   Code = 3001
-	QuotaExceededMonth   Code = 3002
-	QuotaThrottled       Code = 3003
-	BillingUnavailable   Code = 3004
+	QuotaExceededDaily Code = 3001
+	QuotaExceededMonth Code = 3002
+	QuotaThrottled     Code = 3003
+	BillingUnavailable Code = 3004
 
 	// 4xxx 配置 / 资源
 	ChainConfigNotFound    Code = 4001
@@ -56,10 +56,10 @@ const (
 	NotSubscribed          Code = 4004
 
 	// 5xxx SDK / 链交互
-	SDKInitFailed        Code = 5001
-	SDKCallFailed        Code = 5002
-	ChainRPCUnavailable  Code = 5003
-	InvalidChainPayload  Code = 5004
+	SDKInitFailed       Code = 5001
+	SDKCallFailed       Code = 5002
+	ChainRPCUnavailable Code = 5003
+	InvalidChainPayload Code = 5004
 
 	// 9xxx 内部
 	InternalError Code = 9001
@@ -134,28 +134,36 @@ func HTTPStatusOf(err error) int {
 	return http.StatusOK
 }
 
+// httpStatusByCode 错误码 → HTTP 状态码静态映射
+var httpStatusByCode = map[Code]int{
+	OK:                     http.StatusOK,
+	InvalidParam:           http.StatusBadRequest,
+	NotFound:               http.StatusNotFound,
+	ChainConfigNotFound:    http.StatusNotFound,
+	ContractConfigNotFound: http.StatusNotFound,
+	NotSubscribed:          http.StatusNotFound,
+	Conflict:               http.StatusConflict,
+	AlreadySubscribed:      http.StatusConflict,
+	TooManyRequests:        http.StatusTooManyRequests,
+	QuotaThrottled:         http.StatusTooManyRequests,
+	Unauthorized:           http.StatusUnauthorized,
+	InvalidAPIKey:          http.StatusUnauthorized,
+	APIKeyExpired:          http.StatusUnauthorized,
+	APIKeyRevoked:          http.StatusUnauthorized,
+	Forbidden:              http.StatusForbidden,
+	IPNotAllowed:           http.StatusForbidden,
+	TenantDisabled:         http.StatusForbidden,
+	QuotaExceededDaily:     http.StatusPaymentRequired,
+	QuotaExceededMonth:     http.StatusPaymentRequired,
+}
+
 // defaultHTTPStatus 各错误码对应的默认 HTTP 状态码
 func defaultHTTPStatus(c Code) int {
-	switch {
-	case c == OK:
-		return http.StatusOK
-	case c == InvalidParam:
-		return http.StatusBadRequest
-	case c == NotFound || c == ChainConfigNotFound || c == ContractConfigNotFound || c == NotSubscribed:
-		return http.StatusNotFound
-	case c == Conflict || c == AlreadySubscribed:
-		return http.StatusConflict
-	case c == TooManyRequests || c == QuotaThrottled:
-		return http.StatusTooManyRequests
-	case c == Unauthorized || c == InvalidAPIKey || c == APIKeyExpired || c == APIKeyRevoked:
-		return http.StatusUnauthorized
-	case c == Forbidden || c == IPNotAllowed || c == TenantDisabled:
-		return http.StatusForbidden
-	case c == QuotaExceededDaily || c == QuotaExceededMonth:
-		return http.StatusPaymentRequired
-	case c >= 5000 && c < 6000:
-		return http.StatusBadGateway
-	default:
-		return http.StatusInternalServerError
+	if status, ok := httpStatusByCode[c]; ok {
+		return status
 	}
+	if c >= 5000 && c < 6000 {
+		return http.StatusBadGateway
+	}
+	return http.StatusInternalServerError
 }

@@ -12,6 +12,9 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const ()
+
 type CreateAPIKeyLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -30,7 +33,7 @@ func (l *CreateAPIKeyLogic) CreateAPIKey(req *types.CreateAPIKeyRequest) (resp *
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	userID := middleware.GetUserIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	var expiresAt *time.Time
@@ -53,7 +56,7 @@ func (l *CreateAPIKeyLogic) CreateAPIKey(req *types.CreateAPIKeyRequest) (resp *
 
 	return &types.CommonResponse{
 		Code:    0,
-		Message: "success",
+		Message: successStr,
 		Data: map[string]interface{}{
 			"id":  apiKey.ID,
 			"key": apiKey.Key,

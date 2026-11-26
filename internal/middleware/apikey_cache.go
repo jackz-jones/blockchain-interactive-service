@@ -107,10 +107,10 @@ func (c *APIKeyAuthCache) Stop() {
 	c.stopOnce.Do(func() { close(c.stopCh) })
 }
 
-// Lookup 从缓存中查找 API Key 认证信息
+// lookup 从缓存中查找 API Key 认证信息（包内使用）
 // 命中返回 (info, true)；未命中或已过期返回 (nil, false)
 // 命中路径使用常量时间比较，避免通过响应时长推断 key 内容
-func (c *APIKeyAuthCache) Lookup(rawKey string) (*apiKeyAuthInfo, bool) {
+func (c *APIKeyAuthCache) lookup(rawKey string) (*apiKeyAuthInfo, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 

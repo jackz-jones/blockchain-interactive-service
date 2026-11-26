@@ -79,9 +79,9 @@ func TestConvertABIParam_Bool(t *testing.T) {
 		in   string
 		want bool
 	}{
-		{"true", true},
+		{trueStr, true},
 		{"1", true},
-		{"false", false},
+		{falseStr, false},
 		{"0", false},
 	}
 	for _, c := range cases {

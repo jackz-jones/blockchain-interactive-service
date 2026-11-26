@@ -14,6 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// 测试 fixture 常量
+const (
+	testSolanaDevnetURL = "https://docs-demo.solana-devnet.quiknode.pro/"
+	testSolanaFaucetKey = "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG" //nolint:lll // 测试私钥字面量不可拆
+)
+
 func TestBase58(t *testing.T) {
 	sk := "2qsn2gEhmBk97rE2SsywnSrnXeyu1WZWd1RA5t8P1ERhVY3QJuEkPQoLzjxgvwZ9nX1nQjtnW6U7XZUaZB9rmer"
 	ori, err := base58.Decode(sk)
@@ -29,14 +35,14 @@ func TestBase58(t *testing.T) {
 // 注意：官方的 api.devnet.solana.com 可能无法访问，这里使用 QuickNode 提供的公共 Devnet 节点
 func getTestSolanaConf() SolanaConf {
 	return SolanaConf{
-		RpcUrl: "https://docs-demo.solana-devnet.quiknode.pro/",
+		RpcUrl: testSolanaDevnetURL,
 
 		// 对应 Solana 地址：5pVyoAeURQHNMVU7DmfMHvCDNmTEYXWfEwc136GYhTKG，开发网公开的一个地址，账户余额管够
-		PrivateKey: "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG",
+		PrivateKey: testSolanaFaucetKey,
 
 		// 对应 Solana 地址：HVMZrfwBwH5aUm8kzXTPkF1kFcd2yZxwRNBU3HmqCBgv，phantom 钱包的地址，可以去水龙头充值：https://faucet.solana.com
 		//PrivateKey:      "2qsn2gEhmBk97rE2SsywnSrnXeyu1WZWd1RA5t8P1ERhVY3QJuEkPQoLzjxgvwZ9nX1nQjtnW6U7XZUaZB9rmer",
-		CommitmentLevel: "confirmed",
+		CommitmentLevel: confirmedStr,
 		SkipPreflight:   false,
 		MaxRetries:      3,
 	}
@@ -57,9 +63,9 @@ func TestNewSolanaClient(t *testing.T) {
 		{
 			name: "invalid private key",
 			solanaConf: SolanaConf{
-				RpcUrl:          "https://docs-demo.solana-devnet.quiknode.pro/",
+				RpcUrl:          testSolanaDevnetURL,
 				PrivateKey:      "invalid_private_key",
-				CommitmentLevel: "confirmed",
+				CommitmentLevel: confirmedStr,
 				SkipPreflight:   false,
 				MaxRetries:      3,
 			},
@@ -69,8 +75,8 @@ func TestNewSolanaClient(t *testing.T) {
 			name: "empty rpc url",
 			solanaConf: SolanaConf{
 				RpcUrl:          "",
-				PrivateKey:      "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG",
-				CommitmentLevel: "confirmed",
+				PrivateKey:      testSolanaFaucetKey,
+				CommitmentLevel: confirmedStr,
 				SkipPreflight:   false,
 				MaxRetries:      3,
 			},
@@ -79,8 +85,8 @@ func TestNewSolanaClient(t *testing.T) {
 		{
 			name: "invalid commitment level defaults to confirmed",
 			solanaConf: SolanaConf{
-				RpcUrl:          "https://docs-demo.solana-devnet.quiknode.pro/",
-				PrivateKey:      "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG",
+				RpcUrl:          testSolanaDevnetURL,
+				PrivateKey:      testSolanaFaucetKey,
 				CommitmentLevel: "invalid_level",
 				SkipPreflight:   false,
 				MaxRetries:      3,
@@ -245,18 +251,18 @@ func TestSolanaClient_CommitmentLevels(t *testing.T) {
 		expectedCommitment rpc.CommitmentType
 	}{
 		{
-			name:               "processed",
-			commitmentLevel:    "processed",
+			name:               processedStr,
+			commitmentLevel:    processedStr,
 			expectedCommitment: rpc.CommitmentProcessed,
 		},
 		{
-			name:               "confirmed",
-			commitmentLevel:    "confirmed",
+			name:               confirmedStr,
+			commitmentLevel:    confirmedStr,
 			expectedCommitment: rpc.CommitmentConfirmed,
 		},
 		{
-			name:               "finalized",
-			commitmentLevel:    "finalized",
+			name:               finalizedStr,
+			commitmentLevel:    finalizedStr,
 			expectedCommitment: rpc.CommitmentFinalized,
 		},
 		{
@@ -274,8 +280,8 @@ func TestSolanaClient_CommitmentLevels(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			solanaConf := SolanaConf{
-				RpcUrl:          "https://docs-demo.solana-devnet.quiknode.pro/",
-				PrivateKey:      "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG",
+				RpcUrl:          testSolanaDevnetURL,
+				PrivateKey:      testSolanaFaucetKey,
 				CommitmentLevel: tt.commitmentLevel,
 				SkipPreflight:   false,
 				MaxRetries:      3,
@@ -468,23 +474,20 @@ func TestSolanaClient_SendTransaction_QueryMethod(t *testing.T) {
 
 // TestSolanaClient_ContextCancellation 测试上下文取消
 func TestSolanaClient_ContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-
 	solanaConf := getTestSolanaConf()
-	client, err := NewSolanaClient(ctx, solanaConf, nil, nil)
+	client, err := NewSolanaClient(context.Background(), solanaConf, nil, nil)
 	if err != nil {
 		t.Skipf("无法创建 Solana 客户端: %v", err)
 	}
 
-	// 取消上下文
-	cancel()
-
-	// 在上下文取消后，客户端的操作应该返回上下文错误
-	_, _, err = client.GetTxByTxId("1111111111111111111111111111111111111111111111111111111111111111")
-	assert.Error(t, err, "上下文取消后操作应该返回错误")
-	assert.Contains(t, err.Error(), "context", "错误应该与上下文相关")
-
+	// 客户端内部 ctx 从 Background 派生（踩坑 deeb1e03：外部请求 ctx 不影响客户端生命周期），
+	// 通过 Stop() 取消内部 context 验证取消语义
 	_ = client.Stop()
+
+	// 客户端停止后，操作应该立即返回上下文错误，不再发起网络请求
+	_, _, err = client.GetTxByTxId("1111111111111111111111111111111111111111111111111111111111111111")
+	assert.Error(t, err, "客户端停止后操作应该返回错误")
+	assert.Contains(t, err.Error(), "context", "错误应该与上下文相关")
 }
 
 // TestSolanaClient_RequestAirdrop 测试在 Devnet 上请求空投

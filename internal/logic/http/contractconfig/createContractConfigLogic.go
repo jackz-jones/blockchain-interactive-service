@@ -12,6 +12,13 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst；包级共享错误消息）
+const (
+	msgAdminRoleRequired   = "admin role required for write operations"
+	msgContractNotOwned    = "contract config not owned by current tenant"
+	msgChainConfigNotOwned = "chain config not found or not owned by current tenant"
+)
+
 type CreateContractConfigLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -31,12 +38,12 @@ func (l *CreateContractConfigLogic) CreateContractConfig(
 ) (resp *types.CommonResponse, err error) {
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	role := middleware.GetUserRoleFromContext(l.ctx)
 	if role != store.UserRoleAdmin {
-		return &types.CommonResponse{Code: 403, Message: "admin role required for write operations"}, nil
+		return &types.CommonResponse{Code: 403, Message: msgAdminRoleRequired}, nil
 	}
 
 	// 校验链配置归属
@@ -46,7 +53,7 @@ func (l *CreateContractConfigLogic) CreateContractConfig(
 	}
 
 	if req.ContractName == "" {
-		return &types.CommonResponse{Code: 400, Message: "contract_name is required"}, nil
+		return &types.CommonResponse{Code: 400, Message: contractNameIsRequired}, nil
 	}
 
 	// 字段校验
@@ -93,7 +100,7 @@ func (l *CreateContractConfigLogic) CreateContractConfig(
 		l.svcCtx.ConfigResolver.InvalidateByChainConfigID(req.ChainConfigId)
 	}
 
-	return &types.CommonResponse{Code: 0, Message: "success", Data: config}, nil
+	return &types.CommonResponse{Code: 0, Message: successStr, Data: config}, nil
 }
 
 // getAndValidateChainConfig 获取并校验链配置归属
@@ -112,5 +119,5 @@ func (l *CreateContractConfigLogic) getAndValidateChainConfig(
 			return cc, nil
 		}
 	}
-	return nil, &types.CommonResponse{Code: 403, Message: "chain config not found or not owned by current tenant"}
+	return nil, &types.CommonResponse{Code: 403, Message: msgChainConfigNotOwned}
 }

@@ -10,6 +10,12 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	unauthorizedStr = "unauthorized"
+	successStr      = "success"
+)
+
 type ListAPIKeysLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -27,7 +33,7 @@ func NewListAPIKeysLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListA
 func (l *ListAPIKeysLogic) ListAPIKeys(req *types.ListAPIKeysRequest) (resp *types.CommonResponse, err error) {
 	tenantID := middleware.GetTenantIDFromContext(l.ctx)
 	if tenantID == 0 {
-		return &types.CommonResponse{Code: 401, Message: "unauthorized"}, nil
+		return &types.CommonResponse{Code: 401, Message: unauthorizedStr}, nil
 	}
 
 	page := req.Page
@@ -59,7 +65,7 @@ func (l *ListAPIKeysLogic) ListAPIKeys(req *types.ListAPIKeysRequest) (resp *typ
 
 	return &types.CommonResponse{
 		Code:    0,
-		Message: "success",
+		Message: successStr,
 		Data: map[string]interface{}{
 			"total": total,
 			"items": keys,

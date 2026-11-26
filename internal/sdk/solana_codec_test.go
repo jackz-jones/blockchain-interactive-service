@@ -11,6 +11,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	borshU64 = "u64"
+
+	s0102030405060708   = "0102030405060708"
+	e445a52e51cb9a1dStr = "e445a52e51cb9a1d"
+	aBytes              = "a_bytes"
+	aBool               = "a_bool"
+	aI64                = "a_i64"
+	aU32                = "a_u32"
+	aStr                = "a_str"
+	aU64                = "a_u64"
+	aU16                = "a_u16"
+	aPk                 = "a_pk"
+	aU8                 = "a_u8"
+)
+
 // TestParseDiscriminator 覆盖 discriminator 解析的正常与异常分支
 func TestParseDiscriminator(t *testing.T) {
 	cases := []struct {
@@ -18,7 +35,7 @@ func TestParseDiscriminator(t *testing.T) {
 		input   string
 		wantErr bool
 	}{
-		{"valid 8 bytes hex", "e445a52e51cb9a1d", false},
+		{"valid 8 bytes hex", e445a52e51cb9a1dStr, false},
 		{"empty", "", true},
 		{"non hex", "zz", true},
 		{"too short", "e445a52e", true},
@@ -40,7 +57,7 @@ func TestParseDiscriminator(t *testing.T) {
 
 // TestEncodeInstructionData_NoArgs 无参方法应仅返回 8 字节 discriminator
 func TestEncodeInstructionData_NoArgs(t *testing.T) {
-	spec := SolanaMethodSpec{Discriminator: "0102030405060708"}
+	spec := SolanaMethodSpec{Discriminator: s0102030405060708}
 	out, err := EncodeInstructionData(spec, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []byte{1, 2, 3, 4, 5, 6, 7, 8}, out)
@@ -59,27 +76,27 @@ func TestEncodeInstructionData_AllBorshTypes(t *testing.T) {
 	spec := SolanaMethodSpec{
 		Discriminator: "0000000000000000",
 		ArgSchema: []SolanaArgSpec{
-			{Name: "a_u8", Type: "u8"},
-			{Name: "a_u16", Type: "u16"},
-			{Name: "a_u32", Type: "u32"},
-			{Name: "a_u64", Type: "u64"},
-			{Name: "a_i64", Type: "i64"},
-			{Name: "a_bool", Type: "bool"},
-			{Name: "a_str", Type: "string"},
-			{Name: "a_pk", Type: "pubkey"},
-			{Name: "a_bytes", Type: "bytes"},
+			{Name: aU8, Type: "u8"},
+			{Name: aU16, Type: "u16"},
+			{Name: aU32, Type: "u32"},
+			{Name: aU64, Type: borshU64},
+			{Name: aI64, Type: "i64"},
+			{Name: aBool, Type: "bool"},
+			{Name: aStr, Type: "string"},
+			{Name: aPk, Type: "pubkey"},
+			{Name: aBytes, Type: "bytes"},
 		},
 	}
 	args := []*pb.KeyValuePair{
-		{Key: "a_u8", Value: []byte("255")},
-		{Key: "a_u16", Value: []byte("65535")},
-		{Key: "a_u32", Value: []byte("4294967295")},
-		{Key: "a_u64", Value: []byte("1")},
-		{Key: "a_i64", Value: []byte("-1")},
-		{Key: "a_bool", Value: []byte("true")},
-		{Key: "a_str", Value: []byte("hi")},
-		{Key: "a_pk", Value: []byte(pk.String())},
-		{Key: "a_bytes", Value: []byte{0xAB, 0xCD}},
+		{Key: aU8, Value: []byte("255")},
+		{Key: aU16, Value: []byte("65535")},
+		{Key: aU32, Value: []byte("4294967295")},
+		{Key: aU64, Value: []byte("1")},
+		{Key: aI64, Value: []byte("-1")},
+		{Key: aBool, Value: []byte("true")},
+		{Key: aStr, Value: []byte("hi")},
+		{Key: aPk, Value: []byte(pk.String())},
+		{Key: aBytes, Value: []byte{0xAB, 0xCD}},
 	}
 
 	out, err := EncodeInstructionData(spec, args)
@@ -131,7 +148,7 @@ func TestEncodeInstructionData_AllBorshTypes(t *testing.T) {
 func TestEncodeInstructionData_MissingArg(t *testing.T) {
 	spec := SolanaMethodSpec{
 		Discriminator: "0000000000000000",
-		ArgSchema:     []SolanaArgSpec{{Name: "amount", Type: "u64"}},
+		ArgSchema:     []SolanaArgSpec{{Name: "amount", Type: borshU64}},
 	}
 	_, err := EncodeInstructionData(spec, nil)
 	assert.Error(t, err)
@@ -141,7 +158,7 @@ func TestEncodeInstructionData_MissingArg(t *testing.T) {
 func TestEncodeInstructionData_InvalidU64(t *testing.T) {
 	spec := SolanaMethodSpec{
 		Discriminator: "0000000000000000",
-		ArgSchema:     []SolanaArgSpec{{Name: "x", Type: "u64"}},
+		ArgSchema:     []SolanaArgSpec{{Name: "x", Type: borshU64}},
 	}
 	_, err := EncodeInstructionData(spec, []*pb.KeyValuePair{{Key: "x", Value: []byte("notanumber")}})
 	assert.Error(t, err)
@@ -173,7 +190,7 @@ func TestBuildAccountMetaSlice_DefaultWhenEmpty(t *testing.T) {
 func TestBuildAccountMetaSlice_ResolvesFromAddressPlaceholder(t *testing.T) {
 	from := solana.NewWallet().PublicKey()
 	input := []SolanaAccountMeta{
-		{Pubkey: "$fromAddress", IsSigner: true, IsWritable: true},
+		{Pubkey: fromAddressStr, IsSigner: true, IsWritable: true},
 	}
 	accs, usedDefault, err := BuildAccountMetaSlice(input, from)
 	require.NoError(t, err)
@@ -220,7 +237,7 @@ func ensureHexParses(t *testing.T, h string) {
 
 // TestDiscriminatorHexSamples 保证常用样例 discriminator 的 hex 是合法的
 func TestDiscriminatorHexSamples(t *testing.T) {
-	samples := []string{"0000000000000000", "e445a52e51cb9a1d", "0102030405060708"}
+	samples := []string{"0000000000000000", e445a52e51cb9a1dStr, s0102030405060708}
 	for _, s := range samples {
 		ensureHexParses(t, s)
 	}

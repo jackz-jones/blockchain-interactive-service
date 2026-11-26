@@ -12,6 +12,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	grpchealthv1Health = "/grpc.health.v1.Health/"
+	grpcReflectionPath = "/grpc.reflection.v1alpha.ServerReflection/"
+)
+
 // shouldSkipQuota 判断 gRPC 方法是否应跳过配额检查
 // 业内 BaaS 标准：仅区块链核心操作计配额，查询类操作不计
 // 计配额：CallContract（调用合约）、SubscribeContractEvents（订阅合约事件）
@@ -20,8 +26,8 @@ func shouldSkipQuota(fullMethod string) bool {
 	skipMethods := []string{
 		"/proto.ChainInteractive/GetTxByTxId",
 		"/proto.ChainInteractive/GetAvailableChainAndContractNames",
-		"/grpc.health.v1.Health/",
-		"/grpc.reflection.v1alpha.ServerReflection/",
+		grpchealthv1Health,
+		grpcReflectionPath,
 	}
 	for _, m := range skipMethods {
 		if strings.HasPrefix(fullMethod, m) {

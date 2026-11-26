@@ -13,6 +13,14 @@ import (
 	"gorm.io/gorm"
 )
 
+// 提取的重复字符串常量（goconst）
+const (
+	DefaultAPIKey = "Default API Key"
+	throttleStr   = "throttle"
+	activeStr     = "active"
+	freeStr       = "free"
+)
+
 var (
 	ErrTenantExists    = errors.New("tenant already exists")
 	ErrTenantNotFound  = errors.New("tenant not found")
@@ -66,7 +74,7 @@ func (s *Service) CreateTenant(ctx context.Context, req *CreateTenantRequest) (*
 		// 创建租户
 		plan := req.Plan
 		if plan == "" {
-			plan = "free"
+			plan = freeStr
 		}
 		tenant := &store.Tenant{
 			Name:   req.Name,
@@ -89,7 +97,7 @@ func (s *Service) CreateTenant(ctx context.Context, req *CreateTenantRequest) (*
 			Username: req.Name + "_admin",
 			Password: string(hashedPwd),
 			Role:     store.UserRoleAdmin,
-			Status:   "active",
+			Status:   activeStr,
 		}
 		if err := tx.Create(admin).Error; err != nil {
 			return fmt.Errorf("create admin user: %w", err)
@@ -100,8 +108,8 @@ func (s *Service) CreateTenant(ctx context.Context, req *CreateTenantRequest) (*
 			TenantID: tenant.ID,
 			UserID:   admin.ID,
 			Key:      generateAPIKey(),
-			Name:     "Default API Key",
-			Status:   "active",
+			Name:     DefaultAPIKey,
+			Status:   activeStr,
 		}
 		if err := tx.Create(apiKey).Error; err != nil {
 			return fmt.Errorf("create api key: %w", err)
@@ -113,7 +121,7 @@ func (s *Service) CreateTenant(ctx context.Context, req *CreateTenantRequest) (*
 			MonthlyLimit:  getDefaultMonthlyLimit(plan),
 			DailyLimit:    getDefaultDailyLimit(plan),
 			RateLimit:     getDefaultRateLimit(plan),
-			OveragePolicy: "throttle",
+			OveragePolicy: throttleStr,
 		}
 		if err := tx.Create(quota).Error; err != nil {
 			return fmt.Errorf("create quota: %w", err)
@@ -134,7 +142,9 @@ func (s *Service) CreateTenant(ctx context.Context, req *CreateTenantRequest) (*
 
 // EnsureTenantResources 确保租户拥有完整的资源（API Key 和 Quota）
 // 如果租户已存在但缺少 API Key 或 Quota，会自动补充创建缺失资源
-func (s *Service) EnsureTenantResources(ctx context.Context, tenantName, plan, password string) (*CreateTenantResponse, error) {
+func (s *Service) EnsureTenantResources(
+	ctx context.Context, tenantName, plan, password string,
+) (*CreateTenantResponse, error) {
 	// 查找现有租户
 	existing, err := s.repo.GetTenantByName(ctx, tenantName)
 	if err != nil {
@@ -150,7 +160,7 @@ func (s *Service) EnsureTenantResources(ctx context.Context, tenantName, plan, p
 		// 检查租户是否已有 API Key
 		var existingAPIKey store.APIKey
 		hasAPIKey := true
-		if err := tx.Where("tenant_id = ? AND status = ?", existing.ID, "active").First(&existingAPIKey).Error; err != nil {
+		if err := tx.Where("tenant_id = ? AND status = ?", existing.ID, activeStr).First(&existingAPIKey).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				hasAPIKey = false
 			} else {
@@ -174,7 +184,7 @@ func (s *Service) EnsureTenantResources(ctx context.Context, tenantName, plan, p
 						Username: tenantName + "_admin",
 						Password: string(hashedPwd),
 						Role:     store.UserRoleAdmin,
-						Status:   "active",
+						Status:   activeStr,
 					}
 					if err := tx.Create(&admin).Error; err != nil {
 						return fmt.Errorf("create admin user: %w", err)
@@ -189,8 +199,8 @@ func (s *Service) EnsureTenantResources(ctx context.Context, tenantName, plan, p
 				TenantID: existing.ID,
 				UserID:   admin.ID,
 				Key:      generateAPIKey(),
-				Name:     "Default API Key",
-				Status:   "active",
+				Name:     DefaultAPIKey,
+				Status:   activeStr,
 			}
 			if err := tx.Create(newAPIKey).Error; err != nil {
 				return fmt.Errorf("create api key: %w", err)
@@ -216,14 +226,14 @@ func (s *Service) EnsureTenantResources(ctx context.Context, tenantName, plan, p
 			// 创建缺失的 Quota
 			plan := existing.Plan
 			if plan == "" {
-				plan = "free"
+				plan = freeStr
 			}
 			newQuota := &store.Quota{
 				TenantID:      existing.ID,
 				MonthlyLimit:  getDefaultMonthlyLimit(plan),
 				DailyLimit:    getDefaultDailyLimit(plan),
 				RateLimit:     getDefaultRateLimit(plan),
-				OveragePolicy: "throttle",
+				OveragePolicy: throttleStr,
 			}
 			if err := tx.Create(newQuota).Error; err != nil {
 				return fmt.Errorf("create quota: %w", err)
@@ -308,7 +318,7 @@ func (s *Service) CreateUser(
 		Username: username,
 		Password: string(hashedPwd),
 		Role:     role,
-		Status:   "active",
+		Status:   activeStr,
 	}
 	if err := s.repo.CreateUser(ctx, user); err != nil {
 		return nil, err
@@ -335,7 +345,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, req *CreateAPIKeyRequest) (*
 		Name:        req.Name,
 		Permissions: req.Permissions,
 		IPWhitelist: req.IPWhitelist,
-		Status:      "active",
+		Status:      activeStr,
 		ExpiresAt:   req.ExpiresAt,
 	}
 	if err := s.repo.CreateAPIKey(ctx, apiKey); err != nil {
